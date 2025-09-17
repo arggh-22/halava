@@ -1,17 +1,23 @@
 import datetime
 import logging
+from functools import lru_cache
+from typing import List, Optional
 
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, LabeledPrice, PreCheckoutQuery, FSInputFile, \
-    InputMediaPhoto
+from aiogram.types import (
+    CallbackQuery, Message, ReplyKeyboardRemove, LabeledPrice, PreCheckoutQuery, FSInputFile, InputMediaPhoto,
+    InlineKeyboardButton
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 
 import config
-from app.data.database.models import Customer, Worker, City, SubscriptionType, WorkerAndSubscription, \
-    WorkType, Banned, Abs, WorkersAndAbs, Admin, \
+from app.data.database.models import (
+    Customer, Worker, City, SubscriptionType, WorkerAndSubscription, WorkType, Banned, Abs, WorkersAndAbs, Admin,
     WorkerAndRefsAssociation, WorkerAndReport, WorkerAndBadResponse
+)
 from app.keyboards import KeyboardCollection
 from app.states import WorkStates, UserStates, BannedStates
 from app.untils import help_defs, checks, yandex_ocr
@@ -21,8 +27,38 @@ router = Router()
 router.message.filter(F.from_user.id != F.bot.id)
 logger = logging.getLogger()
 
+# Кэш для оптимизации запросов к БД
+_work_types_cache = None
+_cache_timestamp = None
+CACHE_DURATION = 300  # 5 минут
 
-@router.callback_query(F.data == "registration_worker", WorkStates.verification_worker)
+
+async def get_cached_work_types() -> List[WorkType]:
+    """Получить кэшированный список типов работ"""
+    global _work_types_cache, _cache_timestamp
+
+    current_time = datetime.datetime.now().timestamp()
+
+    # Проверяем, нужно ли обновить кэш
+    if (_work_types_cache is None or
+            _cache_timestamp is None or
+            current_time - _cache_timestamp > CACHE_DURATION):
+        _work_types_cache = await WorkType.get_all()
+        _cache_timestamp = current_time
+        logger.debug(f"Work types cache updated: {len(_work_types_cache)} items")
+
+    return _work_types_cache
+
+
+def clear_work_types_cache():
+    """Очистить кэш типов работ"""
+    global _work_types_cache, _cache_timestamp
+    _work_types_cache = None
+    _cache_timestamp = None
+    logger.debug("Work types cache cleared")
+
+
+@router.callback_query(F.data == "registration_worker", WorkStates.worker_choose_work_types)
 async def registration_new_worker(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'registration_new_worker...')
     kbc = KeyboardCollection()
@@ -35,15 +71,16 @@ async def registration_new_worker(callback: CallbackQuery, state: FSMContext) ->
     new_worker = Worker(tg_id=callback.message.chat.id,
                         city_id=[str(city_id)],
                         tg_name=username,
-                        registration_data=registration_date)
+                        registration_data=registration_date,
+                        confirmed=True)  # Убираем верификацию - сразу подтверждаем
     await new_worker.save()
     new_worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     new_worker_and_subscription = WorkerAndSubscription(worker_id=new_worker.id)
     await new_worker_and_subscription.save()
     await callback.message.edit_text('Вы успешно зарегистрированы!')
-    await callback.message.answer(text='Верифицируйте ваш аккаунт',
-                                  reply_markup=kbc.verification_worker())
-    await state.set_state(WorkStates.verification_worker)
+    await callback.message.answer(text='Добро пожаловать! Выберите направления работ.',
+                                  reply_markup=kbc.menu())
+    await state.set_state(WorkStates.worker_choose_work_types)
 
 
 @router.callback_query(F.data == "registration_worker", UserStates.registration_enter_city)
@@ -167,63 +204,12 @@ async def choose_city_end(callback: CallbackQuery, state: FSMContext) -> None:
 
     await new_worker_and_subscription.save()
     await callback.message.edit_text('Вы успешно зарегистрированы!')
-    await callback.message.answer(text='Верифицируйте ваш аккаунт',
-                                  reply_markup=kbc.verification_worker())
-    await state.set_state(WorkStates.verification_worker)
-
-
-@router.callback_query(F.data == "verification_yes", StateFilter(WorkStates.verification_worker, WorkStates.worker_menu))
-async def verification_worker(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'verification_worker...')
-    kbs = KeyboardCollection()
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-    await callback.message.answer(text='Отправьте ваш номер телефона с помощью кнопки ниже',
-                                  reply_markup=kbs.contact_keyboard())
-    await state.set_state(WorkStates.verification_send_contact)
-
-
-@router.callback_query(F.data == "verification_no", WorkStates.verification_worker)
-async def verification_stop_worker(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'verification_stop_worker...')
-    kbc = KeyboardCollection()
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-    await callback.message.answer(text='Вы всегда можете продолжить верификацию позже через меню',
+    await callback.message.answer(text='Добро пожаловать! Выберите направления работ.',
                                   reply_markup=kbc.menu())
-    await state.set_state(WorkStates.worker_menu)
+    await state.set_state(WorkStates.worker_choose_work_types)
 
 
-@router.message(F.contact, WorkStates.verification_send_contact)
-async def handle_contact(message: Message, state: FSMContext) -> None:
-    logger.debug(f'handle_contact...')
-    phone = help_defs.get_pure_phone(message.contact.phone_number)
-    worker = await Worker.get_worker(tg_id=message.from_user.id)
-
-    await worker.update_phone_number(phone_number=phone)
-    await message.answer(f'Отлично, ваш код подтверждения {worker.confirmation_code} введите его боту',
-                         reply_markup=ReplyKeyboardRemove())
-    await state.set_state(WorkStates.verification_enter_code)
-
-
-@router.message(F.text, WorkStates.verification_enter_code)
-async def handle_enter_verification_code(message: Message, state: FSMContext) -> None:
-    logger.debug(f'handle_enter_verification_code...')
-    kbc = KeyboardCollection()
-    code = message.text
-    if code.isdigit():
-        worker = await Worker.get_worker(tg_id=message.from_user.id)
-        if int(code) == worker.confirmation_code:
-            await worker.update_confirmed(confirmed=True)
-            await message.answer(text='Ваш аккаунт успешно верифицирован!', reply_markup=kbc.menu())
-            await state.set_state(WorkStates.worker_menu)
-            return
-
-    await message.answer(text='Некорректный ввод, попробуйте еще раз')
+# Верификация убрана согласно ТЗ
 
 
 @router.callback_query(F.data == "worker_menu", UserStates.menu)
@@ -242,7 +228,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
             reply_markup=kbc.registration_worker(),
         ))
         if customer := await Customer.get_customer(tg_id=callback.message.chat.id):
-            await state.set_state(WorkStates.verification_worker)
+            await state.set_state(WorkStates.worker_choose_work_types)
             await state.update_data(city_id=str(customer.city_id), username=str(customer.tg_name))
             return
         await state.set_state(UserStates.registration_enter_city)
@@ -285,7 +271,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
     end = '\n' if subscription.count_cites == 1 else ""
 
     text = (f'Ваш профиль\n\n'
-            f'ID: {user_worker.id} {user_worker.profile_name} {"✅" if user_worker.confirmed else "☑️"}\n'
+            f'ID: {user_worker.id} {user_worker.profile_name}\n'
             f'Ваш рейтинг: {round(user_worker.stars / user_worker.count_ratings, 1) if user_worker.count_ratings else user_worker.stars} ⭐️ ({user_worker.count_ratings if user_worker.count_ratings else 0} {help_defs.get_grade_word(user_worker.count_ratings if user_worker.count_ratings else 0)})\n'
             f'Наличие ИП: {"✅" if user_worker.individual_entrepreneur else "☑️"}\n'
             f'{cites + end if subscription.count_cites == 1 else ""}'
@@ -313,7 +299,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
             photo=FSInputFile(user_worker.profile_photo),
             caption=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=user_worker.confirmed,
+                confirmed=True,  # Верификация убрана
                 choose_works=choose_works,
                 individual_entrepreneur=user_worker.individual_entrepreneur,
                 create_photo=False,
@@ -324,7 +310,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=user_worker.confirmed,
+                confirmed=True,  # Верификация убрана
                 choose_works=choose_works,
                 individual_entrepreneur=user_worker.individual_entrepreneur,
                 create_photo=True,
@@ -334,7 +320,12 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(WorkStates.worker_menu)
 
 
-@router.callback_query(F.data == "menu", StateFilter(WorkStates.worker_menu, WorkStates.worker_check_abs, WorkStates.worker_check_subscription, WorkStates.worker_change_city, WorkStates.worker_responses, WorkStates.create_portfolio, WorkStates.create_name_profile, WorkStates.create_photo_profile, WorkStates.portfolio_upload_photo))
+@router.callback_query(F.data == "menu", StateFilter(WorkStates.worker_menu, WorkStates.worker_check_abs,
+                                                     WorkStates.worker_check_subscription,
+                                                     WorkStates.worker_change_city, WorkStates.worker_responses,
+                                                     WorkStates.create_portfolio, WorkStates.create_name_profile,
+                                                     WorkStates.create_photo_profile,
+                                                     WorkStates.portfolio_upload_photo))
 async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'menu_worker...')
     kbc = KeyboardCollection()
@@ -399,7 +390,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
     end = '\n' if subscription.count_cites == 1 else ""
 
     text = (f'Ваш профиль\n\n'
-            f'ID: {user_worker.id} {user_worker.profile_name} {"✅" if user_worker.confirmed else "☑️"}\n'
+            f'ID: {user_worker.id} {user_worker.profile_name}\n'
             f'Ваш рейтинг: {round(user_worker.stars / user_worker.count_ratings, 1) if user_worker.count_ratings else user_worker.stars} ⭐️ ({user_worker.count_ratings if user_worker.count_ratings else 0} {help_defs.get_grade_word(user_worker.count_ratings if user_worker.count_ratings else 0)})\n'
             f'Наличие ИП: {"✅" if user_worker.individual_entrepreneur else "☑️"}\n'
             f'{cites + end if subscription.count_cites == 1 else ""}'
@@ -427,7 +418,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
             photo=FSInputFile(user_worker.profile_photo),
             caption=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=user_worker.confirmed,
+                confirmed=True,  # Верификация убрана
                 choose_works=choose_works,
                 individual_entrepreneur=user_worker.individual_entrepreneur,
                 create_photo=False,
@@ -438,7 +429,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=user_worker.confirmed,
+                confirmed=True,  # Верификация убрана
                 choose_works=choose_works,
                 individual_entrepreneur=user_worker.individual_entrepreneur,
                 create_photo=True,
@@ -515,13 +506,21 @@ async def my_portfolio(callback: CallbackQuery) -> None:
     kbc = KeyboardCollection()
 
     photo_id = int(callback.data.split('_')[1])
-
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
-    new_portfolio = help_defs.reorder_dict(d=worker.portfolio_photo, removed_key=photo_id)
+    # Удаляем фото из словаря и получаем путь к файлу для удаления
+    new_portfolio, removed_file_path = help_defs.reorder_dict(d=worker.portfolio_photo, removed_key=str(photo_id))
+    
+    # Удаляем физический файл с диска
+    if removed_file_path:
+        file_deleted = help_defs.delete_file(removed_file_path)
+        if file_deleted:
+            logger.info(f"Фото портфолио удалено: {removed_file_path}")
+        else:
+            logger.warning(f"Не удалось удалить файл портфолио: {removed_file_path}")
 
+    # Обновляем портфолио в базе данных
     await worker.update_portfolio_photo(new_portfolio)
-
     photo_len = len(new_portfolio)
 
     if photo_len == 0:
@@ -531,14 +530,16 @@ async def my_portfolio(callback: CallbackQuery) -> None:
         )
         return
 
+    # Корректируем photo_id для отображения
     if photo_id <= -1:
         photo_id = photo_len - 1
     elif photo_id > (photo_len - 1):
         photo_id = 0
 
+    # Обновляем интерфейс
     await callback.message.edit_media(
         media=InputMediaPhoto(
-            media=FSInputFile(worker.portfolio_photo[str(photo_id)])),
+            media=FSInputFile(new_portfolio[str(photo_id)])),
         reply_markup=kbc.my_portfolio(
             photo_num=photo_id,
             photo_len=photo_len,
@@ -739,7 +740,9 @@ async def process_photos(message: Message, state: FSMContext):
     if text_photo:
         if await checks.fool_check(text=text_photo):
             is_photo = True if worker.profile_photo else False
-            await message.answer(text='Упс, похоже вы пытались прикрепить не соответствующее фото, повторите попытку снова 😌', reply_markup=kbc.photo_work_keyboard(is_photo=is_photo))
+            await message.answer(
+                text='Упс, похоже вы пытались прикрепить не соответствующее фото, повторите попытку снова 😌',
+                reply_markup=kbc.photo_work_keyboard(is_photo=is_photo))
             return
         if checks.contains_invalid_chars(text=text_photo):
             is_photo = True if worker.profile_photo else False
@@ -755,7 +758,8 @@ async def process_photos(message: Message, state: FSMContext):
     await message.answer(text='Фото профиля успешно загружено!', reply_markup=kbc.menu_btn())
 
     await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
-                         caption=f'ID #{message.chat.id}\nЗагружено новое фото профиля', photo=FSInputFile(file_path_photo),
+                         caption=f'ID #{message.chat.id}\nЗагружено новое фото профиля',
+                         photo=FSInputFile(file_path_photo),
                          protect_content=False, reply_markup=kbc.delite_it_photo(worker_id=worker.id))
 
 
@@ -821,7 +825,7 @@ async def individual_entrepreneur(callback: CallbackQuery, state: FSMContext) ->
     msg = await callback.message.answer(
         text=text,
         reply_markup=kbc.back_btn()
-        )
+    )
 
     try:
         await callback.message.delete()
@@ -935,7 +939,7 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
 
     if not advertisements_final:
         await callback.message.answer(text='По вашим выбранным направлениям, пока нет объявлений',
-                                         reply_markup=kbc.menu())
+                                      reply_markup=kbc.menu())
         try:
             await callback.message.delete()
         except TelegramBadRequest:
@@ -945,7 +949,7 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
 
     await state.set_state(WorkStates.worker_check_abs)
 
-    abs_now : Abs = advertisements_final[0]
+    abs_now: Abs = advertisements_final[0]
     await abs_now.update(views=1)
     if len(advertisements_final) > 1:
         btn_next = True
@@ -1393,6 +1397,22 @@ async def success_payment_handler(message: Message, state: FSMContext):
     await state.update_data(work_type_ids='')
 
 
+async def get_worker_selected_work_types(worker_sub) -> List[WorkType]:
+    """Получить список выбранных направлений работы исполнителя"""
+    if worker_sub.work_type_ids:
+        selected_ids = [int(id) for id in worker_sub.work_type_ids if id]
+        work_types = await get_cached_work_types()
+        return [wt for wt in work_types if wt.id in selected_ids]
+    return []
+
+
+async def get_worker_selected_ids(worker_sub) -> list:
+    """Получить список ID выбранных направлений"""
+    if worker_sub.work_type_ids:
+        return [id for id in worker_sub.work_type_ids if id]
+    return []
+
+
 @router.callback_query(F.data == 'choose_work_types', WorkStates.worker_menu)
 async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     logger.debug(f'choose_work_types...')
@@ -1402,14 +1422,37 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
     subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
 
-    work_types = await WorkType.get_all()
+    # Используем кэшированные данные
+    work_types = await get_cached_work_types()
+    selected_ids = await get_worker_selected_ids(worker_sub)
 
-    names = [work_type.work_type for work_type in work_types]
-    ids = [work_type.id for work_type in work_types]
+    # Формируем текст с информацией о выборе
+    selected_count = len(selected_ids)
+    total_count = subscription.count_work_types
+
+    text = f"🎯 Выберите направления работы\n\n"
+    text += f"📊 Выбрано: {selected_count}/{total_count}\n"
+
+    if selected_count > 0:
+        selected_work_types = await get_worker_selected_work_types(worker_sub)
+        text += f"✅ Текущие направления:\n"
+        for wt in selected_work_types:
+            text += f"• {wt.work_type}\n"
+        text += f"\n"
+
+    if selected_count < total_count:
+        text += f"💡 Можете выбрать еще {total_count - selected_count} направлений"
+    elif selected_count == total_count:
+        text += f"🎉 Выбрано максимальное количество направлений!"
 
     await callback.message.answer(
-        text=f"Выберете направления! Выбрано 0 из {subscription.count_work_types}",
-        reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True)
+        text=text,
+        reply_markup=kbc.choose_work_types_improved(
+            all_work_types=work_types,
+            selected_ids=selected_ids,
+            count_work_types=total_count,
+            btn_back=True
+        )
     )
 
     try:
@@ -1420,11 +1463,245 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     await state.set_state(WorkStates.worker_choose_work_types)
     await state.update_data(subscription_id=str(subscription.id))
     await state.update_data(count_work_types=str(subscription.count_work_types))
+    await state.update_data(work_type_ids='|'.join(selected_ids))
+
+
+# Новые обработчики для улучшенного интерфейса
+@router.callback_query(lambda c: c.data.startswith('add_work_type_'), WorkStates.worker_choose_work_types)
+async def add_work_type(callback: CallbackQuery, state: FSMContext) -> None:
+    """Добавить направление работы"""
+    logger.debug(f'add_work_type...')
+    kbc = KeyboardCollection()
+
+    work_type_id = callback.data.split('_')[3]
+    state_data = await state.get_data()
+    work_type_ids = str(state_data.get('work_type_ids', ''))
+    count_work_types = int(state_data.get('count_work_types'))
+
+    # Специальная обработка для визуального персонала (ID=20)
+    if work_type_id == '20':
+        await show_visual_personnel_categories(callback, state, kbc)
+        return
+
+    # Добавляем новое направление
+    current_ids = work_type_ids.split('|') if work_type_ids else []
+    if work_type_id not in current_ids:
+        current_ids.append(work_type_id)
+
+    # Обновляем состояние
+    await state.update_data(work_type_ids='|'.join(current_ids))
+
+    # Обновляем интерфейс
+    await update_work_types_interface(callback, state, kbc)
+
+
+@router.callback_query(lambda c: c.data.startswith('remove_work_type_'), WorkStates.worker_choose_work_types)
+async def remove_work_type(callback: CallbackQuery, state: FSMContext) -> None:
+    """Удалить направление работы"""
+    logger.debug(f'remove_work_type...')
+    kbc = KeyboardCollection()
+
+    work_type_id = callback.data.split('_')[3]
+    state_data = await state.get_data()
+    work_type_ids = str(state_data.get('work_type_ids', ''))
+
+    # Удаляем направление
+    current_ids = work_type_ids.split('|') if work_type_ids else []
+    if work_type_id in current_ids:
+        current_ids.remove(work_type_id)
+
+    # Обновляем состояние
+    await state.update_data(work_type_ids='|'.join(current_ids))
+
+    # Обновляем интерфейс
+    await update_work_types_interface(callback, state, kbc)
+
+
+@router.callback_query(F.data == 'clear_all', WorkStates.worker_choose_work_types)
+async def clear_all_work_types(callback: CallbackQuery, state: FSMContext) -> None:
+    """Очистить все выбранные направления"""
+    logger.debug(f'clear_all_work_types...')
+    kbc = KeyboardCollection()
+
+    # Очищаем все выбранные направления
     await state.update_data(work_type_ids='')
 
+    # Обновляем интерфейс
+    await update_work_types_interface(callback, state, kbc)
 
+
+@router.callback_query(F.data == 'show_selected', WorkStates.worker_choose_work_types)
+async def show_selected_work_types(callback: CallbackQuery, state: FSMContext) -> None:
+    """Показать выбранные направления"""
+    logger.debug(f'show_selected_work_types...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    work_type_ids = str(state_data.get('work_type_ids', ''))
+    count_work_types = int(state_data.get('count_work_types'))
+
+    if not work_type_ids:
+        await callback.answer("Вы еще не выбрали ни одного направления", show_alert=True)
+        return
+
+    # Получаем выбранные направления
+    selected_ids = [int(id) for id in work_type_ids.split('|') if id]
+    work_types = await get_cached_work_types()
+    selected_work_types = [wt for wt in work_types if wt.id in selected_ids]
+
+    text = f"📋 Ваши выбранные направления:\n\n"
+    for i, wt in enumerate(selected_work_types, 1):
+        if wt.id == 20:
+            text += f"{i}. {wt.work_type} 👥 (8 подкатегорий)\n"
+        else:
+            text += f"{i}. {wt.work_type}\n"
+
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.show_selected_work_types(selected_work_types, count_work_types)
+    )
+
+
+@router.callback_query(F.data == 'back_to_selection', WorkStates.worker_choose_work_types)
+async def back_to_selection(callback: CallbackQuery, state: FSMContext) -> None:
+    """Вернуться к выбору направлений"""
+    logger.debug(f'back_to_selection...')
+    kbc = KeyboardCollection()
+
+    # Обновляем интерфейс
+    await update_work_types_interface(callback, state, kbc)
+
+
+@router.callback_query(F.data == 'limit_reached', WorkStates.worker_choose_work_types)
+async def limit_reached(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработка попытки выбрать направление при достижении лимита"""
+    await callback.answer("Достигнут лимит выбранных направлений. Сначала удалите одно из выбранных.", show_alert=True)
+
+
+async def show_visual_personnel_categories(callback: CallbackQuery, state: FSMContext, kbc: KeyboardCollection) -> None:
+    """Показать подкатегории визуального персонала"""
+    logger.debug(f'show_visual_personnel_categories...')
+
+    # Список подкатегорий визуального персонала
+    categories = [
+        "🍸 Бармен",
+        "🍽 Официант",
+        "👨‍🍳 Повар",
+        "👋 Хостес",
+        "🧹 Уборщица",
+        "🛡 Охрана",
+        "🚚 Курьер",
+        "💨 Кальянщик"
+    ]
+
+    text = "👥 Визуальный персонал\n\n"
+    text += "📋 В это направление входят следующие категории:\n\n"
+
+    for i, category in enumerate(categories, 1):
+        text += f"{i}. {category}\n"
+
+    text += "\n💡 Выбрав это направление, вы сможете откликаться на заказы по всем указанным категориям."
+
+    # Создаем клавиатуру с кнопками подтверждения
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(
+        text="✅ Да, выбрать направление",
+        callback_data="confirm_visual_personnel"
+    ))
+    builder.add(InlineKeyboardButton(
+        text="❌ Отмена",
+        callback_data="cancel_visual_personnel"
+    ))
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data == 'confirm_visual_personnel', WorkStates.worker_choose_work_types)
+async def confirm_visual_personnel(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтвердить выбор визуального персонала"""
+    logger.debug(f'confirm_visual_personnel...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    work_type_ids = str(state_data.get('work_type_ids', ''))
+
+    # Добавляем ID=20 в выбранные направления
+    current_ids = work_type_ids.split('|') if work_type_ids else []
+    if '20' not in current_ids:
+        current_ids.append('20')
+
+    # Обновляем состояние
+    await state.update_data(work_type_ids='|'.join(current_ids))
+
+    # Показываем подтверждение
+    await callback.answer("✅ Направление 'Визуальный персонал' добавлено!", show_alert=True)
+
+    # Обновляем интерфейс
+    await update_work_types_interface(callback, state, kbc)
+
+
+@router.callback_query(F.data == 'cancel_visual_personnel', WorkStates.worker_choose_work_types)
+async def cancel_visual_personnel(callback: CallbackQuery, state: FSMContext) -> None:
+    """Отменить выбор визуального персонала"""
+    logger.debug(f'cancel_visual_personnel...')
+    kbc = KeyboardCollection()
+
+    # Возвращаемся к основному интерфейсу
+    await update_work_types_interface(callback, state, kbc)
+
+
+async def update_work_types_interface(callback: CallbackQuery, state: FSMContext, kbc: KeyboardCollection) -> None:
+    """Обновить интерфейс выбора направлений"""
+    state_data = await state.get_data()
+    work_type_ids = str(state_data.get('work_type_ids', ''))
+    count_work_types = int(state_data.get('count_work_types'))
+
+    # Получаем данные из кэша
+    work_types = await get_cached_work_types()
+    selected_ids = work_type_ids.split('|') if work_type_ids else []
+    selected_ids = [id for id in selected_ids if id]  # Убираем пустые строки
+
+    # Формируем текст
+    selected_count = len(selected_ids)
+    total_count = count_work_types
+
+    text = f"🎯 Выберите направления работы\n\n"
+    text += f"📊 Выбрано: {selected_count}/{total_count}\n"
+
+    if selected_count > 0:
+        selected_work_types = [wt for wt in work_types if str(wt.id) in selected_ids]
+        text += f"✅ Текущие направления:\n"
+        for wt in selected_work_types:
+            if wt.id == 20:
+                text += f"• {wt.work_type} 👥 (8 подкатегорий)\n"
+            else:
+                text += f"• {wt.work_type}\n"
+        text += f"\n"
+
+    if selected_count < total_count:
+        text += f"💡 Можете выбрать еще {total_count - selected_count} направлений"
+    elif selected_count == total_count:
+        text += f"🎉 Выбрано максимальное количество направлений!"
+
+    # Обновляем сообщение
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.choose_work_types_improved(
+            all_work_types=work_types,
+            selected_ids=selected_ids,
+            count_work_types=total_count,
+            btn_back=True
+        )
+    )
+
+
+# Старый обработчик (оставляем для совместимости)
 @router.callback_query(lambda c: c.data.startswith('obj-id_'), WorkStates.worker_choose_work_types)
-async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
+async def choose_work_types_old(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'choose_work_types...')
     kbc = KeyboardCollection()
 
@@ -1443,9 +1720,10 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(work_type_ids=str(work_type_id_str))
 
     if int(callback.data.split('_')[1]) == 20:
-        await callback.message.edit_text(text='*В этом направлении:* \n\n - Бармен\n - Официант\n - Повар\n - Хостес\n - Уборщица\n - Охрана\n - Курьер\n - Кальянщик',
-                                         reply_markup=kbc.worker_apply_work_type()
-                                         )
+        await callback.message.edit_text(
+            text='*В этом направлении:* \n\n - Бармен\n - Официант\n - Повар\n - Хостес\n - Уборщица\n - Охрана\n - Курьер\n - Кальянщик',
+            reply_markup=kbc.worker_apply_work_type()
+        )
         return
 
     work_types = await WorkType.get_all()
@@ -1592,31 +1870,40 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
     logger.debug(f'choose_work_types_end...')
 
     state_data = await state.get_data()
-    work_type_ids = str(state_data.get('work_type_ids'))
+    work_type_ids = str(state_data.get('work_type_ids', ''))
 
-    work_type_id_str = work_type_ids
-    work_type_id_list = work_type_id_str.split('|')
+    # Обрабатываем выбранные направления
+    work_type_id_list = work_type_ids.split('|') if work_type_ids else []
+    work_type_id_list = [id for id in work_type_id_list if id]  # Убираем пустые строки
 
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
 
+    # Сохраняем выбранные направления в БД
     await worker_sub.update(work_type_ids=work_type_id_list)
 
-    logger.debug(f'work_type_id_str...{work_type_id_str}')
     logger.debug(f'work_type_id_list...{work_type_id_list}')
 
-    while '' in work_type_id_list:
-        work_type_id_list.remove('')
+    # Формируем сообщение о результате
+    selected_count = len(work_type_id_list)
+    if selected_count > 0:
+        # Получаем названия выбранных направлений из кэша
+        work_types = await get_cached_work_types()
+        selected_work_types = [wt for wt in work_types if str(wt.id) in work_type_id_list]
 
-    if len(work_type_id_list) != 0:
-        await callback.message.edit_text(f'Выбраны {len(work_type_id_list)} из 18 направлений!',
-                                         reply_markup=kbc.menu())
-        await state.set_state(WorkStates.worker_menu)
-        return
+        text = f"✅ Направления успешно сохранены!\n\n"
+        text += f"📊 Выбрано: {selected_count} направлений\n\n"
+        text += f"🎯 Ваши направления:\n"
+        for i, wt in enumerate(selected_work_types, 1):
+            if wt.id == 20:
+                text += f"{i}. {wt.work_type} 👥 (8 подкатегорий)\n"
+            else:
+                text += f"{i}. {wt.work_type}\n"
+    else:
+        text = "⚠️ Вы не выбрали ни одного направления.\nВы можете выбрать их позже в меню."
 
-    await callback.message.edit_text('Выбраны 20 из 20 направлений!', reply_markup=kbc.menu())
+    await callback.message.edit_text(text, reply_markup=kbc.menu())
     await state.set_state(WorkStates.worker_menu)
-    return
 
 
 @router.callback_query(lambda c: c.data.startswith('apply-it-first_'))
@@ -1671,7 +1958,7 @@ async def apply_order(callback: CallbackQuery, state: FSMContext) -> None:
         worker_and_abs.worker_messages.append('Отправлен отклик')
         worker_and_abs = await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=advertisement_id)
         await worker_and_abs.update(worker_messages=worker_and_abs.worker_messages,
-                                    send_by_worker=worker_and_abs.send_by_worker - 1, turn=True)
+                                    send_by_worker=worker_and_abs.send_by_worker - 1)  # Система очередности убрана
 
         text = help_defs.read_text_file(advertisement.text_path)
 
@@ -1681,9 +1968,11 @@ async def apply_order(callback: CallbackQuery, state: FSMContext) -> None:
         text = f'Отклик по объявлению ID{advertisement_id}\n\n' + text
         if user_worker := await Worker.get_worker(tg_id=customer.tg_id):
             if not user_worker.active:
-                await bot.send_message(chat_id=customer.tg_id, text=text, reply_markup=kbc.look_worker(worker_id=worker.id, abs_id=advertisement_id))
+                await bot.send_message(chat_id=customer.tg_id, text=text,
+                                       reply_markup=kbc.look_worker(worker_id=worker.id, abs_id=advertisement_id))
         else:
-            await bot.send_message(chat_id=customer.tg_id, text=text, reply_markup=kbc.look_worker(worker_id=worker.id, abs_id=advertisement_id))
+            await bot.send_message(chat_id=customer.tg_id, text=text,
+                                   reply_markup=kbc.look_worker(worker_id=worker.id, abs_id=advertisement_id))
         try:
             await callback.message.delete()
         except TelegramBadRequest:
@@ -1753,7 +2042,7 @@ async def apply_order_next_photo(callback: CallbackQuery, state: FSMContext) -> 
     )
 
 
-@router.callback_query(F.data == 'my_responses', StateFilter(WorkStates.worker_menu,  WorkStates.worker_responses))
+@router.callback_query(F.data == 'my_responses', StateFilter(WorkStates.worker_menu, WorkStates.worker_responses))
 async def my_responses(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'my_responses...')
 
@@ -1781,7 +2070,7 @@ async def my_responses(callback: CallbackQuery, state: FSMContext) -> None:
 
     await state.set_state(WorkStates.worker_responses)
     await callback.message.answer(text='Выберите отклик',
-                                     reply_markup=kbc.choose_response_worker(ids=btn_ids, names=btn_names))
+                                  reply_markup=kbc.choose_response_worker(ids=btn_ids, names=btn_names))
     try:
         await callback.message.delete()
     except TelegramBadRequest:
@@ -1802,7 +2091,7 @@ async def worker_response(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(advertisement.text_path)
 
-    send_btn = True if worker_and_abs.send_by_worker > 0 and not worker_and_abs.turn else False
+    send_btn = True if worker_and_abs.send_by_worker > 0 else False  # Система очередности убрана
 
     skip_btn = True
 
@@ -1869,7 +2158,7 @@ async def apply_order(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(WorkStates.worker_menu)
         return
     elif worker_sub.subscription_end:
-        if datetime.datetime.strptime(worker_sub.subscription_end, "%d.%m.%Y")  <= datetime.datetime.now():
+        if datetime.datetime.strptime(worker_sub.subscription_end, "%d.%m.%Y") <= datetime.datetime.now():
             try:
                 await callback.message.delete()
             except TelegramBadRequest:
@@ -1964,7 +2253,8 @@ async def report_order(callback: CallbackQuery, state: FSMContext) -> None:
 
     customer = await Customer.get_customer(id=advertisement.customer_id)
 
-    text = f'Заказчик ID {customer.tg_id}\nОбъявление {advertisement.id}\n\n' + help_defs.read_text_file(advertisement.text_path)
+    text = f'Заказчик ID {customer.tg_id}\nОбъявление {advertisement.id}\n\n' + help_defs.read_text_file(
+        advertisement.text_path)
     if advertisement.photo_path:
         await bot.send_photo(chat_id=config.REPORT_LOG,
                              photo=FSInputFile(advertisement.photo_path),
@@ -1992,7 +2282,7 @@ async def apply_order_with_out_msg(callback: CallbackQuery, state: FSMContext) -
     customer = await Customer.get_customer(id=advertisement.customer_id)
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
-    text = (f'Исполнитель {worker.id} {"✅" if worker.confirmed else "☑️"}\n'
+    text = (f'Исполнитель {worker.id} ✅\n'  # Верификация убрана
             f'Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️\n'
             f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
             f'Выполненных заказов: {worker.order_count}\n'
@@ -2022,7 +2312,7 @@ async def apply_order_with_out_msg(callback: CallbackQuery, state: FSMContext) -
             await bot.send_message(chat_id=customer.tg_id, text=text,
                                    reply_markup=kbc.look_worker(worker_id=worker.id, abs_id=advertisement_id))
     except Exception:
-        text = (f'Исполнитель {worker.id} {"✅" if worker.confirmed else "☑️"}\n'
+        text = (f'Исполнитель {worker.id} ✅\n'  # Верификация убрана
                 f'Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️\n'
                 f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
                 f'Выполненных заказов: {worker.order_count}')
@@ -2122,7 +2412,7 @@ async def apply_order_with_msg(message: Message, state: FSMContext) -> None:
         text = (f'Новое сообщение\n\n'
                 f'<b>Исполнитель</b> {worker.id} {worker.profile_name if worker.profile_name else ""}\n'
                 f'<b>Рейтинг</b>: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️ ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n'
-                f'<b>Верификация</b>: {"✅" if worker.confirmed else "☑️"}\n'
+                f'<b>Верификация</b>: ✅\n'  # Верификация убрана
                 f'<b>Наличие ИП</b>: {"✅" if worker.individual_entrepreneur else "☑️"}\n\n'
                 f'<b>Выполненных заказов</b>: {worker.order_count}\n\n'
                 f'Объявление {advertisement.id}\n\n{help_defs.read_text_file(advertisement.text_path)}')
@@ -2134,12 +2424,13 @@ async def apply_order_with_msg(message: Message, state: FSMContext) -> None:
         if not worker_sub.unlimited_orders:
             if worker_sub.subscription_id != 1:
                 await worker_sub.update(guaranteed_orders=worker_sub.guaranteed_orders - 1)
-        text = (f'Новый отклик \n\n<b>Исполнитель</b> {worker.id} {worker.profile_name if worker.profile_name else ""}\n'
-                f'<b>Рейтинг</b>: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️ ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n'
-                f'<b>Верификация</b>: {"✅" if worker.confirmed else "☑️"}\n'
-                f'<b>Наличие ИП</b>: {"✅" if worker.individual_entrepreneur else "☑️"}\n\n'
-                f'<b>Выполненных заказов</b>: {worker.order_count}\n\n'
-                f'Объявление {advertisement.id}\n\n{help_defs.read_text_file(advertisement.text_path)}')
+        text = (
+            f'Новый отклик \n\n<b>Исполнитель</b> {worker.id} {worker.profile_name if worker.profile_name else ""}\n'
+            f'<b>Рейтинг</b>: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️ ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n'
+            f'<b>Верификация</b>: {"✅" if worker.confirmed else "☑️"}\n'
+            f'<b>Наличие ИП</b>: {"✅" if worker.individual_entrepreneur else "☑️"}\n\n'
+            f'<b>Выполненных заказов</b>: {worker.order_count}\n\n'
+            f'Объявление {advertisement.id}\n\n{help_defs.read_text_file(advertisement.text_path)}')
 
     if await checks.fool_check(text=msg_to_send, is_message=True):
         await message.answer(
@@ -2150,8 +2441,13 @@ async def apply_order_with_msg(message: Message, state: FSMContext) -> None:
             'Упс, ваше сообщение содержит недопустимые символы, пожалуйста перепишите сообщение')
         return
     elif checks.phone_finder(msg_to_send):
-        if not worker_and_abs.applyed:
-            await worker_and_abs.update(applyed=True)
+        # Исполнитель пытается отправить номер - показываем уведомление
+        await message.answer(
+            text="⚠️ Не отправляйте номер телефона в чате!\n\n"
+                 "Для запроса контактов используйте кнопку \"📞 Запросить контакт\"",
+            show_alert=True
+        )
+        return
 
     if len(msg_to_send) > 200:
         await message.answer(
@@ -2187,7 +2483,7 @@ async def apply_order_with_msg(message: Message, state: FSMContext) -> None:
     else:
         worker_and_abs.worker_messages.append(msg_to_send)
         await worker_and_abs.update(worker_messages=worker_and_abs.worker_messages,
-                                    send_by_worker=worker_and_abs.send_by_worker - 1, turn=True)
+                                    send_by_worker=worker_and_abs.send_by_worker - 1)  # Система очередности убрана
 
     await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await state.set_state(WorkStates.worker_menu)
@@ -2278,7 +2574,8 @@ async def choose_city_main(message: Message, state: FSMContext) -> None:
              f'Выберите город или напишите его текстом\n\n'
              f'По вашей подписке доступно количество городов: {subscription.count_cites}, выбрано {len(cites)}',
         reply_markup=kbc.choose_obj(id_now=0, ids=city_ids, names=city_names,
-                                    btn_next=True, btn_back=False, menu_btn=True, btn_next_name='Отменить результаты поиска'))
+                                    btn_next=True, btn_back=False, menu_btn=True,
+                                    btn_next_name='Отменить результаты поиска'))
     await state.update_data(msg_id=msg.message_id)
     await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
@@ -2384,6 +2681,144 @@ async def change_city_end(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(msg_id=msg.message_id)
     cites_list = [str(x) for x in cites_list]
     await state.update_data(cites=' | '.join(cites_list))
+
+
+# Новые обработчики для системы покупки контактов
+@router.callback_query(lambda c: c.data.startswith('buy-contact_'))
+async def buy_contact_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик покупки контакта исполнителем"""
+    logger.debug(f'buy_contact_handler...')
+    kbc = KeyboardCollection()
+    
+    # Парсим данные из callback_data
+    parts = callback.data.split('_')
+    worker_id = int(parts[1])
+    abs_id = int(parts[2])
+    
+    # Получаем данные исполнителя
+    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    if not worker:
+        await callback.answer("Ошибка: исполнитель не найден", show_alert=True)
+        return
+    
+    # TODO: Проверить есть ли у исполнителя купленные контакты
+    # Пока что всегда показываем тарифы
+    await callback.message.edit_text(
+        text="Выберите тариф для покупки контактов:",
+        reply_markup=kbc.contact_purchase_tariffs()
+    )
+    await state.set_state(WorkStates.worker_contact_purchase)
+    await state.update_data(worker_id=worker_id, abs_id=abs_id)
+
+
+@router.callback_query(lambda c: c.data.startswith('reject-response_'))
+async def reject_response_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик отклонения отклика исполнителем"""
+    logger.debug(f'reject_response_handler...')
+    kbc = KeyboardCollection()
+    
+    # Парсим данные из callback_data
+    parts = callback.data.split('_')
+    worker_id = int(parts[1])
+    abs_id = int(parts[2])
+    
+    # Получаем данные
+    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    worker_and_abs = await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=abs_id)
+    
+    if worker_and_abs:
+        await worker_and_abs.delete()
+    
+    await callback.message.edit_text(
+        text="Отклик отклонен. Чат закрыт.",
+        reply_markup=kbc.menu()
+    )
+    await state.set_state(WorkStates.worker_menu)
+
+
+@router.callback_query(lambda c: c.data.startswith('contact-tariff_'), WorkStates.worker_contact_purchase)
+async def process_contact_purchase(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик выбора тарифа для покупки контактов"""
+    logger.debug(f'process_contact_purchase...')
+    kbc = KeyboardCollection()
+    
+    # Парсим данные из callback_data
+    parts = callback.data.split('_')
+    tariff_type = parts[1]  # количество или "unlimited"
+    tariff_period = parts[2] if tariff_type == "unlimited" else None
+    price = int(parts[-1])  # цена всегда последний параметр
+    
+    state_data = await state.get_data()
+    worker_id = state_data.get('worker_id')
+    abs_id = state_data.get('abs_id')
+    
+    # TODO: Реализовать оплату через ЮКассу
+    # Пока что просто симулируем успешную покупку
+    
+    # Получаем данные
+    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    customer = await Customer.get_customer(id=worker_id)
+    advertisement = await Abs.get_one(id=abs_id)
+    
+    if not worker or not customer or not advertisement:
+        await callback.answer("Ошибка: данные не найдены", show_alert=True)
+        return
+    
+    # Отправляем контакты исполнителю
+    customer_contacts = f"Telegram: @{customer.tg_name}\nID: {customer.tg_id}"
+    
+    await callback.message.edit_text(
+        text=f"Покупка контакта успешно выполнена ✅\n\nКонтакты заказчика:\n{customer_contacts}",
+        reply_markup=kbc.menu()
+    )
+    
+    # Уведомляем заказчика
+    try:
+        await bot.send_message(
+            chat_id=customer.tg_id,
+            text="Исполнитель купил ваши контакты ✅"
+        )
+    except Exception as e:
+        logger.error(f"Error notifying customer: {e}")
+    
+    await state.set_state(WorkStates.worker_menu)
+
+
+@router.callback_query(lambda c: c.data.startswith('request-contact_'))
+async def request_contact_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик запроса контакта исполнителем"""
+    logger.debug(f'request_contact_handler...')
+    kbc = KeyboardCollection()
+    
+    # Парсим данные из callback_data
+    abs_id = int(callback.data.split('_')[1])
+    
+    # Получаем данные
+    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    advertisement = await Abs.get_one(id=abs_id)
+    
+    if not worker or not advertisement:
+        await callback.answer("Ошибка: данные не найдены", show_alert=True)
+        return
+    
+    customer = await Customer.get_customer(id=advertisement.customer_id)
+    
+    # Отправляем уведомление заказчику
+    text = f"Исполнитель {worker.id} запросил ваши контакты\n\nОбъявление #{abs_id}\n{help_defs.read_text_file(advertisement.text_path)}"
+    
+    try:
+        await bot.send_message(
+            chat_id=customer.tg_id,
+            text=text,
+            reply_markup=kbc.send_contacts_btn(worker_id=worker.id, abs_id=abs_id)
+        )
+        
+        # Уведомляем исполнителя
+        await callback.answer("Запрос контактов отправлен заказчику ✅", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Error requesting contact: {e}")
+        await callback.answer("Ошибка при запросе контактов", show_alert=True)
 
 
 #  _    _        _      _____              _

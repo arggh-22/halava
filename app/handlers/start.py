@@ -38,8 +38,10 @@ async def ping_cmd(message: Message) -> None:
 
 @router.message(Command("start"))
 async def start_cmd(message: Message, state: FSMContext) -> None:
-    logger.debug(f'start_cmd...')
-    logger.debug(f'chat_id... {message.chat.id}')
+    print("aaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    # logger.debug(f'start_cmd...')
+    # logger.debug(f'chat_id... {message.chat.id}')
+    print("ddddddddddddddddddddddddddd")
 
     if message.chat.id < 0:
         await message.answer('Пользоваться ботом можно только из ЛС')
@@ -52,12 +54,14 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
     await state.clear()
     kbc = KeyboardCollection()
     logger.debug(f"user_name: {message.from_user.username}")
+    print(message.from_user.username)
     if user_baned := await Banned.get_banned(tg_id=message.chat.id):
         if user_baned.ban_now or user_baned.forever:
             await message.answer(text='Упс, вы заблокированы')
             await state.set_state(BannedStates.banned)
             return
     if user_admin := await Admin.get_by_tg_id(tg_id=message.chat.id):
+        print("FFFFFFFFFFFFFFFF")
         await state.set_state(UserStates.menu)
         await message.answer(
             text=f'Добро пожаловать, {user_admin.tg_name}',
@@ -65,13 +69,16 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
         )
         return
     elif user_worker := await Worker.get_worker(tg_id=message.chat.id):
+        print("FFFFFFFFFFFFFFFFCCCCCCCCCCCCCCCCCCC")
         await message.answer(
             text=f'Добро пожаловать, {user_worker.tg_name}',
             reply_markup=kbc.menu(),
         )
+        print("ds111111111111111111")
         await state.set_state(WorkStates.worker_menu)
         return
     elif user_customer := await Customer.get_customer(tg_id=message.chat.id):
+        print("dddddddddddddddddddddddffffffffffccc")
         await message.answer(
             text=f'Добро пожаловать, {user_customer.tg_name}',
             reply_markup=kbc.menu(),
@@ -79,6 +86,7 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
         await state.set_state(CustomerStates.customer_menu)
         return
     else:
+        print("KKKKKKHHGFDDDD")
         text = '''Размещаются запросы только на услуги:
 
  — анонимно;
@@ -93,7 +101,7 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
 
 Исполнителям поступают запросы в личку по направлениям, которые они выбрали и совершают отклики.
 
-<b>Запросы на услуги размещаются бесплатно, с лимитом 3 шт. в сутки на каждый профиль.</b>
+<b>Запросы на услуги размещаются бесплатно без ограничений.</b>
 
 <b>За попытку предложений не по теме предусмотрена блокировка.</b>
 '''
@@ -103,6 +111,7 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
             logger.debug(f'param: {param}')
             city = await City.get_city(city_en=param)
             try:
+                print("hhshshshshshs5555555555")
                 logger.debug(f'good')
                 param = int(param)
                 worker = await Worker.get_worker(tg_id=param)
@@ -110,10 +119,12 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
                 logger.debug(f'except')
                 worker = None
             if city is not None:
+                print("kkkjdjdhgdgdddddddddd")
                 await state.set_state(UserStates.registration_end)
                 await state.update_data(city_id=str(city.id), username=str(message.from_user.username))
                 return
             elif worker is not None:
+                print("ffffffffffffffffddsssss")
                 logger.debug(f'find')
                 if not await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id):
                     worker_and_ref = WorkerAndRefsAssociation(id=None,
@@ -130,6 +141,7 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
                     await state.set_state(UserStates.registration_enter_city)
                     await state.update_data(username=str(message.from_user.username))
                     return
+        print("ddddddddddddssssssssaaaaaa")
         await message.answer_photo(
             photo=FSInputFile('app/data/database/WhatsApp.jpg'),
             caption=text,
@@ -160,7 +172,7 @@ async def apply_user_agreement(callback: CallbackQuery, state: FSMContext) -> No
 
     Исполнителям поступают запросы в личку по направлениям, которые они выбрали и совершают отклики.
 
-    <b>Запросы на услуги размещаются бесплатно, с лимитом 3 шт. в сутки на каждый профиль.</b>
+    <b>Запросы на услуги размещаются бесплатно без ограничений.</b>
 
     <b>За попытку предложений не по теме предусмотрена блокировка.</b>
     '''
@@ -379,7 +391,7 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
                 'Заказчику остается только выбрать подходящего и связаться лично. \n\n'
                 'После завершения работы - заказчик закрывает заказ и оставляет отзыв. \n\n'
                 'Исполнителям поступают запросы в личку по направлениям, которые они выбрали и совершают отклики.\n\n'
-                '<b>Запросы на услуги размещаются бесплатно, с лимитом 3 шт. в сутки на каждый профиль.</b>\n\n'
+                '<b>Запросы на услуги размещаются бесплатно без ограничений.</b>\n\n'
                 '<b>За попытку предложений не по теме предусмотрена блокировка.</b>')
         await message.answer_video(
             video=FSInputFile('app/data/database/WhatsApp.jpg'),

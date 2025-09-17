@@ -226,6 +226,16 @@ async def check_time_banned_advertisement():
                 await banned_advertisement.delete(delite_photo=True if banned_advertisement.photo_path else False)
 
 
+async def cleanup_orphaned_files():
+    """Очистка осиротевших файлов портфолио - запускается еженедельно"""
+    logger.info('cleanup_orphaned_files')
+    try:
+        cleaned_count = help_defs.cleanup_orphaned_portfolio_files()
+        logger.info(f'Очистка файлов завершена. Обработано файлов: {cleaned_count}')
+    except Exception as e:
+        logger.error(f'Ошибка при очистке файлов: {e}')
+
+
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |
 # | |  | |  ___ | |__    | |    ___   ___ | |__

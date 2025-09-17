@@ -10,7 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 dp = Dispatcher()
 aiosession = AiohttpSession()
-bot = Bot(token=config.BOT_TOKEN, session=aiosession, default=DefaultBotProperties(protect_content=True, parse_mode='Markdown'))   # , parse_mode="HTML"
+bot = Bot(token=config.BOT_TOKEN, session=aiosession, default=DefaultBotProperties(protect_content=True, parse_mode='HTML'))   # , parse_mode="HTML", "Markdown"
 
 scheduler = AsyncIOScheduler()
 

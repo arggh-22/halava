@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import time
 from datetime import datetime, timedelta
 
 from aiogram import Router, F
@@ -19,6 +21,9 @@ from loaders import bot
 router = Router()
 router.message.filter(F.from_user.id != F.bot.id)
 logger = logging.getLogger()
+
+# Simple in-memory cache for admin summary
+_admin_summary_cache = {"data": None, "ts": 0.0, "ttl": 10.0}
 
 
 @router.callback_query(F.data == 'menu', StateFilter(AdminStates.menu, UserStates.menu, AdminStates.edit_stop_words, AdminStates.unblock_user, AdminStates.block_user, AdminStates.check_subscription, AdminStates.edit_subscription, AdminStates.get_customer, AdminStates.get_worker, AdminStates.check_abs, AdminStates.check_banned_abs, AdminStates.get_user, AdminStates.send_to_user))
@@ -996,47 +1001,51 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug('admin_menu...')
     kbc = KeyboardCollection()
 
-    customers = await Customer.get_all()
-    workers = await Worker.get_all()
-    banned_users = await Banned.get_all()
-    admin = await Admin.get_by_tg_id(callback.message.chat.id)
+    # Cache hit
+    now_ts = time.time()
+    if _admin_summary_cache["data"] is not None and (now_ts - _admin_summary_cache["ts"]) < _admin_summary_cache["ttl"]:
+        summary = _admin_summary_cache["data"]
+    else:
+        # Fetch aggregated counts concurrently
+        (len_customer,
+         len_worker,
+         len_banned_users,
+         len_advertisement,
+         len_banned_advertisement,
+         len_users,
+         admin) = await asyncio.gather(
+            Customer.count(),
+            Worker.count(),
+            Banned.count_active(),
+            Abs.count(),
+            BannedAbs.count(),
+            Admin.count_distinct_users(),
+            Admin.get_by_tg_id(callback.message.chat.id)
+        )
 
-    users = []
-    users += workers
+        summary = {
+            "len_customer": len_customer,
+            "len_worker": len_worker,
+            "len_banned_users": len_banned_users,
+            "len_advertisement": len_advertisement,
+            "len_banned_advertisement": len_banned_advertisement,
+            "len_users": len_users,
+            "deleted_abs": admin.deleted_abs if admin else 0,
+            "done_abs": admin.done_abs if admin else 0,
+        }
 
-    for customer in customers:
-        if await Worker.get_worker(tg_id=customer.tg_id) is None:
-            users.append(customer)
-
-    banned_now = []
-    len_banned_users = 0
-
-    if banned_users:
-        for banned in banned_users:
-            if banned.ban_now or banned.forever:
-                banned_now.append(banned)
-        len_banned_users = len(banned_now)
-
-    len_worker = len(workers) if workers else 0
-    len_customer = len(customers) if customers else 0
-
-    advertisement = await Abs.get_all()
-    banned_advertisement = await BannedAbs.get_all()
-
-    len_banned_advertisement = len(banned_advertisement) if banned_advertisement else 0
-    len_advertisement = len(advertisement) if advertisement else 0
-
-    len_users = len(users) if users else 0
+        _admin_summary_cache["data"] = summary
+        _admin_summary_cache["ts"] = now_ts
 
     text = (f'Меню\n\n'
-            f'Всего пользователей: {len_users}\n'
-            f'Заказчиков: {len_customer}\n'
-            f'Исполнителей: {len_worker}\n'
-            f'Заблокировано: {len_banned_users}\n'
-            f'Размещено объявлений: {len_advertisement}\n'
-            f'Заблокировано объявлений: {len_banned_advertisement}\n'
-            f'Удалено объявлений: {admin.deleted_abs}\n'
-            f'Выполнено объявлений: {admin.done_abs}\n')
+            f'Всего пользователей: {summary["len_users"]}\n'
+            f'Заказчиков: {summary["len_customer"]}\n'
+            f'Исполнителей: {summary["len_worker"]}\n'
+            f'Заблокировано: {summary["len_banned_users"]}\n'
+            f'Размещено объявлений: {summary["len_advertisement"]}\n'
+            f'Заблокировано объявлений: {summary["len_banned_advertisement"]}\n'
+            f'Удалено объявлений: {summary["deleted_abs"]}\n'
+            f'Выполнено объявлений: {summary["done_abs"]}\n')
 
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=text, reply_markup=kbc.menu_admin_keyboard())

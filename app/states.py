@@ -16,9 +16,7 @@ class WorkStates(StatesGroup):
     create_photo_profile = State()
     individual_entrepreneur = State()
     registration_enter_city = State()
-    verification_worker = State()
-    verification_send_contact = State()
-    verification_enter_code = State()
+    # Верификация убрана согласно ТЗ
     worker_menu = State()
     worker_check_subscription = State()
     worker_buy_subscription = State()
@@ -28,14 +26,17 @@ class WorkStates(StatesGroup):
     worker_change_city = State()
     worker_responses = State()
     create_portfolio = State()
+    # Новые состояния для системы покупки контактов
+    worker_buy_contacts = State()
+    worker_contact_purchase = State()
 
 
 class CustomerStates(StatesGroup):
     customer_extend_abc = State()
     enter_phone_number = State()
-    customer_buy_subscription = State()
+    # customer_buy_subscription = State()  # Убрано - размещение всегда бесплатно
     registration_enter_city = State()
-    verification_worker = State()
+    # Верификация убрана согласно ТЗ
     customer_menu = State()
     worker_check_abs = State()
     customer_create_abs = State()
@@ -60,6 +61,8 @@ class CustomerStates(StatesGroup):
     response_send_contact_to_worker = State()
     customer_response_apply_worker_text = State()
     customer_create_abs_personal_add_photo =State()
+    # Новые состояния для системы покупки контактов
+    customer_send_contacts = State()
 
 
 class AdminStates(StatesGroup):

@@ -125,6 +125,17 @@ class Customer:
         finally:
             await conn.close()
 
+    @classmethod
+    async def count(cls) -> int:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT COUNT(1) FROM customers')
+            record = await cursor.fetchone()
+            await cursor.close()
+            return int(record[0]) if record else 0
+        finally:
+            await conn.close()
+
 
 class Worker:
     def __init__(self, tg_id: int, city_id: list,
@@ -263,6 +274,71 @@ class Worker:
             await conn.close()
 
     @classmethod
+    async def get_active_workers_for_advertisement(cls, city_id: int, work_type_id: int) -> list['Worker']:
+        """
+        Оптимизированный метод для получения активных исполнителей по городу и типу работы.
+        Используется только для рассылки объявлений.
+        """
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            # SQL запрос с фильтрацией в базе данных
+            query = '''
+            SELECT w.*, ws.work_type_ids, ws.unlimited_work_types 
+            FROM workers w
+            LEFT JOIN worker_and_subscription ws ON w.id = ws.worker_id
+            WHERE w.active = 1 
+            AND w.city_id LIKE ?
+            '''
+            cursor = await conn.execute(query, [f'%{city_id}%'])
+            records = await cursor.fetchall()
+            await cursor.close()
+
+            matching_workers = []
+            work_type_id_str = str(work_type_id)
+            
+            for record in records:
+                # Проверяем city_id (формат: "1 | 2 | 3")
+                record_city_ids = record[4].split(' | ')
+                if str(city_id) not in record_city_ids:
+                    continue
+                
+                # Проверяем подписку и тип работы
+                work_type_ids = record[20].split('|') if record[20] else []
+                unlimited_work_types = record[21] if record[21] is not None else False
+                
+                # Если не подходит по типу работы - пропускаем
+                if not unlimited_work_types and work_type_id_str not in work_type_ids:
+                    continue
+                
+                worker = cls(
+                    id=record[0],
+                    tg_id=record[1],
+                    tg_name=record[2],
+                    phone_number=record[3],
+                    city_id=[int(x) for x in record_city_ids],
+                    confirmed=record[5],
+                    stars=record[6],
+                    count_ratings=record[7],
+                    order_count=record[8],
+                    order_count_on_week=record[9],
+                    confirmation_code=record[10],
+                    ref_code=record[11],
+                    active=True if record[12] == 1 else False,
+                    access_token=record[13],
+                    author_name=record[14],
+                    individual_entrepreneur=True if record[15] == 1 else False,
+                    registration_data=record[16],
+                    profile_photo=record[17],
+                    profile_name=record[18],
+                    portfolio_photo=json.loads(record[19]) if record[19] else None
+                )
+                matching_workers.append(worker)
+
+            return matching_workers
+        finally:
+            await conn.close()
+
+    @classmethod
     async def get_all(cls) -> list['Worker']:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
@@ -295,6 +371,18 @@ class Worker:
             await conn.close()
 
     async def delete(self) -> None:
+        # Удаляем все файлы портфолио перед удалением из БД
+        if self.portfolio_photo:
+            for photo_path in self.portfolio_photo.values():
+                help_defs.delete_file(photo_path)
+                logger.info(f"Файл портфолио удален при удалении исполнителя: {photo_path}")
+        
+        # Удаляем фото профиля если есть
+        if self.profile_photo:
+            help_defs.delete_file(self.profile_photo)
+            logger.info(f"Фото профиля удалено при удалении исполнителя: {self.profile_photo}")
+        
+        # Удаляем из базы данных
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             if self.id:
@@ -330,6 +418,12 @@ class Worker:
             await conn.close()
 
     async def update_profile_photo(self, profile_photo: str | None) -> None:
+        # Удаляем старое фото профиля если оно есть
+        if self.profile_photo and self.profile_photo != profile_photo:
+            help_defs.delete_file(self.profile_photo)
+            logger.info(f"Старое фото профиля удалено: {self.profile_photo}")
+        
+        # Обновляем в базе данных
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             query = 'UPDATE workers SET profile_photo = ? WHERE id = ?'
@@ -393,6 +487,17 @@ class Worker:
             cursor = await conn.execute(query, params)
             await conn.commit()
             await cursor.close()
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def count(cls) -> int:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT COUNT(1) FROM workers')
+            record = await cursor.fetchone()
+            await cursor.close()
+            return int(record[0]) if record else 0
         finally:
             await conn.close()
 
@@ -584,6 +689,18 @@ class Banned:
                     )
                     for record in records
                 ]
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def count_active(cls) -> int:
+        conn = await aiosqlite.connect(database='app/data/database/database.db',
+                                       detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+        try:
+            cursor = await conn.execute('SELECT COUNT(1) FROM ban_list WHERE COALESCE(ban_now, 0) = 1 OR COALESCE(forever, 0) = 1')
+            record = await cursor.fetchone()
+            await cursor.close()
+            return int(record[0]) if record else 0
         finally:
             await conn.close()
 
@@ -1458,6 +1575,18 @@ class Admin:
         finally:
             await conn.close()
 
+    @staticmethod
+    async def count_distinct_users() -> int:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            query = 'SELECT COUNT(DISTINCT tg_id) FROM (SELECT tg_id FROM customers UNION ALL SELECT tg_id FROM workers) AS all_users'
+            cursor = await conn.execute(query)
+            record = await cursor.fetchone()
+            await cursor.close()
+            return int(record[0]) if record else 0
+        finally:
+            await conn.close()
+
 
 class Abs:
     def __init__(self, id: int | None, customer_id: int,
@@ -1564,6 +1693,19 @@ class Abs:
                         count_photo=record[9]
                         )
                     for record in records]
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def count(cls) -> int:
+        conn = await aiosqlite.connect(database='app/data/database/database.db',
+                                       detect_types=sqlite3.PARSE_DECLTYPES |
+                                                    sqlite3.PARSE_COLNAMES)
+        try:
+            cursor = await conn.execute('SELECT COUNT(1) FROM abs')
+            record = await cursor.fetchone()
+            await cursor.close()
+            return int(record[0]) if record else 0
         finally:
             await conn.close()
 
@@ -2041,6 +2183,19 @@ class BannedAbs:
                         date_to_delite=record[6],
                         photos_len=record[7])
                     for record in records]
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def count(cls) -> int:
+        conn = await aiosqlite.connect(database='app/data/database/database.db',
+                                       detect_types=sqlite3.PARSE_DECLTYPES |
+                                                    sqlite3.PARSE_COLNAMES)
+        try:
+            cursor = await conn.execute('SELECT COUNT(1) FROM banned_abs')
+            record = await cursor.fetchone()
+            await cursor.close()
+            return int(record[0]) if record else 0
         finally:
             await conn.close()
 

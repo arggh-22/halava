@@ -1,12 +1,17 @@
-import json
 import os
 import re
-from datetime import datetime
+import json
 import shutil
-
+import logging
 import requests
-from PIL import Image, ImageEnhance
+from datetime import datetime
 from bs4 import BeautifulSoup
+from PIL import Image, ImageEnhance
+
+from app.data.database.models import Worker
+
+
+logger = logging.getLogger(__name__)
 
 
 def check_ip_status_by_ogrnip(ogrnip) -> str | None:
@@ -140,11 +145,35 @@ async def save_photo_var(id: int, path: str = 'app//data//photo//', n: int = 0):
 
 
 def delete_file(file_path):
+    """
+    Безопасно удаляет файл с диска с логированием.
+    
+    Args:
+        file_path: Путь к файлу для удаления
+        
+    Returns:
+        bool: True если файл успешно удален, False в противном случае
+    """
+    if not file_path:
+        return False
+
     try:
         if os.path.exists(file_path):
             os.remove(file_path)
-    except Exception:
-        pass
+            logger.info(f"Файл успешно удален: {file_path}")
+            return True
+        else:
+            logger.warning(f"Файл не найден для удаления: {file_path}")
+            return False
+    except PermissionError:
+        logger.error(f"Нет прав для удаления файла: {file_path}")
+        return False
+    except OSError as e:
+        logger.error(f"Ошибка ОС при удалении файла {file_path}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при удалении файла {file_path}: {e}")
+        return False
 
 
 def delete_folder(folder_path):
@@ -157,6 +186,120 @@ def delete_folder(folder_path):
         os.rmdir(folder_path)
     except Exception:
         pass
+
+
+def cleanup_orphaned_portfolio_files():
+    """
+    Очищает "осиротевшие" файлы портфолио, которые не связаны ни с одним исполнителем.
+    Эта функция должна вызываться периодически для поддержания чистоты файловой системы.
+    
+    Returns:
+        int: Количество удаленных файлов
+    """
+    portfolio_base_path = 'app/data/photo/'
+    if not os.path.exists(portfolio_base_path):
+        logger.info("Папка портфолио не существует, очистка не требуется")
+        return 0
+
+    logger.info("Начинаем очистку осиротевших файлов портфолио...")
+
+    # Получаем все папки с ID пользователей
+    user_folders = [f for f in os.listdir(portfolio_base_path)
+                    if os.path.isdir(os.path.join(portfolio_base_path, f)) and f.isdigit()]
+
+    cleaned_count = 0
+    checked_folders = 0
+
+    for folder in user_folders:
+        folder_path = os.path.join(portfolio_base_path, folder)
+        checked_folders += 1
+
+        # Получаем все файлы в папке
+        try:
+            files = os.listdir(folder_path)
+            for file in files:
+                if file.endswith('.jpg'):
+                    file_path = os.path.join(folder_path, file)
+
+                    # Проверяем, используется ли файл в портфолио какого-либо исполнителя
+                    if is_file_orphaned(file_path):
+                        # Удаляем осиротевший файл
+                        if delete_file(file_path):
+                            cleaned_count += 1
+                            logger.info(f"Удален осиротевший файл портфолио: {file_path}")
+                        else:
+                            logger.warning(f"Не удалось удалить осиротевший файл: {file_path}")
+                    else:
+                        logger.debug(f"Файл используется в портфолио: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Ошибка при проверке папки {folder_path}: {e}")
+
+    logger.info(f"Очистка завершена. Проверено папок: {checked_folders}, удалено файлов: {cleaned_count}")
+    return cleaned_count
+
+
+def is_file_orphaned(file_path):
+    """
+    Проверяет, является ли файл "осиротевшим" (не используется в портфолио исполнителей).
+    
+    Args:
+        file_path: Путь к файлу для проверки
+        
+    Returns:
+        bool: True если файл осиротевший, False если используется
+    """
+    try:
+        # Импортируем модель Worker для проверки БД
+        import asyncio
+
+        # Создаем новый event loop для синхронного вызова
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        # Выполняем асинхронную проверку синхронно
+        return loop.run_until_complete(_check_file_in_database(file_path))
+
+    except Exception as e:
+        logger.error(f"Ошибка при проверке файла {file_path}: {e}")
+        # В случае ошибки считаем файл не осиротевшим (безопасный подход)
+        return False
+
+
+async def _check_file_in_database(file_path):
+    """
+    Асинхронная проверка использования файла в базе данных.
+    
+    Args:
+        file_path: Путь к файлу для проверки
+        
+    Returns:
+        bool: True если файл осиротевший, False если используется
+    """
+    try:
+        # Получаем всех исполнителей
+        workers = await Worker.get_all()
+
+        for worker in workers:
+            if worker.portfolio_photo:
+                # Проверяем, используется ли файл в портфолио этого исполнителя
+                for photo_path in worker.portfolio_photo.values():
+                    if photo_path == file_path:
+                        return False  # Файл используется
+
+            # Также проверяем фото профиля
+            if worker.profile_photo == file_path:
+                return False  # Файл используется как фото профиля
+
+        # Если файл не найден ни в одном портфолио
+        return True
+
+    except Exception as e:
+        logger.error(f"Ошибка при проверке файла в БД {file_path}: {e}")
+        return False
 
 
 def read_text_file(file_path):
@@ -274,20 +417,32 @@ def escape_markdown(text: str) -> str:
 
 
 def reorder_dict(d, removed_key):
+    """
+    Переупорядочивает словарь, удаляя указанный ключ и перенумеровывая остальные.
+    
+    Args:
+        d: Словарь для переупорядочивания
+        removed_key: Ключ для удаления
+        
+    Returns:
+        tuple: (новый_словарь, путь_к_удаленному_файлу) или (новый_словарь, None)
+    """
     keys = sorted(d.keys(), key=int)  # Сортируем ключи как числа
     if removed_key not in keys:
-        return d  # Если ключа нет, возвращаем словарь без изменений
+        return d, None  # Если ключа нет, возвращаем словарь без изменений
 
     new_dict = {}
     index = 1  # Начинаем нумерацию с "1"
+    removed_file_path = None
+
     for key in keys:
         if key == removed_key:
+            removed_file_path = d[key]  # Сохраняем путь к удаляемому файлу
             continue  # Пропускаем удаляемый ключ
         new_dict[str(index)] = d[key]
         index += 1  # Увеличиваем индекс
 
-    return new_dict
-
+    return new_dict, removed_file_path
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

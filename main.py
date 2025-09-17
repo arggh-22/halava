@@ -33,6 +33,7 @@ async def run():
     scheduler.add_job(time_checker.check_time_advertisement, "interval", hours=24)
     scheduler.add_job(time_checker.check_time_banned_advertisement, "interval", hours=24)
     scheduler.add_job(time_checker.check_time_workers_stars, "interval", hours=48)
+    scheduler.add_job(time_checker.cleanup_orphaned_files, "interval", days=7)  # Еженедельная очистка файлов
     # scheduler.add_job(time_checker.check_time_workers_top, "interval", days=30)    # minutes=1
 
     await bot.delete_webhook(drop_pending_updates=False)
