@@ -33,6 +33,32 @@ _cache_timestamp = None
 CACHE_DURATION = 300  # 5 минут
 
 
+async def check_worker_has_unlimited_contacts(worker_id: int) -> bool:
+    """
+    Проверяет, есть ли у исполнителя активный безлимитный доступ к контактам.
+    
+    Args:
+        worker_id: ID исполнителя
+        
+    Returns:
+        bool: True если есть безлимитный доступ, False в противном случае
+    """
+    try:
+        # Здесь можно добавить логику проверки безлимитных тарифов
+        # Например, проверка в отдельной таблице купленных тарифов контактов
+        # Пока что возвращаем False (нет безлимитного доступа)
+        # В будущем здесь можно добавить проверку базы данных
+        
+        # Пример логики для будущей реализации:
+        # contact_purchases = await ContactPurchase.get_active_unlimited_by_worker(worker_id)
+        # return len(contact_purchases) > 0
+        
+        return False
+    except Exception as e:
+        logger.error(f"Error checking unlimited contacts for worker {worker_id}: {e}")
+        return False
+
+
 async def get_cached_work_types() -> List[WorkType]:
     """Получить кэшированный список типов работ"""
     global _work_types_cache, _cache_timestamp
@@ -2701,8 +2727,32 @@ async def buy_contact_handler(callback: CallbackQuery, state: FSMContext) -> Non
         await callback.answer("Ошибка: исполнитель не найден", show_alert=True)
         return
     
-    # TODO: Проверить есть ли у исполнителя купленные контакты
-    # Пока что всегда показываем тарифы
+    # Проверяем, есть ли у исполнителя активные купленные контакты
+    has_unlimited_contacts = await check_worker_has_unlimited_contacts(worker.id)
+    
+    if has_unlimited_contacts:
+        # У исполнителя есть безлимитный доступ к контактам
+        customer = await Customer.get_customer(id=worker_id)
+        if customer:
+            customer_contacts = f"Telegram: @{customer.tg_name}\nID: {customer.tg_id}"
+            await callback.message.edit_text(
+                text=f"У вас есть безлимитный доступ к контактам! ✅\n\nКонтакты заказчика:\n{customer_contacts}",
+                reply_markup=kbc.menu()
+            )
+            
+            # Уведомляем заказчика
+            try:
+                await bot.send_message(
+                    chat_id=customer.tg_id,
+                    text="Исполнитель получил ваши контакты (безлимитный тариф) ✅"
+                )
+            except Exception as e:
+                logger.error(f"Error notifying customer: {e}")
+            
+            await state.set_state(WorkStates.worker_menu)
+            return
+    
+    # Если нет безлимитного доступа, показываем тарифы
     await callback.message.edit_text(
         text="Выберите тариф для покупки контактов:",
         reply_markup=kbc.contact_purchase_tariffs()
@@ -2752,9 +2802,6 @@ async def process_contact_purchase(callback: CallbackQuery, state: FSMContext) -
     worker_id = state_data.get('worker_id')
     abs_id = state_data.get('abs_id')
     
-    # TODO: Реализовать оплату через ЮКассу
-    # Пока что просто симулируем успешную покупку
-    
     # Получаем данные
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     customer = await Customer.get_customer(id=worker_id)
@@ -2764,10 +2811,87 @@ async def process_contact_purchase(callback: CallbackQuery, state: FSMContext) -
         await callback.answer("Ошибка: данные не найдены", show_alert=True)
         return
     
-    # Отправляем контакты исполнителю
-    customer_contacts = f"Telegram: @{customer.tg_name}\nID: {customer.tg_id}"
+    # Формируем описание тарифа
+    if tariff_type == "unlimited":
+        tariff_description = f"Безлимитные контакты на {tariff_period} месяц(ев)"
+        tariff_label = f"Безлимит {tariff_period}м"
+    else:
+        tariff_description = f"{tariff_type} контакт(ов) для покупки"
+        tariff_label = f"{tariff_type} контакт"
     
-    await callback.message.edit_text(
+    # Создаем счет для оплаты
+    prices = [LabeledPrice(label=tariff_label, amount=price * 100)]  # цена в копейках
+    
+    payment_description = f"Покупка контактов: {tariff_description}"
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    # Сохраняем данные в состоянии для обработки успешной оплаты
+    await state.update_data(
+        worker_id=worker_id,
+        abs_id=abs_id,
+        tariff_type=tariff_type,
+        tariff_period=tariff_period,
+        price=price,
+        customer_contacts=f"Telegram: @{customer.tg_name}\nID: {customer.tg_id}"
+    )
+    
+    await state.set_state(WorkStates.worker_buy_contacts)
+    
+    # Отправляем счет на оплату
+    await callback.message.answer_invoice(
+        title=f"Покупка контактов - {tariff_label}",
+        description=payment_description,
+        provider_token=config.PAYMENTS,
+        currency="RUB",
+        prices=prices,
+        start_parameter=f"contact-purchase-{tariff_type}",
+        payload=f"contact-purchase-{worker_id}-{abs_id}-{tariff_type}-{price}",
+        reply_markup=kbc.menu(),
+        need_email=True,
+        send_email_to_provider=True
+    )
+
+
+@router.pre_checkout_query(lambda query: True, WorkStates.worker_buy_contacts)
+async def pre_checkout_contact_handler(pre_checkout_query: PreCheckoutQuery) -> None:
+    """Обработчик pre-checkout для покупки контактов"""
+    logger.debug(f'pre_checkout_contact_handler...')
+    await pre_checkout_query.answer(ok=True)
+
+
+@router.message(F.successful_payment, WorkStates.worker_buy_contacts)
+async def success_contact_payment_handler(message: Message, state: FSMContext) -> None:
+    """Обработчик успешной оплаты контактов"""
+    logger.debug(f'success_contact_payment_handler...')
+    kbc = KeyboardCollection()
+    
+    # Получаем данные из состояния
+    state_data = await state.get_data()
+    worker_id = state_data.get('worker_id')
+    abs_id = state_data.get('abs_id')
+    tariff_type = state_data.get('tariff_type')
+    tariff_period = state_data.get('tariff_period')
+    price = state_data.get('price')
+    customer_contacts = state_data.get('customer_contacts')
+    
+    # Получаем данные исполнителя и заказчика
+    worker = await Worker.get_worker(tg_id=message.chat.id)
+    customer = await Customer.get_customer(id=worker_id)
+    
+    if not worker or not customer:
+        await message.answer("Ошибка: данные не найдены", reply_markup=kbc.menu())
+        return
+    
+    # Логируем успешную покупку
+    logger.info(f"Успешная покупка контактов: worker_id={worker.id}, customer_id={customer.id}, "
+                f"tariff={tariff_type}, price={price}")
+    
+    # Отправляем контакты исполнителю
+    await message.answer(
         text=f"Покупка контакта успешно выполнена ✅\n\nКонтакты заказчика:\n{customer_contacts}",
         reply_markup=kbc.menu()
     )

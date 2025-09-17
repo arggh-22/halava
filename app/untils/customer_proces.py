@@ -30,7 +30,7 @@ async def ban_task(message, work_type_id, task, time, ban_reason, msg):
             f'Задача: {task}\n'
             f'Время: {time}\n')
 
-    text = help_defs.escape_markdown(text=text)  # todo: moment
+    text = help_defs.escape_markdown(text)
 
     file_path = help_defs.create_file_in_directory_with_timestamp(id=message.chat.id, text=text,
                                                                   path='app/data/banned/text/')
@@ -59,7 +59,7 @@ async def ban_task(message, work_type_id, task, time, ban_reason, msg):
             f'\n'
             f'{ban_reason}')
 
-    text = help_defs.escape_markdown(text=text)  # todo: moment
+    text = help_defs.escape_markdown(text)
 
     await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
