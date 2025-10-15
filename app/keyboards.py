@@ -41,13 +41,6 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def verification_worker(self) -> InlineKeyboardMarkup:
-        builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="Да", callback_data="verification_yes"))
-        builder.add(self._inline(button_text="Возможно позже", callback_data="verification_no"))
-        builder.adjust(2, 1)
-        return builder.as_markup()
-
     def menu_keyboard(self, admin: bool = False, btn_menu: bool = False) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         if admin:
@@ -188,23 +181,30 @@ class KeyboardCollection:
     def menu_worker_keyboard(self, confirmed, choose_works, individual_entrepreneur,
                              create_photo, create_name) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
+        
+        # Основные функции
         builder.add(self._inline(button_text="Объявления", callback_data="look-abs-in-city"))
         builder.add(self._inline(button_text="Ваши отклики", callback_data="my_responses"))
-        builder.add(self._inline(button_text="Тарифы", callback_data="worker_type_subscription"))
-        builder.add(self._inline(button_text="Сменить город", callback_data="worker_change_city"))
-        if not confirmed:
-            builder.add(self._inline(button_text="Верификация", callback_data="verification_yes"))
-        if not individual_entrepreneur:
-            builder.add(self._inline(button_text="Указать наличие ИП", callback_data="individual_entrepreneur"))
-        if choose_works:
-            builder.add(self._inline(button_text="Выбрать направления", callback_data="choose_work_types"))
-        if create_photo:
-            builder.add(self._inline(button_text="Фото профиля", callback_data="create_photo_profile"))
-        else:
-            builder.add(self._inline(button_text="Фото профиля", callback_data="create_photo_profile"))
-        if not create_name:
-            builder.add(self._inline(button_text="Указать имя", callback_data="add_worker_name"))
+        
+        # Новые кнопки
+        builder.add(self._inline(button_text="Ранг", callback_data="worker_rank"))
+        builder.add(self._inline(button_text="Активность", callback_data="worker_activity"))
+        builder.add(self._inline(button_text="Статус", callback_data="worker_status"))
+        
+        # Направления работ
+        builder.add(self._inline(button_text="Мои направления", callback_data="choose_work_types"))
+        
+        # Города
+        builder.add(self._inline(button_text="Сменить город", callback_data="worker_change_city_menu"))
+        builder.add(self._inline(button_text="Добавить город ₽", callback_data="add_city"))
+        
+        # Контакты
+        builder.add(self._inline(button_text="Купить контакты ₽", callback_data="worker_purchased_contacts"))
+        
+        # Профиль
+        builder.add(self._inline(button_text="Фото профиля", callback_data="create_photo_profile"))
         builder.add(self._inline(button_text="Портфолио", callback_data="my_portfolio"))
+        
         builder.adjust(1)
         return builder.as_markup()
 
@@ -214,7 +214,7 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def menu_customer_keyboard(self, btn_bue: bool) -> InlineKeyboardMarkup:
+    def menu_customer_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text="Разместить объявление", callback_data="create_new_abs"))
         builder.add(self._inline(button_text="Мои объявления", callback_data="my_abs"))
@@ -225,7 +225,7 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def choose_worker_subscription(self, subscriptions_ids: list['int'], subscriptions_names: list['str']) -> InlineKeyboardMarkup:
+    def choose_worker_subscription(self, subscriptions_ids: list, subscriptions_names: list) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         for id, name in zip(subscriptions_ids, subscriptions_names):
             builder.add(self._inline(button_text=name.capitalize(), callback_data=f'subscription_{id}'))
@@ -245,7 +245,7 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def choose_worker_subscription_and_buy(self, cur_sub_id: int, cur_sub_name: str,  subscriptions_ids: list['int'], subscriptions_names: list['str']) -> InlineKeyboardMarkup:
+    def choose_worker_subscription_and_buy(self, cur_sub_id: int, cur_sub_name: str,  subscriptions_ids: list, subscriptions_names: list) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text=f'Купить {cur_sub_name.capitalize()}', callback_data=f'subscription-buy_{cur_sub_id}'))
         for id, name in zip(subscriptions_ids, subscriptions_names):
@@ -431,9 +431,9 @@ class KeyboardCollection:
         return builder.as_markup()
 
     def choose_work_types_improved(self, all_work_types: list, selected_ids: list, 
-                                 count_work_types: int, btn_back: bool = False, 
+                                 count_work_types: int, page: int = 0, btn_back: bool = False, 
                                  name_btn_back: str = 'Назад') -> InlineKeyboardMarkup:
-        """Улучшенная клавиатура для выбора направлений работы"""
+        """Улучшенная клавиатура для выбора направлений работы с пагинацией"""
         builder = InlineKeyboardBuilder()
         
         # Показываем выбранные направления с возможностью удаления
@@ -447,33 +447,41 @@ class KeyboardCollection:
             builder.add(self._inline(button_text="─" * 20,
                                      callback_data="separator"))
         
-        # Показываем доступные направления
-        for work_type in all_work_types:
+        # Пагинация - показываем по 8 направлений на странице
+        ITEMS_PER_PAGE = 8
+        start_index = page * ITEMS_PER_PAGE
+        end_index = start_index + ITEMS_PER_PAGE
+        page_work_types = all_work_types[start_index:end_index]
+        total_pages = (len(all_work_types) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+        
+        # Показываем доступные направления на текущей странице
+        for work_type in page_work_types:
             if str(work_type.id) in selected_ids:
                 # Уже выбранное направление
-                if work_type.id == 20:
-                    builder.add(self._inline(button_text=f"✅ {work_type.work_type} 👥",
-                                             callback_data=f"remove_work_type_{work_type.id}"))
-                else:
-                    builder.add(self._inline(button_text=f"✅ {work_type.work_type}",
-                                             callback_data=f"remove_work_type_{work_type.id}"))
+                builder.add(self._inline(button_text=f"✅ {work_type.work_type}",
+                                         callback_data=f"remove_work_type_{work_type.id}"))
             else:
                 # Доступное для выбора направление
                 if len(selected_ids) < count_work_types:
-                    if work_type.id == 20:
-                        builder.add(self._inline(button_text=f"➕ {work_type.work_type} 👥",
-                                                 callback_data=f"add_work_type_{work_type.id}"))
-                    else:
-                        builder.add(self._inline(button_text=f"➕ {work_type.work_type}",
-                                                 callback_data=f"add_work_type_{work_type.id}"))
+                    builder.add(self._inline(button_text=f"➕ {work_type.work_type}",
+                                             callback_data=f"add_work_type_{work_type.id}"))
                 else:
                     # Лимит достигнут
-                    if work_type.id == 20:
-                        builder.add(self._inline(button_text=f"🔒 {work_type.work_type} 👥",
-                                                 callback_data=f"limit_reached"))
-                    else:
-                        builder.add(self._inline(button_text=f"🔒 {work_type.work_type}",
-                                                 callback_data=f"limit_reached"))
+                    builder.add(self._inline(button_text=f"🔒 {work_type.work_type}",
+                                             callback_data=f"limit_reached"))
+        
+        # Кнопки навигации по страницам
+        if total_pages > 1:
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(self._inline("◀️", f"page_{page-1}"))
+            nav_buttons.append(self._inline(f"{page+1}/{total_pages}", "current_page"))
+            if page < total_pages - 1:
+                nav_buttons.append(self._inline("▶️", f"page_{page+1}"))
+            
+            for btn in nav_buttons:
+                builder.add(btn)
+            builder.adjust(len(nav_buttons))
         
         if btn_back:
             builder.add(self._inline(button_text=name_btn_back,
@@ -532,7 +540,7 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def apply_btn(self, abs_id, report_btn: bool = True, send_btn: bool = False, photo_num=None, photo_len=0, request_contact_btn: bool = False):
+    def apply_btn(self, abs_id, report_btn: bool = True, send_btn: bool = False, photo_num=None, photo_len=0):
         builder = InlineKeyboardBuilder()
         if photo_len > 1:
             builder.add(self._inline(button_text=f'<',
@@ -546,9 +554,6 @@ class KeyboardCollection:
         if send_btn:
             builder.add(self._inline(button_text=f'Ответить заказчику',
                                      callback_data=f'answer-obj_{abs_id}'))
-        if request_contact_btn:
-            builder.add(self._inline(button_text=f'📞 Запросить контакт',
-                                     callback_data=f'request-contact_{abs_id}'))
         if report_btn:
             builder.add(self._inline(button_text=f'Пожаловаться',
                                      callback_data=f'report-it_{abs_id}'))
@@ -662,20 +667,28 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def apply_final_btn(self, idk, role: str, name: str = None, id_now: int = None, skip_btn: bool = True, send_btn: bool = False, send_btn_name: str = f'Написать исполнителю', skip_btn_name: str = 'Отклонить отклик', btn_back: bool = False, abs_id: int = None, buy_btn: bool = False, portfolio: bool = False, send_contacts_btn: bool = False):
+    def apply_final_btn(self, idk, role: str, name: str = None, id_now: int = None, skip_btn: bool = True, send_btn: bool = False, send_btn_name: str = f'Написать исполнителю', skip_btn_name: str = 'Отклонить отклик', btn_back: bool = False, abs_id: int = None, buy_btn: bool = False, portfolio: bool = False, send_contacts_btn: bool = False, request_contacts_btn: bool = False, chat_closed: bool = False):
         builder = InlineKeyboardBuilder()
         if name:
             builder.add(self._inline(button_text=f'{name}',
                                      callback_data=f'apply-final-it_{idk}'))
-        if send_btn:
-            builder.add(self._inline(button_text=send_btn_name,
-                                     callback_data=f'answer-obj-{role}_{idk}'))
-        if buy_btn:
-            builder.add(self._inline(button_text=skip_btn_name,
-                                     callback_data=f'buy-response_{idk}'))
-        if skip_btn:
-            builder.add(self._inline(button_text=skip_btn_name,
-                                     callback_data=f'hide-obj-{role}_{idk}'))
+        # Если чат закрыт для заказчика, скрываем кнопки отправки сообщений и отклонения
+        if not chat_closed:
+            if send_btn:
+                builder.add(self._inline(button_text=send_btn_name,
+                                         callback_data=f'answer-obj-{role}_{idk}'))
+            if buy_btn:
+                # Показываем кнопки для покупки контакта после обмена контактами
+                builder.add(self._inline(button_text='💰 Купить контакт',
+                                         callback_data=f'buy-contact_{idk}_{abs_id}'))
+            if skip_btn:
+                # Для работников после обмена контактами показываем "Отклонить отклик"
+                if role == 'worker' and buy_btn:
+                    builder.add(self._inline(button_text='❌ Отклонить отклик',
+                                             callback_data=f'hide-obj-{role}_{idk}'))
+                else:
+                    builder.add(self._inline(button_text=skip_btn_name,
+                                             callback_data=f'hide-obj-{role}_{idk}'))
 
         if portfolio:
             builder.add(self._inline(button_text='Портфолио исполнителя',
@@ -683,6 +696,10 @@ class KeyboardCollection:
         if send_contacts_btn:
             builder.add(self._inline(button_text='📞 Отправить контакты',
                                      callback_data=f'send-contacts_{idk}_{abs_id}'))
+        
+        if request_contacts_btn:
+            builder.add(self._inline(button_text='📞 Запросить контакты',
+                                     callback_data=f'request-contacts_{idk}_{abs_id}'))
 
         if btn_back:
             if role == 'worker':
@@ -727,28 +744,32 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def get_for_staring(self, ids, names):
+    def get_for_staring(self, ids, names, abs_id):
+        """Функция для выбора исполнителя для оценки (новая система)"""
         builder = InlineKeyboardBuilder()
         for id, name in zip(ids, names):
             builder.add(self._inline(button_text=f'{name}',
-                                     callback_data=f'choose-worker-for-staring_{id}'))
+                                     callback_data=f'choose-worker-for-rating_{id}_{abs_id}'))
         builder.add(self._inline(button_text=f'Не оценивать',
                                  callback_data=f'skip-star-for-worker'))
         builder.adjust(1)
         return builder.as_markup()
 
-    def set_star(self, worker_id):
+# Старая функция set_star удалена - теперь используется set_rating
+
+    def set_rating(self, worker_id, abs_id):
+        """Новая система оценки исполнителей"""
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text=f'⭐️',
-                                 callback_data=f'star_1_{worker_id}'))
+                                 callback_data=f'rate-worker_{worker_id}_{abs_id}_1'))
         builder.add(self._inline(button_text=f'⭐️⭐️',
-                                 callback_data=f'star_2_{worker_id}'))
+                                 callback_data=f'rate-worker_{worker_id}_{abs_id}_2'))
         builder.add(self._inline(button_text=f'⭐️⭐️⭐️',
-                                 callback_data=f'star_3_{worker_id}'))
+                                 callback_data=f'rate-worker_{worker_id}_{abs_id}_3'))
         builder.add(self._inline(button_text=f'⭐️⭐️⭐️⭐️',
-                                 callback_data=f'star_4_{worker_id}'))
+                                 callback_data=f'rate-worker_{worker_id}_{abs_id}_4'))
         builder.add(self._inline(button_text=f'⭐️⭐️⭐️⭐️⭐️',
-                                 callback_data=f'star_5_{worker_id}'))
+                                 callback_data=f'rate-worker_{worker_id}_{abs_id}_5'))
         builder.add(self._inline(button_text=f'Пропустить',
                                  callback_data=f'skip-star-for-worker'))
         builder.adjust(1)
@@ -867,21 +888,24 @@ class KeyboardCollection:
         return builder.as_markup(resize_keyboard=True)
 
     # Новые кнопки для системы покупки контактов
-    def send_contacts_btn(self, worker_id: int, abs_id: int):
-        """Кнопка для отправки контактов заказчиком"""
-        builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="📞 Отправить контакты", 
-                                 callback_data=f"send-contacts_{worker_id}_{abs_id}"))
-        builder.adjust(1)
-        return builder.as_markup()
 
-    def buy_contact_btn(self, worker_id: int, abs_id: int):
+    def buy_contact_btn(self, customer_id: int, abs_id: int):
         """Кнопки для покупки контакта исполнителем"""
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text="💰 Купить контакт", 
-                                 callback_data=f"buy-contact_{worker_id}_{abs_id}"))
+                                 callback_data=f"buy-contact_{customer_id}_{abs_id}"))
         builder.add(self._inline(button_text="❌ Отклонить отклик", 
-                                 callback_data=f"reject-response_{worker_id}_{abs_id}"))
+                                 callback_data=f"reject-response_{customer_id}_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def customer_response_to_contact_request(self, worker_id: int, abs_id: int):
+        """Кнопки для ответа заказчика на запрос контактов от исполнителя"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Отправить контакты", 
+                                 callback_data=f"send-contacts-to-worker_{worker_id}_{abs_id}"))
+        builder.add(self._inline(button_text="❌ Отклонить запрос", 
+                                 callback_data=f"reject-contact-request_{worker_id}_{abs_id}"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -896,7 +920,302 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="4490 ₽ — Безлимит 3 месяца", callback_data="contact-tariff_unlimited_3_4490"))
         builder.add(self._inline(button_text="6990 ₽ — Безлимит 6 месяцев", callback_data="contact-tariff_unlimited_6_6990"))
         builder.add(self._inline(button_text="10990 ₽ — Безлимит 12 месяцев", callback_data="contact-tariff_unlimited_12_10990"))
-        builder.add(self._inline(button_text="Назад", callback_data="back_to_worker_menu"))
+        builder.add(self._inline(button_text="Назад", callback_data="worker_purchased_contacts"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def send_contacts_request(self, worker_id: int, abs_id: int):
+        """Кнопки для запроса контактов от заказчика"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="📞 Отправить контакты", 
+                                 callback_data=f"send-contacts_{worker_id}_{abs_id}"))
+        builder.add(self._inline(button_text="⬅️ Назад к откликам", 
+                                 callback_data=f"back-to-responses_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def contact_request_response(self, worker_id: int, abs_id: int):
+        """Кнопки ответа на запрос контактов для исполнителя"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="💰 Купить контакт", 
+                                 callback_data=f"buy-contact_{worker_id}_{abs_id}"))
+        builder.add(self._inline(button_text="❌ Отклонить отклик", 
+                                 callback_data=f"reject-response_{worker_id}_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def contact_sent_confirmation(self):
+        """Кнопка подтверждения отправки контактов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Контакты отправлены", 
+                                 callback_data="contacts-sent-confirmed"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def contact_purchased_confirmation(self):
+        """Кнопка подтверждения покупки контактов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Контакт получен", 
+                                 callback_data="contact-purchased-confirmed"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def chat_closed_buttons(self, abs_id: int):
+        """Кнопки для закрытого чата"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="⬅️ Назад к откликам", 
+                                 callback_data=f"back-to-responses_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+
+    def new_contact_tariffs(self):
+        """Новые клавиатуры для тарифов контактов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="190 ₽ — 1 контакт", callback_data="contact-tariff_1_190"))
+        builder.add(self._inline(button_text="290 ₽ — 2 контакта", callback_data="contact-tariff_2_290"))
+        builder.add(self._inline(button_text="690 ₽ — 5 контактов", callback_data="contact-tariff_5_690"))
+        builder.add(self._inline(button_text="1190 ₽ — 10 контактов", callback_data="contact-tariff_10_1190"))
+        builder.add(self._inline(button_text="1990 ₽ — Безлимит 1 месяц", callback_data="contact-tariff_unlimited_1_1990"))
+        builder.add(self._inline(button_text="4490 ₽ — Безлимит 3 месяца", callback_data="contact-tariff_unlimited_3_4490"))
+        builder.add(self._inline(button_text="6990 ₽ — Безлимит 6 месяцев", callback_data="contact-tariff_unlimited_6_6990"))
+        builder.add(self._inline(button_text="10990 ₽ — Безлимит 12 месяцев", callback_data="contact-tariff_unlimited_12_10990"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def send_contacts_customer_btn(self, worker_id: int, abs_id: int):
+        """Кнопка отправки контактов для заказчика"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="📞 Отправить контакты", 
+                                 callback_data=f"send-contacts-new_{worker_id}_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def buy_contact_worker_btn(self, customer_id: int, abs_id: int):
+        """Кнопки для исполнителя после получения уведомления о контактах"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="💰 Купить контакт", 
+                                 callback_data=f"buy-contact-new_{customer_id}_{abs_id}"))
+        builder.add(self._inline(button_text="❌ Отклонить отклик", 
+                                 callback_data=f"reject-contact-new_{customer_id}_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def rating_buttons(self, worker_id: int, abs_id: int):
+        """Кнопки для оценки исполнителя заказчиком"""
+        builder = InlineKeyboardBuilder()
+        for i in range(1, 6):
+            builder.add(self._inline(button_text="⭐" * i, 
+                                     callback_data=f"rate-worker_{worker_id}_{abs_id}_{i}"))
+        builder.adjust(5)
+        return builder.as_markup()
+
+    def chat_closed_buttons(self, role: str, abs_id: int):
+        """Кнопки для закрытого чата"""
+        builder = InlineKeyboardBuilder()
+        if role == 'customer':
+            builder.add(self._inline(button_text="⬅️ Назад к откликам", 
+                                     callback_data=f"back-to-responses_{abs_id}"))
+        else:
+            builder.add(self._inline(button_text="⬅️ Назад к объявлениям", 
+                                     callback_data="worker_menu"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    # ========== НОВЫЕ КНОПКИ ДЛЯ ОТКЛИКОВ И АНОНИМНОГО ЧАТА ==========
+    
+    def advertisement_response_buttons(self, abs_id: int, btn_next: bool = False, btn_back: bool = False, abs_list_id: int = 0) -> InlineKeyboardMarkup:
+        """Кнопки под объявлением для исполнителя с навигацией"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Откликнуться", 
+                                 callback_data=f"respond_to_ad_{abs_id}"))
+        builder.add(self._inline(button_text="⚠️ Пожаловаться", 
+                                 callback_data=f"report_ad_{abs_id}"))
+        builder.add(self._inline(button_text="❌ Скрыть объявление", 
+                                 callback_data=f"decline_ad_{abs_id}"))
+        
+        # Кнопки навигации
+        if btn_next:
+            builder.add(self._inline(button_text="▶️ Дальше", 
+                                     callback_data=f"go_worker_{abs_list_id + 1}"))
+        if btn_back:
+            builder.add(self._inline(button_text="◀️ Назад", 
+                                     callback_data=f"go_worker_{abs_list_id - 1}"))
+        
+        builder.add(self._inline(button_text="🏠 В меню", 
+                                 callback_data="back_to_ads"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def chat_rules_confirmation(self) -> InlineKeyboardMarkup:
+        """Кнопка подтверждения правил чата"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Ознакомлен, Продолжить", 
+                                 callback_data="confirm_chat_rules"))
+        builder.add(self._inline(button_text="❌ Отмена", 
+                                 callback_data="cancel_response"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def response_type_choice(self, abs_id: int) -> InlineKeyboardMarkup:
+        """Выбор типа отклика"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="📝 Написать сообщение", 
+                                 callback_data=f"response_with_text_{abs_id}"))
+        builder.add(self._inline(button_text="✅ Откликнуться без сообщения", 
+                                 callback_data=f"response_without_text_{abs_id}"))
+        builder.add(self._inline(button_text="❌ Отмена", 
+                                 callback_data="cancel_response"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def anonymous_chat_worker_buttons(self, abs_id: int, has_contacts: bool = False, 
+                                     contacts_requested: bool = False, contacts_sent: bool = False) -> InlineKeyboardMarkup:
+        """Кнопки для анонимного чата исполнителя"""
+        builder = InlineKeyboardBuilder()
+        
+        if has_contacts:
+            # Контакты уже куплены - показываем только назад
+            builder.add(self._inline(button_text="◀️ К моим откликам", 
+                                     callback_data="my_responses"))
+        elif contacts_requested:
+            # Контакты переданы, но не куплены - нужно покупать
+            builder.add(self._inline(button_text="💳 Купить контакты", 
+                                     callback_data=f"buy_contacts_for_abs_{abs_id}"))
+            builder.add(self._inline(button_text="❌ Отказаться", 
+                                     callback_data=f"reject_contact_offer_{abs_id}"))
+        elif contacts_sent:
+            # Контакты запрошены, ждем подтверждения
+            builder.add(self._inline(button_text="⏳ Ожидание подтверждения", 
+                                     callback_data="noop"))
+            builder.add(self._inline(button_text="❌ Отменить запрос", 
+                                     callback_data=f"cancel_contact_request_{abs_id}"))
+        else:
+            # Можно запросить контакты
+            builder.add(self._inline(button_text="📞 Запросить контакт", 
+                                     callback_data=f"request_contact_{abs_id}"))
+        
+        # Кнопка для ответа в чате (только если контакты не куплены)
+        if not has_contacts:
+            builder.add(self._inline(button_text="💬 Ответить в чате", 
+                                     callback_data=f"reply_in_worker_chat_{abs_id}"))
+        
+        # Кнопка отмены отклика (только если контакты НЕ куплены)
+        if not has_contacts:
+            builder.add(self._inline(button_text="❌ Отменить отклик", 
+                                     callback_data=f"cancel_worker_response_{abs_id}"))
+        
+        # Кнопка "К моим откликам" только если контакты НЕ куплены
+        if not has_contacts:
+            builder.add(self._inline(button_text="◀️ К моим откликам", 
+                                     callback_data="my_responses"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def anonymous_chat_customer_buttons(self, worker_id: int, abs_id: int, 
+                                       contact_requested: bool = False,
+                                       contact_sent: bool = False,
+                                       contacts_purchased: bool = False) -> InlineKeyboardMarkup:
+        """Кнопки для анонимного чата заказчика"""
+        builder = InlineKeyboardBuilder()
+        
+        if contact_sent:
+            # Контакты уже отправлены
+            builder.add(self._inline(button_text="✅ Контакты отправлены", 
+                                     callback_data="noop"))
+        elif contact_requested:
+            # Исполнитель запросил контакты
+            builder.add(self._inline(button_text="✅ Подтвердить передачу", 
+                                     callback_data=f"confirm_contact_share_{worker_id}_{abs_id}"))
+            builder.add(self._inline(button_text="❌ Отклонить", 
+                                     callback_data=f"decline_contact_share_{worker_id}_{abs_id}"))
+        else:
+            # Можно предложить контакты
+            builder.add(self._inline(button_text="📞 Предложить контакты", 
+                                     callback_data=f"offer_contact_share_{worker_id}_{abs_id}"))
+        
+        # Кнопка для ответа в чате (только если чат не закрыт)
+        if not contact_sent or not contacts_purchased:
+            builder.add(self._inline(button_text="💬 Ответить в чате", 
+                                     callback_data=f"reply_in_chat_{worker_id}_{abs_id}"))
+        
+        # Кнопка отклонения отклика (только если контакты не переданы)
+        if not contact_sent:
+            builder.add(self._inline(button_text="❌ Отклонить отклик", 
+                                     callback_data=f"reject_customer_response_{worker_id}_{abs_id}"))
+        
+        builder.add(self._inline(button_text="⭐ Оценить исполнителя", 
+                                 callback_data=f"rate_worker_{worker_id}_{abs_id}"))
+        builder.add(self._inline(button_text="◀️ К откликам", 
+                                 callback_data=f"view_responses_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def buy_tokens_tariffs(self) -> InlineKeyboardMarkup:
+        """Тарифы покупки жетонов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="1 жетон — 190₽", 
+                                 callback_data="buy_tokens_1_190"))
+        builder.add(self._inline(button_text="2 жетона — 290₽ (-24%)", 
+                                 callback_data="buy_tokens_2_290"))
+        builder.add(self._inline(button_text="5 жетонов — 690₽ (-27%)", 
+                                 callback_data="buy_tokens_5_690"))
+        builder.add(self._inline(button_text="10 жетонов — 1190₽ (-37%)", 
+                                 callback_data="buy_tokens_10_1190"))
+        builder.add(self._inline(button_text="🔥 Безлимит 1 месяц — 1990₽", 
+                                 callback_data="buy_tokens_unlimited_1_1990"))
+        builder.add(self._inline(button_text="🔥 Безлимит 3 месяца — 4490₽", 
+                                 callback_data="buy_tokens_unlimited_3_4490"))
+        builder.add(self._inline(button_text="🔥 Безлимит 6 месяцев — 6990₽", 
+                                 callback_data="buy_tokens_unlimited_6_6990"))
+        builder.add(self._inline(button_text="🔥 Безлимит 12 месяцев — 10990₽", 
+                                 callback_data="buy_tokens_unlimited_12_10990"))
+        builder.add(self._inline(button_text="◀️ Отмена", 
+                                 callback_data="cancel_token_purchase"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def my_responses_list_buttons(self, responses_data: list) -> InlineKeyboardMarkup:
+        """Кнопки списка откликов исполнителя"""
+        builder = InlineKeyboardBuilder()
+        
+        for response in responses_data:
+            abs_id = response['abs_id']
+            status_emoji = "💬" if response['active'] else "✅"
+            text = f"{status_emoji} Объявление #{abs_id}"
+            builder.add(self._inline(button_text=text, 
+                                     callback_data=f"view_my_response_{abs_id}"))
+        
+        builder.add(self._inline(button_text="◀️ В меню", 
+                                 callback_data="worker_menu"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def customer_responses_list_buttons(self, responses_data: list, abs_id: int) -> InlineKeyboardMarkup:
+        """Кнопки списка откликов на объявление заказчика"""
+        builder = InlineKeyboardBuilder()
+        
+        for response in responses_data:
+            worker_public_id = response['worker_public_id']
+            status_emoji = "💬" if response['active'] else "✅"
+            text = f"{status_emoji} {worker_public_id}"
+            builder.add(self._inline(button_text=text, 
+                                     callback_data=f"view_response_{response['worker_id']}_{abs_id}"))
+        
+        builder.add(self._inline(button_text="◀️ К объявлениям", 
+                                 callback_data="my_abs"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def contact_purchase_confirmation(self, worker_id: int, abs_id: int, price: int) -> InlineKeyboardMarkup:
+        """Подтверждение покупки контакта"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text=f"✅ Купить за {price}₽", 
+                                 callback_data=f"confirm_purchase_{worker_id}_{abs_id}_{price}"))
+        builder.add(self._inline(button_text="💰 Выбрать другой тариф", 
+                                 callback_data="buy_tokens_menu"))
+        builder.add(self._inline(button_text="❌ Отмена", 
+                                 callback_data="my_responses"))
         builder.adjust(1)
         return builder.as_markup()
 

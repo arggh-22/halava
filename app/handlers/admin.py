@@ -1335,9 +1335,6 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    if abs_now.work_type_id == 20:
-        text_list = text.split(' ||| ')
-        text = text_list[0] + f'\nНомер телефона: {text_list[1]}'
 
     text = f'Объявление {abs_now.id}\n\n' + text
     if abs_now.photo_path:
@@ -1404,9 +1401,6 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    if abs_now.work_type_id == 20:
-        text_list = text.split(' ||| ')
-        text = text_list[0] + f'\nНомер телефона: {text_list[1]}'
 
     text = f'Объявление {abs_now.id}\n\n' + text
 
@@ -1888,9 +1882,6 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    if abs_now.work_type_id == 20:
-        text_list = text.split(' ||| ')
-        text = text_list[0] + f'\nНомер телефона: {text_list[1]}'
 
     text = f'Объявление {abs_now.id}\n\n' + text
     if abs_now.photo_path:
@@ -1956,9 +1947,6 @@ async def check_banned_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    if abs_now.work_type_id == 20:
-        text_list = text.split(' ||| ')
-        text = text_list[0] + f'\nНомер телефона: {text_list[1]}'
 
     text = f'Объявление {abs_now.id}\n\n' + text
 
@@ -2106,9 +2094,6 @@ async def unblock_advertisement(callback: CallbackQuery, state: FSMContext) -> N
 
     text = help_defs.read_text_file(text_path)
 
-    if advertisement.work_type_id == 20:
-        text_list = text.split(' ||| ')
-        text = text_list[0]
 
     text = f'Объявление{advertisement.id}\n\n' + text
 

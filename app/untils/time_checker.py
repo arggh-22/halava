@@ -107,114 +107,126 @@ async def check_time_customer():
 
 
 async def check_time_advertisement():
+    """Проверка срока актуальности объявлений с адаптивной логикой"""
     logger.info('check_time_advertisement')
     advertisements = await Abs.get_all()
     kbc = KeyboardCollection()
     if advertisements:
         for advertisement in advertisements:
-            if advertisement.date_to_delite < datetime.now():
-                workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=advertisement.id)
-                customer = await Customer.get_customer(id=advertisement.customer_id)
+            await check_single_advertisement_expiry(advertisement, kbc)
 
-                text = help_defs.read_text_file(advertisement.text_path)
 
-                if workers_and_abs:
-                    workers_for_assessments = []
-                    for worker_and_abs in workers_and_abs:
-                        worker = await Worker.get_worker(id=worker_and_abs.worker_id)
-                        if worker is None:
-                            continue
-                        worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-                        sub = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-                        if sub.notification:
-                            city = await City.get_city(id=advertisement.city_id)
-                            text = f'Объявление {advertisement.id} г. {city.city}\n' + help_defs.read_text_file(
-                                advertisement.text_path)
-                            try:
-                                await bot.send_message(chat_id=worker.tg_id,
-                                                       text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text}')
-                            except Exception:
-                                pass
-                        if worker_and_abs.applyed:
-                            workers_for_assessments.append(worker)
-                        await worker_and_abs.delete()
+async def check_single_advertisement_expiry(advertisement, kbc):
+    """Проверка одного объявления с учетом его срока актуальности"""
+    now = datetime.now()
+    expiry_time = advertisement.date_to_delite
+    
+    # Рассчитываем время до истечения
+    time_until_expiry = expiry_time - now
+    
+    # Определяем тип объявления по времени до истечения
+    if time_until_expiry.total_seconds() <= 0:
+        # ИСТЕК - автоматическое закрытие
+        await handle_expired_advertisement(advertisement, kbc)
+    elif time_until_expiry.total_seconds() <= 2 * 3600:  # <= 2 часа
+        # Скоро истекает (для коротких сроков)
+        await handle_expiring_soon_advertisement(advertisement, kbc)
+    elif time_until_expiry.total_seconds() <= 24 * 3600:  # <= 24 часа
+        # Истекает завтра (для длинных сроков)
+        await handle_expiring_tomorrow_advertisement(advertisement, kbc)
 
-                    if workers_for_assessments:
-                        names = [
-                            f'Исполнитель ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.stars else 0}'
-                            for worker in
-                            workers_for_assessments]
-                        ids = [worker.id for worker in workers_for_assessments]
 
-                        try:
-                            await bot.send_message(
-                                chat_id=customer.tg_id,
-                                text=f'Срок актуальность объявления #{advertisement.id} истек!'
-                                     f'{text}\n\n'
-                                     f'Выберите исполнителя для оценки',
-                                reply_markup=kbc.get_for_staring(ids=ids, names=names)
-                            )
-                        except Exception as e:
-                            logger.info(e)
+async def handle_expired_advertisement(advertisement, kbc):
+    """Обработка истекшего объявления - автоматическое закрытие"""
+    logger.info(f'Handling expired advertisement {advertisement.id}')
+    
+    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=advertisement.id)
+    customer = await Customer.get_customer(id=advertisement.customer_id)
+    text = help_defs.read_text_file(advertisement.text_path)
 
-                else:
-                    try:
-                        await bot.send_message(
-                            chat_id=customer.tg_id,
-                            text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
-                                 f'{text}'
-                        )
-                    except Exception as e:
-                        logger.info(e)
-
-                await advertisement.delete(delite_photo=True if advertisement.photo_path else False)
-            elif advertisement.date_to_delite <= datetime.now():
-                workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=advertisement.id)
-                customer = await Customer.get_customer(id=advertisement.customer_id)
-
-                text = help_defs.read_text_file(advertisement.text_path)
-
-                if workers_and_abs:
-                    workers_for_assessments = []
-                    for worker_and_abs in workers_and_abs:
-                        worker = await Worker.get_worker(id=worker_and_abs.worker_id)
-                        if worker is None:
-                            continue
-                        if worker_and_abs.applyed:
-                            workers_for_assessments.append(worker)
-
-                    if workers_for_assessments:
-                        try:
-                            await bot.send_message(
-                                chat_id=customer.tg_id,
-                                text=f'Срок актуальности истек!\n\n'
-                                     f'{text}',
-                                reply_markup=kbc.end_time(idk=advertisement.id, workers=True)
-                            )
-                        except Exception as e:
-                            logger.info(e)
-
-                else:
-                    try:
-                        await bot.send_message(
-                            chat_id=customer.tg_id,
-                            text=f'Срок актуальности истек!\n\n'
-                                 f'{text}',
-                            reply_markup=kbc.end_time(idk=advertisement.id, workers=False)
-                        )
-                    except Exception as e:
-                        logger.info(e)
-
-                await advertisement.delete(delite_photo=True if advertisement.photo_path else False)
-            elif advertisement.date_to_delite + timedelta(days=1) <= datetime.now():
-                customer = await Customer.get_customer(id=advertisement.customer_id)
+    if workers_and_abs:
+        workers_for_assessments = []
+        for worker_and_abs in workers_and_abs:
+            worker = await Worker.get_worker(id=worker_and_abs.worker_id)
+            if worker is None:
+                continue
+            worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+            sub = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
+            if sub.notification:
+                city = await City.get_city(id=advertisement.city_id)
+                text = f'Объявление {advertisement.id} г. {city.city}\n' + help_defs.read_text_file(
+                    advertisement.text_path)
                 try:
-                    await bot.send_message(
-                        chat_id=customer.tg_id,
-                        text='Завтра истекает срок вашего объявления!'
-                    )
-                except Exception as e:
-                    logger.info(e)
+                    await bot.send_message(chat_id=worker.tg_id,
+                                           text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text}')
+                except Exception:
+                    pass
+            if worker_and_abs.applyed:
+                workers_for_assessments.append(worker)
+            await worker_and_abs.delete()
+
+        if workers_for_assessments:
+            names = [
+                f'Исполнитель ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
+                for worker in workers_for_assessments]
+            ids = [worker.id for worker in workers_for_assessments]
+
+            try:
+                await bot.send_message(
+                    chat_id=customer.tg_id,
+                    text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
+                         f'{text}\n\n'
+                         f'Выберите исполнителя для оценки',
+                    reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement.id)
+                )
+            except Exception as e:
+                logger.info(e)
+
+    else:
+        try:
+            await bot.send_message(
+                chat_id=customer.tg_id,
+                text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
+                     f'{text}'
+            )
+        except Exception as e:
+            logger.info(e)
+
+    await advertisement.delete(delite_photo=True if advertisement.photo_path else False)
+
+
+async def handle_expiring_soon_advertisement(advertisement, kbc):
+    """Обработка объявления, которое скоро истекает (для коротких сроков)"""
+    logger.info(f'Handling expiring soon advertisement {advertisement.id}')
+    
+    customer = await Customer.get_customer(id=advertisement.customer_id)
+    text = help_defs.read_text_file(advertisement.text_path)
+    
+    try:
+        await bot.send_message(
+            chat_id=customer.tg_id,
+            text=f'⚠️ Объявление #{advertisement.id} истекает через 2 часа!\n\n'
+                 f'{text}\n\n'
+                 f'Объявление будет автоматически закрыто при истечении срока.'
+        )
+    except Exception as e:
+        logger.info(e)
+
+
+async def handle_expiring_tomorrow_advertisement(advertisement, kbc):
+    """Обработка объявления, которое истекает завтра (для длинных сроков)"""
+    logger.info(f'Handling expiring tomorrow advertisement {advertisement.id}')
+    
+    customer = await Customer.get_customer(id=advertisement.customer_id)
+    
+    try:
+        await bot.send_message(
+            chat_id=customer.tg_id,
+            text=f'📅 Завтра истекает срок вашего объявления #{advertisement.id}!'
+        )
+    except Exception as e:
+        logger.info(e)
+# Старая логика удалена - теперь используется новая адаптивная система
 
 
 async def check_time_banned_advertisement():
@@ -234,6 +246,53 @@ async def cleanup_orphaned_files():
         logger.info(f'Очистка файлов завершена. Обработано файлов: {cleaned_count}')
     except Exception as e:
         logger.error(f'Ошибка при очистке файлов: {e}')
+
+
+async def restore_weekly_activity():
+    """Восстанавливает +1 активность всем исполнителям за неделю без нарушений"""
+    logger.info('restore_weekly_activity: Starting weekly activity restoration')
+    
+    try:
+        import aiosqlite
+        
+        conn = await aiosqlite.connect('app/data/database/database.db')
+        try:
+            # Получаем всех активных исполнителей
+            cursor = await conn.execute('SELECT id, activity_level FROM workers WHERE active = 1')
+            workers = await cursor.fetchall()
+            await cursor.close()
+            
+            updated_count = 0
+            week_ago = (datetime.now() - timedelta(days=7)).isoformat()
+            
+            for worker_id, current_activity in workers:
+                # Проверяем наличие отмен откликов за последнюю неделю
+                cursor = await conn.execute('''
+                    SELECT COUNT(*) FROM worker_response_cancellations 
+                    WHERE worker_id = ? AND cancelled_at >= ?
+                ''', (worker_id, week_ago))
+                cancelled_responses_count = (await cursor.fetchone())[0]
+                await cursor.close()
+                
+                # Если нет отмен откликов за неделю, увеличиваем активность
+                if cancelled_responses_count == 0 and current_activity < 100:
+                    new_activity = min(100, current_activity + 1)
+                    cursor = await conn.execute(
+                        'UPDATE workers SET activity_level = ? WHERE id = ?',
+                        (new_activity, worker_id)
+                    )
+                    await cursor.close()
+                    updated_count += 1
+                    logger.debug(f'Worker {worker_id}: {current_activity} -> {new_activity}')
+            
+            await conn.commit()
+            logger.info(f'restore_weekly_activity: Updated {updated_count} workers')
+            
+        finally:
+            await conn.close()
+            
+    except Exception as e:
+        logger.error(f'restore_weekly_activity: Error - {e}')
 
 
 #  _    _        _      _____              _

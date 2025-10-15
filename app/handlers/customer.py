@@ -11,8 +11,8 @@ from aiogram.fsm.context import FSMContext
 
 import config
 import loaders
-from app.data.database.models import Customer, Worker, City, Banned, WorkType, Abs, WorkSubType, \
-    WorkerAndSubscription, WorkersAndAbs, Admin, BannedAbs, WorkerAndBadResponse, WorkerAndReport
+from app.data.database.models import Customer, Worker, City, Banned, WorkType, Abs, \
+    WorkerAndSubscription, WorkersAndAbs, Admin, BannedAbs, WorkerAndBadResponse, WorkerAndReport, ContactExchange
 from app.keyboards import KeyboardCollection
 from app.states import UserStates, CustomerStates, BannedStates
 from app.untils import help_defs, checks, yandex_ocr
@@ -166,8 +166,7 @@ async def choose_city_end(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == 'menu', StateFilter(
     CustomerStates.customer_menu,
     CustomerStates.customer_check_abs,
-    CustomerStates.customer_change_city,
-    CustomerStates.customer_response))
+    CustomerStates.customer_change_city))
 async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'customer_menu...')
 
@@ -202,8 +201,7 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
         pass
     await state.set_state(CustomerStates.customer_menu)
     await callback.message.answer(text=text,
-                                  reply_markup=kbc.menu_customer_keyboard(
-                                      btn_bue=False))  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
+                                  reply_markup=kbc.menu_customer_keyboard())  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
 
 
 @router.callback_query(F.data == 'customer_menu')
@@ -244,9 +242,10 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
             f'Открыто объявлений: {len(user_abs) if user_abs else 0}')
 
     await state.set_state(CustomerStates.customer_menu)
-    await callback.message.edit_text(text=text,
-                                     reply_markup=kbc.menu_customer_keyboard(
-                                         btn_bue=False))  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.menu_customer_keyboard()
+    )  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
 
 
 # Обработчик покупки объявлений убран - размещение всегда бесплатно
@@ -301,7 +300,7 @@ async def send_invoice_buy_subscription_removed(callback: CallbackQuery, state: 
             
             await callback.message.answer(
                 text=error_text,
-                reply_markup=kbc.menu_customer_keyboard(btn_bue=True)
+                reply_markup=kbc.menu_customer_keyboard()
             )
         else:
             # Другие ошибки платежа
@@ -315,7 +314,7 @@ async def send_invoice_buy_subscription_removed(callback: CallbackQuery, state: 
             
             await callback.message.answer(
                 text=error_text,
-                reply_markup=kbc.menu_customer_keyboard(btn_bue=True)
+                reply_markup=kbc.menu_customer_keyboard()
             )
         
         # Возвращаемся в меню заказчика
@@ -404,15 +403,58 @@ async def create_new_abs_back(callback: CallbackQuery, state: FSMContext) -> Non
                                          btn_bue=False))  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
 
 
-@router.callback_query(F.data == 'my_abs', StateFilter(CustomerStates.customer_menu, CustomerStates.customer_check_abs,
-                                                       CustomerStates.customer_response))
+async def get_customer_ads_optimized(customer_id: int):
+    """Оптимизированное получение всех данных объявлений заказчика одним запросом"""
+    import aiosqlite
+    
+    conn = await aiosqlite.connect(database='app/data/database/database.db')
+    try:
+        cursor = await conn.execute('''
+            SELECT 
+                a.id, a.work_type_id, a.city_id, a.text_path, a.photo_path, 
+                a.views, a.count_photo,
+                c.city,
+                (SELECT COUNT(*) FROM workers_and_abs wa WHERE wa.abs_id = a.id AND wa.applyed = 1) as responses_count
+            FROM abs a
+            LEFT JOIN cities c ON a.city_id = c.id
+            WHERE a.customer_id = ?
+            ORDER BY a.id DESC
+        ''', (customer_id,))
+        
+        results = await cursor.fetchall()
+        await cursor.close()
+        
+        advertisements = []
+        for result in results:
+            ads_data = {
+                'id': result[0],
+                'work_type_id': result[1],
+                'city_id': result[2],
+                'text_path': result[3],
+                'photo_path': result[4],
+                'views': result[5],
+                'count_photo': result[6],
+                'city_name': result[7],
+                'responses_count': result[8]
+            }
+            advertisements.append(ads_data)
+        
+        return advertisements
+    finally:
+        await conn.close()
+
+
+@router.callback_query(F.data == 'my_abs')
 async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'my_abs...')
 
     kbc = KeyboardCollection()
 
+    # Получаем заказчика
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
+    
+    # Получаем все данные объявлений одним запросом
+    advertisements = await get_customer_ads_optimized(customer_id=customer.id)
 
     if not advertisements:
         await callback.message.edit_text(text='У вас пока нет объявлений', reply_markup=kbc.menu())
@@ -420,6 +462,9 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     await state.set_state(CustomerStates.customer_check_abs)
+    
+    # Сохраняем данные объявлений в состоянии для оптимизации
+    await state.update_data(advertisements=advertisements)
 
     abs_now = advertisements[0]
     if len(advertisements) > 1:
@@ -427,57 +472,92 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
     else:
         btn_next = False
 
-    city = await City.get_city(id=abs_now.city_id)
+    # Используем данные из оптимизированного запроса
+    city_name = abs_now['city_name']
+    
+    text = help_defs.read_text_file(abs_now['text_path'])
 
-    text = help_defs.read_text_file(abs_now.text_path)
 
-    if abs_now.work_type_id == 20:
-        text_list = text.split(' ||| ')
-        text = text_list[0] + f'\nНомер телефона: {text_list[1]}'
-
-    text = f'Объявление {abs_now.id} г. {city.city}\n\n' + text + f'\n\nПросмотров: {abs_now.views}'
+    text = f'Объявление {abs_now["id"]} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now["views"]}'
     logger.debug(f"text {text}")
-    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now.id)
-
-    workers_applyed = False
-    btn_responses = False
-
-    if workers_and_abs:
-        btn_responses = True
-        for worker_and_abs in workers_and_abs:
-            if worker_and_abs.applyed:
-                workers_applyed = True
-                btn_responses = True
-                break
+    
+    # Используем количество откликов из оптимизированного запроса
+    has_responses = abs_now['responses_count'] > 0
+    btn_responses = has_responses
+    workers_applyed = has_responses  # Если есть отклики, значит есть откликнувшиеся
 
     btn_close_name = 'Закрыть и оценить' if workers_applyed else 'Отменить и удалить'
 
-    if abs_now.photo_path:
+    if abs_now['photo_path']:
         try:
             await callback.message.delete()
         except TelegramBadRequest:
             pass
-        logger.debug(abs_now.photo_path['0'])
-        logger.debug(abs_now.photo_path)
-        if 'https' in abs_now.photo_path['0']:
-            await callback.message.edit_text(text=text,
-                                             reply_markup=kbc.choose_obj_with_out_list(id_now=0, btn_next=btn_next,
-                                                                                       btn_back=False,
-                                                                                       btn_close=True,
-                                                                                       btn_responses=btn_responses,
-                                                                                       btn_close_name=btn_close_name,
-                                                                                       abs_id=abs_now.id))
+        # Парсим JSON строку photo_path
+        import json
+        
+        def get_safe_photo_path(photo_path_str):
+            """Безопасно извлекает путь к фотографии из JSON строки"""
+            if not photo_path_str:
+                return ''
+            try:
+                photo_dict = json.loads(photo_path_str)
+                if isinstance(photo_dict, dict):
+                    return photo_dict.get('0', '')
+                return ''
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                return ''
+        
+        photo_path = get_safe_photo_path(abs_now['photo_path'])
+        
+        logger.debug(photo_path)
+        logger.debug(abs_now['photo_path'])
+        
+        # Проверяем, есть ли валидный путь к фото
+        if not photo_path:
+            # Нет фото - отправляем только текст
+            await callback.message.answer(text=text,
+                                          reply_markup=kbc.choose_obj_with_out_list(id_now=0, btn_next=btn_next,
+                                                                                    btn_back=False,
+                                                                                    btn_close=True,
+                                                                                    btn_responses=btn_responses,
+                                                                                    btn_close_name=btn_close_name,
+                                                                                    abs_id=abs_now['id']))
             return
-        await callback.message.answer_photo(photo=FSInputFile(abs_now.photo_path['0']),
+        elif 'https' in photo_path:
+            # Фото по ссылке - отправляем только текст (фото уже показано)
+            await callback.message.answer(text=text,
+                                          reply_markup=kbc.choose_obj_with_out_list(id_now=0, btn_next=btn_next,
+                                                                                    btn_back=False,
+                                                                                    btn_close=True,
+                                                                                    btn_responses=btn_responses,
+                                                                                    btn_close_name=btn_close_name,
+                                                                                    abs_id=abs_now['id']))
+            return
+        else:
+            # Локальное фото - проверяем существование файла и отправляем
+            import os
+            if os.path.exists(photo_path) and os.path.isfile(photo_path):
+                await callback.message.answer_photo(photo=FSInputFile(photo_path),
                                             caption=text,
                                             reply_markup=kbc.choose_obj_with_out_list(id_now=0, btn_next=btn_next,
                                                                                       btn_back=False,
                                                                                       btn_close=True,
                                                                                       btn_responses=btn_responses,
                                                                                       btn_close_name=btn_close_name,
-                                                                                      abs_id=abs_now.id,
-                                                                                      count_photo=abs_now.count_photo,
+                                                                                      abs_id=abs_now['id'],
+                                                                                      count_photo=abs_now['count_photo'],
                                                                                       idk_photo=0))
+            else:
+                # Файл не существует - отправляем только текст
+                logger.warning(f"Photo file not found: {photo_path}")
+                await callback.message.answer(text=text,
+                                              reply_markup=kbc.choose_obj_with_out_list(id_now=0, btn_next=btn_next,
+                                                                                        btn_back=False,
+                                                                                        btn_close=True,
+                                                                                        btn_responses=btn_responses,
+                                                                                        btn_close_name=btn_close_name,
+                                                                                        abs_id=abs_now['id']))
     else:
         await callback.message.edit_text(text=text,
                                          reply_markup=kbc.choose_obj_with_out_list(id_now=0, btn_next=btn_next,
@@ -485,10 +565,10 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
                                                                                    btn_close=True,
                                                                                    btn_responses=btn_responses,
                                                                                    btn_close_name=btn_close_name,
-                                                                                   abs_id=abs_now.id))
+                                                                                   abs_id=abs_now['id']))
 
 
-@router.callback_query(lambda c: c.data.startswith('go_'), StateFilter(CustomerStates.customer_check_abs, CustomerStates.customer_response))
+@router.callback_query(lambda c: c.data.startswith('go_'), StateFilter(CustomerStates.customer_check_abs))
 async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'check_abs...')
 
@@ -514,9 +594,6 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    if abs_now.work_type_id == 20:
-        text_list = text.split(' ||| ')
-        text = text_list[0] + f'\nНомер телефона: {text_list[1]}'
 
     text = f'Объявление {abs_now.id} г. {city.city}\n\n' + text + f'\n\nПросмотров: {abs_now.views}'
     logger.debug(f"text {text}")
@@ -626,9 +703,6 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    if abs_now.work_type_id == 20:
-        text_list = text.split(' ||| ')
-        text = text_list[0] + f'\nНомер телефона: {text_list[1]}'
 
     text = f'Объявление {abs_now.id} г. {city.city}\n\n' + text + f'\n\nПросмотров: {abs_now.views}'
     logger.debug(f"text {text}")
@@ -704,7 +778,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('go-to-next_'), StateFilter(CustomerStates.customer_check_abs, CustomerStates.customer_response))
+@router.callback_query(lambda c: c.data.startswith('go-to-next_'), StateFilter(CustomerStates.customer_check_abs))
 async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'check_abs...')
 
@@ -769,383 +843,22 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
 
-@router.callback_query(lambda c: c.data.startswith('customer-responses_'), StateFilter(CustomerStates.customer_check_abs, CustomerStates.customer_response))
-async def customer_responses(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'customer_response...')
+# Функция просмотра откликов полностью удалена
 
-    kbc = KeyboardCollection()
 
-    abs_id = int(callback.data.split('_')[1])
-    abs_list_id = int(callback.data.split('_')[2])
+# Функция просмотра конкретного отклика полностью удалена
 
-    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
 
-    names = []
-    worker_ids = []
+# Функции обработки платежей за отклики полностью удалены
 
-    if workers_and_abs:
-        for worker_and_abs in workers_and_abs:
-            unread = True
-            count_messages = max([len(worker_and_abs.worker_messages), len(worker_and_abs.customer_messages)])
 
-            for i in range(count_messages):
-                if i < len(worker_and_abs.worker_messages):
-                    unread = True
-                if i < len(worker_and_abs.customer_messages):
-                    unread = False
-            worker = await Worker.get_worker(id=worker_and_abs.worker_id)
-            text = f'{"• " if unread else ""}{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
-            names.append(text)
-            worker_ids.append(worker.id)
-    else:
-        return
+# Функция отклонения отклика заказчиком полностью удалена
 
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
 
-    msg = await callback.message.answer(
-        text='Выберете интересующий вас отклик',
-        reply_markup=kbc.choose_responses(
-            id_now=abs_id,
-            ids=worker_ids,
-            names=names,
-            abs_list_id=abs_list_id
-        )
-    )
-    await state.update_data(msg_id=msg.message_id)
+# Функция ответа заказчика исполнителю полностью удалена
 
 
-@router.callback_query(lambda c: c.data.startswith('customer-response_'),
-                       StateFilter(CustomerStates.customer_check_abs, CustomerStates.customer_response))
-async def customer_response(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'customer_response...')
-
-    kbc = KeyboardCollection()
-    worker_id = int(callback.data.split('_')[1])
-    abs_id = int(callback.data.split('_')[2])
-
-    state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id')) if state_data.get('msg_id') is not None else None
-
-    worker_and_abs = await WorkersAndAbs.get_by_worker_and_abs(abs_id=abs_id, worker_id=worker_id)
-    worker = await Worker.get_worker(id=worker_id)
-
-    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-    advertisements = [advertisement.id for advertisement in advertisements]
-
-    id_now = advertisements.index(abs_id)
-    advertisement = await Abs.get_one(id=abs_id)
-
-    text = (f'Исполнитель ID {worker.id} {worker.profile_name if worker.profile_name else ""}\n'
-            f'Рейтинг: ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n'
-            f'Верификация: ✅\n'  # Верификация убрана
-            f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
-            f'Зарегистрирован с {worker.registration_data}\n'
-            f'Выполненных заказов: {worker.order_count}\n\n')
-
-    count_messages = max([len(worker_and_abs.worker_messages), len(worker_and_abs.customer_messages)])
-
-    send_btn = True  # Система очередности убрана
-
-    for i in range(count_messages):
-        if i < len(worker_and_abs.worker_messages):
-            if worker_and_abs.worker_messages[i] == 'Исполнитель не отправил сообщение':
-                text += f' - {worker_and_abs.worker_messages[i]}\n'
-            else:
-                text += f' - Исполнитель: "{worker_and_abs.worker_messages[i]}"\n'
-
-        if i < len(worker_and_abs.customer_messages):
-            text += f' - Вы: "{worker_and_abs.customer_messages[i]}"\n'
-
-    await state.set_state(CustomerStates.customer_response)
-
-    try:
-        if msg_id:
-            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
-    except TelegramBadRequest:
-        pass
-
-    if advertisement.work_type_id == 20 and not worker_and_abs.applyed:
-        text = help_defs.read_text_file(advertisement.text_path)
-        text = text.split('\n')
-        text = text[0].split(' | ')
-        prices = [LabeledPrice(label=f"Вызывной персонал", amount=int(config.PRICE * 100))]
-        text = f"Оплата отклика, на объявление о вызывном персонале: {text[1]}"
-
-        try:
-            await callback.message.answer_invoice(
-                title=f"Оплата отклика",
-                description=text,
-                provider_token=config.PAYMENTS,
-                currency="RUB",  # Валюта в верхнем регистре
-                prices=prices,
-                start_parameter="buy-response",
-                payload="invoice-payload",
-                reply_markup=kbc.customer_buy_response(abs_id=abs_id, id_now=id_now),
-                need_email=True,
-                send_email_to_provider=True
-            )
-            await state.update_data(worker_id=worker_id, abs_id=abs_id)
-            return
-        except TelegramBadRequest as e:
-            logger.error(f"Payment provider error for visual personnel: {e}")
-            # Обрабатываем ошибку недоступности платежного метода
-            if "PAYMENT_PROVIDER_INVALID" in str(e):
-                error_text = "❌ Платежный метод недоступен\n\n"
-                error_text += "🚫 К сожалению, в вашей стране недоступны платежные методы Telegram.\n\n"
-                error_text += "💡 Возможные решения:\n"
-                error_text += "• Используйте VPN для смены региона\n"
-                error_text += "• Обратитесь к администратору для альтернативной оплаты\n"
-                error_text += "• Попробуйте позже\n\n"
-                error_text += "📞 Для получения помощи обратитесь в поддержку"
-                
-                await callback.message.answer(
-                    text=error_text,
-                    reply_markup=kbc.menu_customer_keyboard()
-                )
-            else:
-                # Другие ошибки платежа
-                error_text = "❌ Ошибка при создании платежа\n\n"
-                error_text += "🚫 Произошла ошибка при попытке создать платеж.\n\n"
-                error_text += "💡 Попробуйте:\n"
-                error_text += "• Проверить интернет-соединение\n"
-                error_text += "• Попробовать позже\n"
-                error_text += "• Обратиться в поддержку\n\n"
-                error_text += f"🔍 Код ошибки: {str(e)}"
-                
-                await callback.message.answer(
-                    text=error_text,
-                    reply_markup=kbc.menu_customer_keyboard()
-                )
-            
-            # Возвращаемся в меню заказчика
-            await state.set_state(CustomerStates.customer_menu)
-            return
-    msg = await callback.message.answer(
-        text=text,
-        reply_markup=kbc.apply_final_btn(
-            idk=worker_id,
-            send_btn=send_btn,
-            role='customer',
-            btn_back=True,
-            id_now=id_now,
-            abs_id=abs_id,
-            portfolio=True if worker.portfolio_photo else False
-        )
-    )
-    await state.update_data(msg_id=msg.message_id)
-    await state.update_data(abs_id=abs_id)
-
-
-@router.pre_checkout_query(lambda query: True, CustomerStates.customer_response)
-async def pre_checkout_handler(pre_checkout_query: PreCheckoutQuery) -> None:
-    logger.debug(f'pre_checkout_handler...')
-    await pre_checkout_query.answer(ok=True)
-
-
-@router.message(F.successful_payment, CustomerStates.customer_response)
-async def success_payment_handler(message: Message, state: FSMContext):
-    logger.debug(f'success_payment_handler...')
-    kbc = KeyboardCollection()
-
-    state_data = await state.get_data()
-    abs_id = int(state_data.get('abs_id'))
-    worker_id = int(state_data.get('worker_id'))
-
-    worker_and_abs = await WorkersAndAbs.get_by_worker_and_abs(abs_id=abs_id, worker_id=worker_id)
-    worker = await Worker.get_worker(id=worker_id)
-
-    customer = await Customer.get_customer(tg_id=message.chat.id)
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-    advertisements = [advertisement.id for advertisement in advertisements]
-
-    id_now = advertisements.index(abs_id)
-    advertisement = await Abs.get_one(id=abs_id)
-
-    text_msg = help_defs.read_text_file(advertisement.text_path)
-    text_msg = text_msg.split(' ||| ')
-
-    await worker_and_abs.update(applyed=True)
-    worker_and_abs.customer_messages.append(text_msg[1])
-    await worker_and_abs.update(customer_messages=worker_and_abs.customer_messages)  # Система очередности убрана
-    await bot.send_message(chat_id=worker.tg_id,
-                           text=f"Заказчик принял ваш отклик на объявление ID{advertisement.id}\n\n{text_msg[0]}\n\nСвяжитесь с ним: {text_msg[1]}")
-
-    text = f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️{round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n\n'
-
-    count_messages = max([len(worker_and_abs.worker_messages), len(worker_and_abs.customer_messages)])
-
-    for i in range(count_messages):
-        if i < len(worker_and_abs.worker_messages):
-            if worker_and_abs.worker_messages[i] == 'Исполнитель не отправил сообщение':
-                text += f' - {worker_and_abs.worker_messages[i]}\n'
-            else:
-                text += f' - Исполнитель: "{worker_and_abs.worker_messages[i]}"\n'
-
-        if i < len(worker_and_abs.customer_messages):
-            text += f' - Вы: "{worker_and_abs.customer_messages[i]}"\n'
-
-    await state.set_state(CustomerStates.customer_response)
-    try:
-        msg = await message.answer(
-            text=text,
-            reply_markup=kbc.apply_final_btn(
-                idk=worker_id,
-                send_btn=False,
-                role='customer',
-                btn_back=True,
-                id_now=id_now,
-                abs_id=abs_id,
-                portfolio=True if worker.portfolio_photo else False
-            )
-        )
-        await state.update_data(msg_id=msg.message_id)
-        await state.update_data(abs_id=abs_id)
-    except TelegramBadRequest:
-        pass
-
-
-@router.callback_query(lambda c: c.data.startswith('hide-obj-customer_'), CustomerStates.customer_response)
-async def apply_order_hide(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'apply_order_hide...')
-
-    worker_id = int(callback.data.split('_')[1])
-    state_data = await state.get_data()
-    abs_id = int(state_data.get('abs_id'))
-
-    kbc = KeyboardCollection()
-
-    worker_and_abs = await WorkersAndAbs.get_by_worker_and_abs(abs_id=abs_id, worker_id=worker_id)
-    await worker_and_abs.delete()
-    worker_and_bad_report = WorkerAndBadResponse(abs_id=abs_id, worker_id=worker_id)
-    await worker_and_bad_report.save()
-
-    worker = await Worker.get_worker(id=worker_id)
-
-    advertisement = await Abs.get_one(id=abs_id)
-
-    if advertisement.work_type_id == 20:
-        text = help_defs.read_text_file(advertisement.text_path)
-        text = text.split(' ||| ')
-        text = f'К сожалению, заказчик *отклонил* ваш *отклик* на объявление {advertisement.id}:\n' + text[0]
-    else:
-        text = f'К сожалению, заказчик *отклонил* ваш *отклик* на объявление {advertisement.id}:\n' + help_defs.read_text_file(advertisement.text_path)
-
-    await bot.send_message(chat_id=worker.tg_id, text=text)
-
-    await callback.message.edit_text(text='Отклик отклонен!', reply_markup=kbc.menu())
-    await state.set_state(CustomerStates.customer_menu)
-
-
-@router.callback_query(lambda c: c.data.startswith('answer-obj-customer_'), CustomerStates.customer_response)
-async def apply_worker_with_out_msg(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'apply_worker_with_out_msg...')
-
-    worker_id = int(callback.data.split('_')[1])
-    state_data = await state.get_data()
-    abs_id = int(state_data.get('abs_id'))
-
-    if await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker_id, abs_id=abs_id):
-        await callback.answer(
-            text=f"Предусмотрена блокировка, если в тексте и фото присутствуют:\n"
-                 f"- Ссылки\n"
-                 f"- Латинские буквы\n"
-                 f"- Названия любых агрегаторов, мессенджеров и маркетплейсов",
-            show_alert=True
-        )
-
-    msg = await callback.message.answer(text='Напишите ваш вопрос исполнителю:')
-
-    await state.set_state(CustomerStates.customer_response_apply_worker_text)
-    await state.update_data(worker_id=worker_id)
-    await state.update_data(abs_id=abs_id)
-    await state.update_data(msg_id=msg.message_id)
-
-
-@router.message(F.text, CustomerStates.customer_response_apply_worker_text)
-async def send_worker_with_msg(message: Message, state: FSMContext) -> None:
-    logger.debug(f'send_worker_with_msg...')
-
-    kbc = KeyboardCollection()
-
-    msg_to_send = message.text
-
-    state_data = await state.get_data()
-    customer = await Customer.get_customer(tg_id=message.chat.id)
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-    advertisements = [advertisement.id for advertisement in advertisements]
-    worker_id = int(state_data.get('worker_id'))
-    abs_id = int(state_data.get('abs_id'))
-
-    worker = await Worker.get_worker(id=worker_id)
-
-    if worker_and_abs := await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=abs_id):
-        pass
-    else:
-        await state.set_state(CustomerStates.customer_menu)
-        await message.answer(
-            text=f'Пользователь отклонил ваш отклик',
-            reply_markup=kbc.menu_btn())
-        return
-
-    if await checks.fool_check(text=msg_to_send, is_message=True):
-        await message.answer(
-            'Упс, ваше сообщение содержит недопустимые слова, пожалуйста перепишите сообщение')
-        return
-    elif checks.contains_invalid_chars(text=msg_to_send):
-        await message.answer(
-            'Упс, ваше сообщение содержит недопустимые символы, пожалуйста перепишите сообщение')
-        return
-    elif checks.phone_finder(msg_to_send):
-        # Заказчик пытается отправить номер - показываем уведомление
-        await message.answer(
-            text="⚠️ Не отправляйте номер телефона в чате!\n\n"
-                 "Для передачи контактов используйте кнопку \"📞 Отправить контакты\"",
-            show_alert=True
-        )
-        return
-
-    advertisement = await Abs.get_one(id=abs_id)
-
-    if len(msg_to_send) > 200:
-        await message.answer(
-            text=f'В сообщении должно быть не более 200 символов')
-        return
-    try:
-        await bot.send_message(chat_id=config.MESSAGE_LOG,
-                               text=f' заказчик #{message.chat.id} отправил сообщение исполнителю #{worker.tg_id}: "{message.text}"',
-                               protect_content=False, reply_markup=kbc.block_message_log(user_id=message.chat.id))
-    except TelegramBadRequest:
-        pass
-
-    text = f'Ответ по Объявлению {abs_id}: "{msg_to_send}"\n\nОбъявление {abs_id}\n\n{help_defs.read_text_file(advertisement.text_path)}'
-
-    id_now = advertisements.index(abs_id)
-
-    try:
-        await bot.send_message(chat_id=worker.tg_id, text=text,
-                               reply_markup=kbc.apply_final_btn(idk=abs_id, skip_btn=True, send_btn=True,
-                                                                send_btn_name='Ответить заказчику',
-                                                                skip_btn_name='Отказаться и удалить', role='worker',
-                                                                id_now=0))
-    except Exception:
-        text = f'Ответ по Объявлению {abs_id}: "{msg_to_send}"'
-        await bot.send_message(chat_id=worker.tg_id, text=text,
-                               reply_markup=kbc.apply_final_btn(idk=abs_id, skip_btn=True, send_btn=True,
-                                                                send_btn_name='Ответить заказчику',
-                                                                skip_btn_name='Отказаться и удалить', role='worker',
-                                                                id_now=0))
-    await message.answer(
-        text=f'Сообщение успешно отправлено!',
-        reply_markup=kbc.back_to_responses(abs_id=abs_id, id_now=id_now))
-
-    worker_and_abs.customer_messages.append(msg_to_send)
-    await worker_and_abs.update(customer_messages=worker_and_abs.customer_messages)  # Система очередности убрана
-
-    await state.set_state(CustomerStates.customer_check_abs)
+# Функция обработки сообщений от заказчика полностью удалена
 
 
 @router.callback_query(lambda c: c.data.startswith('close_'), CustomerStates.customer_check_abs)
@@ -1167,6 +880,14 @@ async def close_abs(callback: CallbackQuery, state: FSMContext) -> None:
     workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=advertisement_now.id)
     if workers_and_reports is not None:
         [await workers_and_report.delete() for workers_and_report in workers_and_reports]
+    
+    # Удаляем записи ContactExchange для этого объявления
+    from app.data.database.models import ContactExchange
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=advertisement_now.id)
+    if contact_exchanges:
+        [await contact_exchange.delete() for contact_exchange in contact_exchanges]
+        logger.info(f"Deleted {len(contact_exchanges)} ContactExchange records for abs_id {advertisement_now.id}")
+    
     workers_for_assessments = []
     if workers_and_abs:
         workers_for_assessments = await close_task(
@@ -1186,7 +907,7 @@ async def close_abs(callback: CallbackQuery, state: FSMContext) -> None:
             await advertisement_now.delete(delite_photo=True)
 
             await callback.message.answer(text='Выберите исполнителя для оценки',
-                                          reply_markup=kbc.get_for_staring(ids=ids, names=names))
+                                          reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement_now.id))
 
             admins = await Admin.get_all()
             for admin in admins:
@@ -1302,6 +1023,14 @@ async def close_by_end_time(callback: CallbackQuery, state: FSMContext) -> None:
     workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=advertisement_now.id)
     if workers_and_reports is not None:
         [await workers_and_report.delete() for workers_and_report in workers_and_reports]
+    
+    # Удаляем записи ContactExchange для этого объявления
+    from app.data.database.models import ContactExchange
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=advertisement_now.id)
+    if contact_exchanges:
+        [await contact_exchange.delete() for contact_exchange in contact_exchanges]
+        logger.info(f"Deleted {len(contact_exchanges)} ContactExchange records for abs_id {advertisement_now.id}")
+    
     workers_for_assessments = []
     if workers_and_abs:
         workers_for_assessments = await close_task(
@@ -1321,7 +1050,7 @@ async def close_by_end_time(callback: CallbackQuery, state: FSMContext) -> None:
             await advertisement_now.delete(delite_photo=True)
 
             await callback.message.answer(text='Выберите исполнителя для оценки',
-                                          reply_markup=kbc.get_for_staring(ids=ids, names=names))
+                                          reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement_now.id))
 
             admins = await Admin.get_all()
             for admin in admins:
@@ -1341,42 +1070,26 @@ async def close_by_end_time(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer(text='Объявление закрыто!', reply_markup=kbc.menu())
 
 
-@router.callback_query(lambda c: c.data.startswith('choose-worker-for-staring_'))
-async def staring_worker(callback: CallbackQuery) -> None:
-    logger.debug(f'staring_worker...')
+@router.callback_query(lambda c: c.data.startswith('choose-worker-for-rating_'))
+async def choose_worker_for_rating(callback: CallbackQuery) -> None:
+    """Новый обработчик для выбора исполнителя для оценки"""
+    logger.debug(f'choose_worker_for_rating...')
 
-    worker_id = int(callback.data.split('_')[1])
+    # Парсим данные: choose-worker-for-rating_worker_id_abs_id
+    parts = callback.data.split('_')
+    worker_id = int(parts[1])
+    abs_id = int(parts[2])
 
     kbc = KeyboardCollection()
     try:
-        await callback.message.delite()
+        await callback.message.delete()
         await callback.message.answer(text=f'Оцените работу Исполнителя {worker_id}',
-                                      reply_markup=kbc.set_star(worker_id=worker_id))
+                                      reply_markup=kbc.set_rating(worker_id=worker_id, abs_id=abs_id))
     except Exception as e:
         logger.debug(e)
 
 
-@router.callback_query(lambda c: c.data.startswith('star_'))
-async def staring_worker(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'staring_worker...')
-
-    count_star = int(callback.data.split('_')[1])
-    worker_id = int(callback.data.split('_')[2])
-
-    kbc = KeyboardCollection()
-
-    worker = await Worker.get_worker(id=worker_id)
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker_id)
-
-    if worker_sub.subscription_id == 1:
-        await worker_sub.update(guaranteed_orders=worker_sub.guaranteed_orders - 1)
-
-    await worker.update_stars(stars=worker.stars + count_star, count_ratings=worker.count_ratings + 1)
-
-    await state.set_state(CustomerStates.customer_menu)
-
-    await callback.message.edit_text(text=f'Оценка {count_star} ⭐️ Исполнителю ID {worker_id} выставлена',
-                                     reply_markup=kbc.menu())
+# Старая система оценки удалена - теперь используется rate_worker
 
 
 @router.callback_query(F.data == 'skip-star-for-worker')
@@ -1393,21 +1106,10 @@ async def create_abs_work_type(callback: CallbackQuery, state: FSMContext) -> No
 
     kbc = KeyboardCollection()
     work_type_id = int(callback.data.split('_')[1])
-    work_sub_type = await WorkSubType.get_work_sub_types(work_mine_type_id=work_type_id)
-
-    if work_sub_type:
-        names = [work_type.work_type for work_type in work_sub_type]
-        ids = [work_type.id for work_type in work_sub_type]
-        await callback.message.edit_text(text='Выберете категорию',
-                                         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
-        await state.set_state(CustomerStates.customer_choose_work_sub_types)
-        await state.update_data(work_type_id=work_type_id)
-        return
-
     work_type = await WorkType.get_work_type(id=work_type_id)
 
-    text = help_defs.read_text_file(work_type.template)
-    text = f'Пример объявления для {work_type.work_type}\n\n' + text
+    template_text = help_defs.read_text_file(work_type.template) if work_type.template else "Пример объявления не найден"
+    text = f'Пример объявления для {work_type.work_type}\n\n' + template_text
 
     if work_type.template_photo:
         try:
@@ -1428,65 +1130,8 @@ async def create_abs_work_type(callback: CallbackQuery, state: FSMContext) -> No
     await state.update_data(example_msg_id=example_msg.message_id)
 
 
-@router.callback_query(lambda c: c.data.startswith('obj-id_'), CustomerStates.customer_choose_work_sub_types)
-async def create_abs_work_sub_type(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'create_abs_work_sub_type...')
-    kbc = KeyboardCollection()
-
-    work_sub_type_id = str(callback.data.split('_')[1])
-    state_data = await state.get_data()
-    work_type_id = str(state_data.get('work_type_id'))
-
-    work_type_id = work_type_id + '|' + work_sub_type_id
-
-    work_sub_type = await WorkSubType.get_work_type(id=int(work_sub_type_id))
-
-    text = help_defs.read_text_file(work_sub_type.template)
-    text = f'Пример объявления для {work_sub_type.work_type}\n\n' + text
-    if work_sub_type.template_photo:
-        try:
-            await callback.message.delete()
-        except TelegramBadRequest:
-            pass
-        await callback.message.answer_photo(photo=FSInputFile(work_sub_type.template_photo), caption=text,
-                                            parse_mode='HTML')
-        return
-
-    if '20' in work_type_id:
-        await callback.message.delete()
-        msg = await callback.message.answer(
-            'Укажите подробности, условия, график, заработная плата: (не более 800 символов)',
-            reply_markup=kbc.back_btn())
-        await state.set_state(CustomerStates.customer_create_abs_task)
-        await state.update_data(work_type_id=work_type_id)
-        await state.update_data(msg_id=msg.message_id)
-        return
-
-    example_msg = await callback.message.edit_text(text=text, parse_mode='HTML')
-
-    msg = await callback.message.answer('Укажите задачу, что необходимо: (не более 800 символов)',
-                                        reply_markup=kbc.back_btn())
-    await state.set_state(CustomerStates.customer_create_abs_task)
-    await state.update_data(work_type_id=work_type_id)
-    await state.update_data(msg_id=msg.message_id)
-    await state.update_data(example_msg_id=example_msg.message_id)
 
 
-@router.callback_query(lambda c: c.data.startswith('back'), CustomerStates.customer_choose_work_sub_types)
-async def create_abs_work_sub_type_back(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'create_abs_work_sub_type_back...')
-    kbc = KeyboardCollection()
-
-    await state.clear()
-    await state.set_state(CustomerStates.customer_create_abs_work_type)
-
-    work_types = await WorkType.get_all()
-
-    names = [work_type.work_type for work_type in work_types]
-    ids = [work_type.id for work_type in work_types]
-
-    await callback.message.edit_text(text='Выберете направление',
-                                     reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
 
 
 @router.callback_query(F.data == 'back', CustomerStates.customer_create_abs_task)
@@ -1502,24 +1147,6 @@ async def create_abs_work_type_back(callback: CallbackQuery, state: FSMContext) 
     state_data = await state.get_data()
     example_msg_id = str(state_data.get('example_msg_id'))
     msg_id = str(state_data.get('msg_id'))
-    work_type_id = str(state_data.get('work_type_id'))
-    work_type_id_list = work_type_id.split('|')
-
-    if len(work_type_id_list) == 2:
-        work_sub_type = await WorkSubType.get_work_sub_types(work_mine_type_id=int(work_type_id_list[0]))
-        names = [work_type.work_type for work_type in work_sub_type]
-        ids = [work_type.id for work_type in work_sub_type]
-        await callback.message.edit_text(text='Выберете категорию',
-                                         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
-        await state.set_state(CustomerStates.customer_choose_work_sub_types)
-        await state.update_data(work_type_id=work_type_id_list[0])
-        try:
-            await bot.delete_message(chat_id=callback.message.chat.id, message_id=example_msg_id)
-        except TelegramBadRequest:
-            pass
-        except ValidationError:
-            pass
-        return
 
     try:
         await bot.delete_message(chat_id=callback.message.chat.id, message_id=example_msg_id)
@@ -1538,6 +1165,11 @@ async def customer_create_abs_price(message: Message, state: FSMContext) -> None
     logger.debug(f'customer_create_abs_price... {message.text}')
 
     kbc = KeyboardCollection()
+
+    # Проверяем контент на запрещенные элементы
+    from app.untils.help_defs import handle_forbidden_content
+    if await handle_forbidden_content(message, bot):
+        return  # Сообщение заблокировано, обработка прекращается
 
     task = message.text
 
@@ -1659,17 +1291,6 @@ async def create_abs_choose_time(callback: CallbackQuery, state: FSMContext) -> 
     except ValidationError:
         pass
 
-    if '20' in work_type_id:
-        await state.set_state(CustomerStates.enter_phone_number)
-        await state.update_data(work_type_id=work_type_id)
-        await state.update_data(task=task)
-        await state.update_data(time=time)
-        await state.update_data(end=0)
-        msg = await callback.message.edit_text(text='Укажите ваш контактный номер телефона и имя контактного лица',
-                                               reply_markup=kbc.back_btn())
-        await state.update_data(msg=msg.message_id)
-        return
-
     await state.set_state(CustomerStates.customer_create_abs_add_photo)
     await state.update_data(work_type_id=work_type_id)
     await state.update_data(task=task)
@@ -1686,144 +1307,6 @@ async def create_abs_choose_time(callback: CallbackQuery, state: FSMContext) -> 
     )
 
 
-@router.message(F.text, CustomerStates.enter_phone_number)
-async def handle_send_contact(message: Message, state: FSMContext) -> None:
-    logger.debug(f'handle_send_contact...')
-
-    kbc = KeyboardCollection()
-
-    phone = message.text
-
-    state_data = await state.get_data()
-    work_type_id = str(state_data.get('work_type_id'))
-    task = str(state_data.get('task'))
-    time = str(state_data.get('time'))
-    msg = str(state_data.get('msg'))
-
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg)
-
-    msg = await message.answer('Подождите идет проверка')
-
-    all_text = f'{task}'
-
-    if ban_reason := await checks.fool_check(text=all_text, is_personal=True):
-        await ban_task(message=message, work_type_id=work_type_id, task=task, time=time, ban_reason=ban_reason, msg=msg)
-        await state.set_state(BannedStates.banned)
-        return
-
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-
-    if checks.phone_finder(all_text):
-        await state.set_state(CustomerStates.customer_menu)
-        await message.answer(
-            'Упс, похоже вы указали номер телефона, вернитесь в меню и создайте объявление заново 🤔',
-            reply_markup=kbc.menu_btn())
-        return
-
-    if checks.contains_invalid_chars(all_text):
-        await message.answer(
-            'Извините, но использование иностранных символов недопустимо в объявлении, попробуйте еще раз',
-            reply_markup=kbc.menu_btn())
-        await state.set_state(CustomerStates.customer_menu)
-        return
-
-    if checks.contains_gibberish(all_text):
-        await state.set_state(CustomerStates.customer_menu)
-        await message.answer(
-            'Упс, похоже у вас некорректный текст, вернитесь в меню и создайте объявление заново 🤔',
-            reply_markup=kbc.menu_btn())
-        return
-
-    work_type_id_list = work_type_id.split('|')
-
-    work_type = await WorkType.get_work_type(id=int(work_type_id_list[0]))
-
-    work = work_type.work_type.capitalize()
-
-    if len(work_type_id_list) > 1:
-        work_sub_type = await WorkSubType.get_work_type(id=int(work_type_id_list[1]))
-        work += ' | ' + work_sub_type.work_type
-
-    text = (f'{work}\n\n'
-            f'Задача: {task}\n'
-            f'Время: {time}\n'
-            f'\n'
-            f'Дата публикации {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}\n'
-            f' ||| {phone}')
-
-    text = help_defs.escape_markdown(text=text)
-
-    customer = await Customer.get_customer(tg_id=message.chat.id)
-    city = await City.get_city(id=customer.city_id)
-
-    advertisements = await Abs.get_all()
-
-    if advertisements:
-        await same_task(message=message, advertisements=advertisements, text=text)
-        await state.set_state(CustomerStates.customer_menu)
-        return
-
-    file_path = help_defs.create_file_in_directory_with_timestamp(id=message.chat.id, text=text)
-
-    if time == 'В ближайшее время':
-        delta = 1
-    elif time == 'Завтра':
-        delta = 2
-    elif time == 'В течении недели':
-        delta = 8
-    else:
-        delta = 30
-
-    new_abs = Abs(
-        id=None,
-        customer_id=customer.id,
-        work_type_id=int(work_type_id_list[0]),
-        city_id=city.id,
-        photo_path=None,
-        text_path=file_path,
-        date_to_delite=datetime.today() + timedelta(days=delta),
-        count_photo=0
-    )
-    await new_abs.save()
-
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-    advertisement = advertisements[-1]
-
-    text = text.split(' ||| ')
-    text = text[0]
-
-    text = f'Объявление загружено\n\nОбъявление {advertisement.id}\n\n' + text + f'\nНомер телефона: {phone}'
-
-    # Сразу отвечаем пользователю
-    await message.answer(text=text, reply_markup=kbc.menu())
-    await state.set_state(CustomerStates.customer_menu)
-
-    # Подготавливаем текст для рассылки
-    text_for_workers = (f'{work}\n\n'
-                       f'Задача: {task}\n'
-                       f'Время: {time}\n'
-                       f'\n'
-                       f'Дата публикации {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
-
-    text_for_workers = help_defs.escape_markdown(text=text_for_workers)
-    text_for_workers = f'Объявление {advertisement.id}\n\n' + text_for_workers
-
-    # Отправляем в лог-канал
-    text2 = f'ID пользователя: #{customer.tg_id}\n\nОбъявление {advertisement.id}\n\n' + text_for_workers + f'\n\nНомер телефона: {phone}'
-    await bot.send_message(chat_id=config.ADVERTISEMENT_LOG,
-                           text=text2,
-                           protect_content=False,
-                           reply_markup=kbc.block_abs_log(advertisement.id))
-
-    # Запускаем фоновую рассылку исполнителям
-    asyncio.create_task(
-        send_to_workers_background(
-            advertisement_id=advertisement.id,
-            city_id=customer.city_id,
-            work_type_id=int(work_type_id_list[0]),
-            text=text_for_workers
-        )
-    )
 
 
 @router.callback_query(F.data == 'skip_it', CustomerStates.customer_create_abs_add_photo)
@@ -1849,15 +1332,8 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         await state.set_state(BannedStates.banned)
         return
 
-    work_type_id_list = work_type_id.split('|')
-
-    work_type = await WorkType.get_work_type(id=int(work_type_id_list[0]))
-
+    work_type = await WorkType.get_work_type(id=int(work_type_id))
     work = work_type.work_type.capitalize()
-
-    if len(work_type_id_list) > 1:
-        work_sub_type = await WorkSubType.get_work_type(id=int(work_type_id_list[1]))
-        work += ' | ' + work_sub_type.work_type
 
     if checks.phone_finder(all_text):
         await state.set_state(CustomerStates.customer_menu)
@@ -1903,18 +1379,22 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     file_path = help_defs.create_file_in_directory_with_timestamp(id=callback.message.chat.id, text=text)
 
     if time == 'В ближайшее время':
-        delta = 1
+        # 12 часов = 0.5 дня
+        delta = 0.5
     elif time == 'Завтра':
-        delta = 2
+        # 24 часа = 1 день
+        delta = 1
     elif time == 'В течении недели':
-        delta = 8
+        # 7 дней
+        delta = 7
     else:
+        # 30 дней
         delta = 30
 
     new_abs = Abs(
         id=None,
         customer_id=customer.id,
-        work_type_id=int(work_type_id_list[0]),
+        work_type_id=int(work_type_id),
         city_id=city.id,
         photo_path=None,
         text_path=file_path,
@@ -1925,6 +1405,9 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
 
     advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
     advertisement = advertisements[-1]
+
+    # Отправляем уведомления исполнителям о новом объявлении
+    await help_defs.send_targeted_notifications_to_workers(advertisement.id, customer.id)
 
     text = f'Объявление загружено\n\nОбъявление {advertisement.id}\n\n' + text
 
@@ -1957,7 +1440,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         send_to_workers_background(
             advertisement_id=advertisement.id,
             city_id=customer.city_id,
-            work_type_id=int(work_type_id_list[0]),
+            work_type_id=int(work_type_id),
             text=text_for_workers
         )
     )
@@ -2012,13 +1495,8 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         banned = await Banned.get_banned(tg_id=callback.message.chat.id)
         ban_end = str(datetime.now() + timedelta(hours=24))
 
-        work_type_id_list = work_type_id.split('|')
-        work_type = await WorkType.get_work_type(id=int(work_type_id_list[0]))
+        work_type = await WorkType.get_work_type(id=int(work_type_id))
         work = work_type.work_type.capitalize()
-
-        if len(work_type_id_list) > 1:
-            work_sub_type = await WorkSubType.get_work_type(id=int(work_type_id_list[1]))
-            work += " | " + work_sub_type.work_type
 
         customer = await Customer.get_customer(tg_id=callback.message.chat.id)
 
@@ -2034,7 +1512,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         banned_abs = BannedAbs(
             id=None,
             customer_id=customer.id,
-            work_type_id=int(work_type_id_list[0]),
+            work_type_id=int(work_type_id),
             city_id=customer.city_id,
             photo_path=photos,
             text_path=file_path,
@@ -2093,13 +1571,8 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         if file_path_photo:
             help_defs.delete_file(file_path_photo)
 
-        work_type_id_list = work_type_id.split('|')
-        work_type = await WorkType.get_work_type(id=int(work_type_id_list[0]))
+        work_type = await WorkType.get_work_type(id=int(work_type_id))
         work = work_type.work_type.capitalize()
-
-        if len(work_type_id_list) > 1:
-            work_sub_type = await WorkSubType.get_work_type(id=int(work_type_id_list[1]))
-            work += " | " + work_sub_type.work_type
 
         customer = await Customer.get_customer(tg_id=callback.message.chat.id)
 
@@ -2119,7 +1592,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         banned_abs = BannedAbs(
             id=None,
             customer_id=customer.id,
-            work_type_id=int(work_type_id_list[0]),
+            work_type_id=int(work_type_id),
             city_id=customer.city_id,
             photo_path=photos,
             text_path=file_path,
@@ -2198,15 +1671,8 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         help_defs.delete_folder(file_path_photo)
         return
 
-    work_type_id_list = work_type_id.split('|')
-
-    work_type = await WorkType.get_work_type(id=int(work_type_id_list[0]))
-
+    work_type = await WorkType.get_work_type(id=int(work_type_id))
     work = work_type.work_type.capitalize()
-
-    if len(work_type_id_list) > 1:
-        work_sub_type = await WorkSubType.get_work_type(id=int(work_type_id_list[1]))
-        work += ' | ' + work_sub_type.work_type
 
     text = (f'{work}\n\n'
             f'Задача: {task}\n'
@@ -2220,7 +1686,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     advertisements_customer = await Abs.get_all_by_customer(customer_id=customer.id)
 
     if advertisements_customer:
-        old_text = help_defs.read_text_file(advertisements_customer[-1].text_path)
+        old_text = help_defs.read_text_file(advertisements_customer[-1].text_path) if advertisements_customer[-1].text_path else "Текст не найден"
         if await checks.are_texts_similar(old_text, text):
             await callback.message.answer(
                 'Вы предлагали схожий запрос, удалите предыдущий и попробуйте снова',
@@ -2233,18 +1699,22 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     file_path = help_defs.create_file_in_directory_with_timestamp(id=callback.message.chat.id, text=text)
 
     if time == 'В ближайшее время':
-        delta = 1
+        # 12 часов = 0.5 дня
+        delta = 0.5
     elif time == 'Завтра':
-        delta = 2
+        # 24 часа = 1 день
+        delta = 1
     elif time == 'В течении недели':
-        delta = 8
+        # 7 дней
+        delta = 7
     else:
+        # 30 дней
         delta = 30
 
     new_abs = Abs(
         id=None,
         customer_id=customer.id,
-        work_type_id=int(work_type_id_list[0]),
+        work_type_id=int(work_type_id),
         city_id=city.id,
         photo_path=photos,
         text_path=file_path,
@@ -2256,12 +1726,15 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
     advertisement = advertisements[-1]
 
+    # Отправляем уведомления исполнителям о новом объявлении
+    await help_defs.send_targeted_notifications_to_workers(advertisement.id, customer.id)
+
     text = f'Объявление загружено\n\nОбъявление {advertisement.id}\n\n' + text
 
     text = help_defs.escape_markdown(text=text)
 
     # Сразу отвечаем пользователю
-    await callback.message.answer(text=text, reply_markup=kbc.menu())
+    await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
     await state.set_state(CustomerStates.customer_menu)
     # Счетчик объявлений больше не уменьшается - размещение всегда бесплатно
 
@@ -2285,7 +1758,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         send_to_workers_background(
             advertisement_id=advertisement.id,
             city_id=customer.city_id,
-            work_type_id=int(work_type_id_list[0]),
+            work_type_id=int(work_type_id),
             text=text_for_workers,
             photo_path=photos,
             photos_len=photos_len
@@ -2333,300 +1806,16 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
         return
 
 
-@router.callback_query(lambda c: c.data.startswith('look-worker-it_'))
-async def apply_worker(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'apply_worker...')
-
-    kbc = KeyboardCollection()
-    worker_id = int(callback.data.split('_')[1])
-    abs_id = int(callback.data.split('_')[2])
-
-    worker_and_abs = await WorkersAndAbs.get_by_worker_and_abs(abs_id=abs_id, worker_id=worker_id)
-    worker = await Worker.get_worker(id=worker_id)
-
-    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-    advertisements = [advertisement.id for advertisement in advertisements]
-    advertisement = await Abs.get_one(id=abs_id)
-
-    id_now = advertisements.index(abs_id)
-
-    text = (f'Исполнитель ID {worker.id} {worker.profile_name if worker.profile_name else ""}\n'
-            f'Рейтинг: ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n'
-            f'Верификация: ✅\n'  # Верификация убрана
-            f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
-            f'Зарегистрирован с {worker.registration_data}\n'
-            f'Выполненных заказов: {worker.order_count}\n\n')
-
-    count_messages = max([len(worker_and_abs.worker_messages), len(worker_and_abs.customer_messages)])
-
-    send_btn = True  # Система очередности убрана
-
-    for i in range(count_messages):
-        if i < len(worker_and_abs.worker_messages):
-            if worker_and_abs.worker_messages[i] == 'Исполнитель не отправил сообщение':
-                text += f' - {worker_and_abs.worker_messages[i]}\n'
-            else:
-                text += f' - {worker.profile_name if worker.profile_name else "Исполнитель"}: "{worker_and_abs.worker_messages[i]}"\n'
-
-        if i < len(worker_and_abs.customer_messages):
-            text += f' - Вы: "{worker_and_abs.customer_messages[i]}"\n'
-
-    await state.set_state(CustomerStates.customer_response)
-
-    if advertisement.work_type_id == 20 and not worker_and_abs.applyed:
-        await callback.message.delete()
-        text = help_defs.read_text_file(advertisement.text_path)
-        text = text.split('\n')
-        text = text[0].split(' | ')
-        prices = [LabeledPrice(label=f"Вызывной персонал", amount=int(config.PRICE * 100))]
-        text = f"Оплата отклика, на объявление о вызывном персонале: {text[1]}"
-
-        try:
-            await callback.message.answer_invoice(
-                title=f"Оплата отклика",
-                description=text,
-                provider_token=config.PAYMENTS,
-                currency="RUB",  # Валюта в верхнем регистре
-                prices=prices,
-                start_parameter="buy-response",
-                payload="invoice-payload",
-                reply_markup=kbc.customer_buy_response(abs_id=abs_id, id_now=id_now),
-                need_email=True,
-                send_email_to_provider=True
-            )
-            await state.update_data(worker_id=worker_id, abs_id=abs_id)
-            return
-        except TelegramBadRequest as e:
-            logger.error(f"Payment provider error for visual personnel (apply_worker): {e}")
-            # Обрабатываем ошибку недоступности платежного метода
-            if "PAYMENT_PROVIDER_INVALID" in str(e):
-                error_text = "❌ Платежный метод недоступен\n\n"
-                error_text += "🚫 К сожалению, в вашей стране недоступны платежные методы Telegram.\n\n"
-                error_text += "💡 Возможные решения:\n"
-                error_text += "• Используйте VPN для смены региона\n"
-                error_text += "• Обратитесь к администратору для альтернативной оплаты\n"
-                error_text += "• Попробуйте позже\n\n"
-                error_text += "📞 Для получения помощи обратитесь в поддержку"
-                
-                await callback.message.answer(
-                    text=error_text,
-                    reply_markup=kbc.menu_customer_keyboard()
-                )
-            else:
-                # Другие ошибки платежа
-                error_text = "❌ Ошибка при создании платежа\n\n"
-                error_text += "🚫 Произошла ошибка при попытке создать платеж.\n\n"
-                error_text += "💡 Попробуйте:\n"
-                error_text += "• Проверить интернет-соединение\n"
-                error_text += "• Попробовать позже\n"
-                error_text += "• Обратиться в поддержку\n\n"
-                error_text += f"🔍 Код ошибки: {str(e)}"
-                
-                await callback.message.answer(
-                    text=error_text,
-                    reply_markup=kbc.menu_customer_keyboard()
-                )
-            
-            # Возвращаемся в меню заказчика
-            await state.set_state(CustomerStates.customer_menu)
-            return
-
-    if advertisement.work_type_id == 20:
-        text = (f'Исполнитель ID {worker.id}\n'
-                f'Рейтинг: ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.stars else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)}\n'
-                f'Верификация: ✅\n'  # Верификация убрана
-                f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
-                f'Зарегистрирован с {worker.registration_data}\n'
-                f'Выполненных заказов: {worker.order_count}\n\n')
-        text += f' - Вы: "{worker_and_abs.customer_messages[0]}"\n'
-
-    if worker.profile_photo:
-
-        try:
-            await callback.message.delete()
-        except Exception as e:
-            logger.debug(f'apply_worker...{e}')
-        try:
-            msg = await callback.message.answer_photo(
-                photo=FSInputFile(worker.profile_photo),
-                caption=text,
-                reply_markup=kbc.apply_final_btn(idk=worker_id,
-                                                 send_btn=send_btn,
-                                                 role='customer',
-                                                 btn_back=True,
-                                                 id_now=id_now,
-                                                 abs_id=abs_id,
-                                                 portfolio=True if worker.portfolio_photo else False,
-                                                 send_contacts_btn=True  # Добавляем кнопку отправки контактов
-                                                 )
-            )
-        except Exception as e:
-            logger.debug(f'apply_worker...{e}')
-            msg = await callback.message.answer(
-                text=text,
-                reply_markup=kbc.apply_final_btn(idk=worker_id,
-                                                 send_btn=send_btn,
-                                                 role='customer',
-                                                 btn_back=True,
-                                                 id_now=id_now,
-                                                 abs_id=abs_id,
-                                                 portfolio=True if worker.portfolio_photo else False,
-                                                 send_contacts_btn=True  # Добавляем кнопку отправки контактов
-                                                 )
-            )
-    else:
-        try:
-            await callback.message.delete()
-        except Exception as e:
-            logger.debug(f'apply_worker...{e}')
-
-        msg = await callback.message.answer(
-            text=text,
-            reply_markup=kbc.apply_final_btn(idk=worker_id,
-                                             send_btn=send_btn,
-                                             role='customer',
-                                             btn_back=True,
-                                             id_now=id_now,
-                                             abs_id=abs_id,
-                                             portfolio=True if worker.portfolio_photo else False
-                                             )
-        )
-    await state.update_data(msg_id=msg.message_id)
-    await state.update_data(abs_id=abs_id)
+# Функция принятия отклика look-worker-it_ полностью удалена
 
 
-@router.callback_query(lambda c: c.data.startswith('worker-portfolio_'), CustomerStates.customer_response)
-async def worker_portfolio(callback: CallbackQuery) -> None:
-    logger.debug(f'worker-portfolio_...')
-
-    kbc = KeyboardCollection()
-
-    worker_id = int(callback.data.split('_')[1])
-    abs_id = int(callback.data.split('_')[2])
-
-    worker = await Worker.get_worker(id=worker_id)
-
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-
-    if worker.portfolio_photo:
-        photo_len = len(worker.portfolio_photo)
-        logger.debug(f'my_portfolio...{photo_len}')
-
-        await callback.message.answer_photo(
-            photo=FSInputFile(worker.portfolio_photo['0']),
-            reply_markup=kbc.worker_portfolio_1(
-                worker_id=worker_id,
-                abs_id=abs_id,
-                photo_len=photo_len
-            )
-        )
+# Функция worker_portfolio удалена - использовалась только для откликов
 
 
-@router.callback_query(lambda c: c.data.startswith("go-to-portfolio_"), CustomerStates.customer_response)
-async def worker_portfolio(callback: CallbackQuery) -> None:
-    logger.debug(f'worker_portfolio...')
-    kbc = KeyboardCollection()
-
-    photo_id = int(callback.data.split('_')[1])
-    worker_id = int(callback.data.split('_')[2])
-    abs_id = int(callback.data.split('_')[3])
-
-    worker = await Worker.get_worker(id=worker_id)
-
-    photo_len = len(worker.portfolio_photo)
-
-    if photo_id <= -1:
-        photo_id = photo_len - 1
-    elif photo_id > (photo_len - 1):
-        photo_id = 0
-
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=FSInputFile(worker.portfolio_photo[str(photo_id)])),
-        reply_markup=kbc.worker_portfolio_1(
-            worker_id=worker_id,
-            abs_id=abs_id,
-            photo_num=photo_id,
-            photo_len=photo_len
-        )
-    )
+# Функция worker_portfolio (go-to-portfolio) удалена - использовалась только для откликов
 
 
-@router.message(F.text, CustomerStates.customer_apply_worker_text)
-async def send_worker_with_msg(message: Message, state: FSMContext) -> None:
-    logger.debug(f'send_worker_with_msg...')
-
-    kbc = KeyboardCollection()
-
-    msg_to_send = message.text
-
-    state_data = await state.get_data()
-    worker_id = int(state_data.get('worker_id'))
-    abs_id = int(state_data.get('abs_id'))
-    msg_id = int(state_data.get('msg_id'))
-
-    worker = await Worker.get_worker(id=worker_id)
-
-    if worker_and_abs := await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=abs_id):
-        if worker_and_abs.send_by_customer <= 0:
-            await message.answer(text='У вас не осталось сообщений',
-                                 reply_markup=kbc.apply_final_btn(idk=abs_id, name='Принять отклик',
-                                                                  skip_btn=False, role='customer', id_now=0))
-            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-            return
-        else:
-            await worker_and_abs.update(send_by_customer=worker_and_abs.send_by_customer - 1)
-
-    if await checks.fool_check(text=msg_to_send, is_message=True):
-        await message.answer(
-            'Упс, ваше сообщение содержит недопустимые слова, пожалуйста перепишите сообщение')
-        return
-    elif checks.phone_finder(msg_to_send):
-        # Заказчик пытается отправить номер - показываем уведомление
-        await message.answer(
-            text="⚠️ Не отправляйте номер телефона в чате!\n\n"
-                 "Для передачи контактов используйте кнопку \"📞 Отправить контакты\"",
-            show_alert=True
-        )
-        return
-
-    advertisement = await Abs.get_one(id=abs_id)
-
-    if len(msg_to_send) > 200:
-        await message.answer(
-            text=f'В сообщении должно быть не более 200 символов')
-        return
-
-    await bot.send_message(chat_id=config.MESSAGE_LOG,
-                           text=f' заказчик #{message.chat.id} отправил сообщение исполнителю #{worker.tg_id}: "{message.text}"',
-                           protect_content=False, reply_markup=kbc.block_message_log(user_id=message.chat.id))
-
-    text = f'Ответ по Объявлению {abs_id}: "{msg_to_send}"\n\nОбъявление {abs_id}\n\n{help_defs.read_text_file(advertisement.text_path)}'
-    try:
-        await bot.send_message(chat_id=worker.tg_id, text=text,
-                               reply_markup=kbc.apply_final_btn(idk=abs_id, skip_btn=True, send_btn=True,
-                                                                send_btn_name='Ответить заказчику',
-                                                                skip_btn_name='Отказаться и удалить', role='worker',
-                                                                id_now=0))
-    except Exception:
-        text = f'Ответ по Объявлению {abs_id}: "{msg_to_send}"\n\nОсталось {worker_and_abs.send_by_worker}/4 сообщений'
-        await bot.send_message(chat_id=worker.tg_id, text=text,
-                               reply_markup=kbc.apply_final_btn(idk=abs_id, skip_btn=True, send_btn=True,
-                                                                send_btn_name='Ответить заказчику',
-                                                                skip_btn_name='Отказаться и удалить', role='worker',
-                                                                id_now=0))
-    await message.answer(
-        text=f'Сообщение успешно отправлено!',
-        reply_markup=kbc.menu())
-
-    worker_and_abs.customer_messages.append(msg_to_send)
-    await worker_and_abs.update(customer_messages=worker_and_abs.customer_messages)  # Система очередности убрана
-
-    await state.set_state(CustomerStates.customer_menu)
+# Функция send_worker_with_msg удалена - использовалась только для откликов
 
 
 @router.callback_query(F.data == "customer_change_city", CustomerStates.customer_menu)
@@ -2760,12 +1949,16 @@ async def create_abs_choose_time(callback: CallbackQuery, state: FSMContext) -> 
 
     time_id = int(callback.data.split('_')[1])
     if time_id == 1:
-        await advertisement.update(date_to_delite=datetime.today() + timedelta(days=1))
+        # В ближайшее время = 12 часов
+        await advertisement.update(date_to_delite=datetime.today() + timedelta(hours=12))
     elif time_id == 2:
-        await advertisement.update(date_to_delite=datetime.today() + timedelta(days=2))
+        # Завтра = 24 часа
+        await advertisement.update(date_to_delite=datetime.today() + timedelta(days=1))
     elif time_id == 3:
-        await advertisement.update(date_to_delite=datetime.today() + timedelta(days=8))
+        # В течении недели = 7 дней
+        await advertisement.update(date_to_delite=datetime.today() + timedelta(days=7))
     else:
+        # В течении месяца = 30 дней
         await advertisement.update(date_to_delite=datetime.today() + timedelta(days=30))
 
     await state.set_state(CustomerStates.customer_menu)
@@ -2788,13 +1981,13 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
                 chat_id=worker.tg_id,
                 photo=FSInputFile(photo_path['0']),
                 caption=text,
-                reply_markup=kbc.apply_btn(advertisement_id, photo_num=0, photo_len=photos_len, request_contact_btn=True)
+                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_id)
             )
         else:
             await bot.send_message(
                 chat_id=worker.tg_id,
                 text=text,
-                reply_markup=kbc.apply_btn(advertisement_id, request_contact_btn=True)
+                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_id)
             )
         
         # Обновляем счетчик просмотров
@@ -2821,14 +2014,18 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
     Фоновая рассылка объявлений исполнителям с батчингом и обработкой ошибок.
     """
     try:
+        # Записываем в файл логов
+        logger.info(f'[DEBUG] Starting send_to_workers_background: city_id={city_id}, work_type_id={work_type_id}, advertisement_id={advertisement_id}')
+        
         # Используем оптимизированный метод для получения исполнителей
         workers = await Worker.get_active_workers_for_advertisement(city_id, work_type_id)
         
         if not workers:
-            logger.debug(f'No active workers found for city {city_id} and work_type {work_type_id}')
+            logger.info(f'[DEBUG] No active workers found for city {city_id} and work_type {work_type_id}')
             return
         
-        logger.debug(f'Starting background send to {len(workers)} workers for advertisement {advertisement_id}')
+        logger.info(f'[DEBUG] Found {len(workers)} workers for advertisement {advertisement_id}')
+        logger.info(f'[DEBUG] Starting background send to {len(workers)} workers for advertisement {advertisement_id}')
         
         # Отправляем по 5 сообщений в батче с паузой
         batch_size = 5
@@ -2855,6 +2052,194 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
 
 
 # Новые обработчики для системы покупки контактов
+@router.callback_query(lambda c: c.data.startswith('send-contacts-to-worker_'))
+async def send_contacts_to_worker_from_request(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик отправки контактов заказчиком в ответ на запрос исполнителя"""
+    logger.debug(f'send_contacts_to_worker_from_request...')
+    kbc = KeyboardCollection()
+    
+    # Парсим данные из callback_data
+    parts = callback.data.split('_')
+    worker_id = int(parts[1])
+    abs_id = int(parts[2])
+    
+    # Получаем данные
+    worker = await Worker.get_worker(id=worker_id)
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    advertisement = await Abs.get_one(id=abs_id)
+    
+    if not worker or not customer or not advertisement:
+        await callback.answer("Ошибка: данные не найдены", show_alert=True)
+        return
+    
+    # Проверяем, есть ли у исполнителя купленные контакты
+    from app.handlers.worker import check_worker_has_unlimited_contacts
+    has_unlimited_contacts = await check_worker_has_unlimited_contacts(worker.id)
+    
+    if not has_unlimited_contacts:
+        # У исполнителя нет купленных контактов
+        # Уведомляем заказчика
+        await callback.answer("У исполнителя нет купленных контактов для получения ваших контактов", show_alert=True)
+        
+        # Уведомляем исполнителя о необходимости купить контакты
+        worker_message = f"Заказчик хочет отправить вам контакты, но у вас нет купленных контактов.\n\nОбъявление #{abs_id}\n{help_defs.read_text_file(advertisement.text_path) if advertisement.text_path else 'Текст не найден'}\n\nКупите контакты, чтобы получить контактные данные заказчика."
+        
+        try:
+            await bot.send_message(
+                chat_id=worker.tg_id,
+                text=worker_message,
+                reply_markup=kbc.contact_purchase_tariffs()
+            )
+        except Exception as e:
+            logger.error(f"Error sending message to worker: {e}")
+        
+        # Удаляем сообщение с кнопками, чтобы заказчик не мог нажать повторно
+        try:
+            await callback.message.delete()
+        except Exception as e:
+            logger.error(f"Error deleting message: {e}")
+        
+        return
+    
+    # У исполнителя есть купленные контакты - вычитаем контакт и отправляем
+    customer_contacts = f"Telegram: @{customer.tg_name}\nID: {customer.tg_id}"
+    
+    # Вычитаем контакт из лимита (если не безлимитный)
+    if worker.unlimited_contacts_until:
+        # Безлимитный тариф - не вычитаем
+        message_text = f"У вас есть безлимитный доступ к контактам! ✅\n\nКонтакты заказчика:\n{customer_contacts}"
+    else:
+        # Ограниченный тариф - вычитаем контакт
+        if worker.purchased_contacts > 0:
+            new_contacts = worker.purchased_contacts - 1
+            await worker.update_purchased_contacts(purchased_contacts=new_contacts)
+            message_text = f"Покупка контакта успешно выполнена ✅\n\nКонтакты заказчика:\n{customer_contacts}"
+        else:
+            # Нет контактов для вычета
+            await callback.answer("У исполнителя нет доступных контактов", show_alert=True)
+            return
+        
+        try:
+            await bot.send_message(
+                chat_id=worker.tg_id,
+                text=message_text,
+                reply_markup=kbc.menu()
+            )
+        
+            # Уведомляем заказчика
+            await callback.answer("Контакты отправлены исполнителю ✅", show_alert=True)
+            
+            # Добавляем запись о передаче контактов в историю
+            await help_defs.add_contact_exchange_to_history(
+                worker_id=worker_id,
+                customer_id=customer.id,
+                abs_id=abs_id,
+                direction="customer_to_worker"
+            )
+            
+            # Закрываем чат после передачи контактов
+            await help_defs.close_chat_after_contact_exchange(
+                worker_id=worker_id,
+                customer_id=customer.id,
+                abs_id=abs_id,
+                direction="customer_to_worker"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error sending contacts to worker: {e}")
+            await callback.answer("Ошибка при отправке контактов", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith('reject-contact-request_'))
+async def reject_contact_request_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик отклонения запроса контактов заказчиком"""
+    logger.debug(f'reject_contact_request_handler...')
+    
+    # Парсим данные из callback_data
+    parts = callback.data.split('_')
+    worker_id = int(parts[1])
+    abs_id = int(parts[2])
+    
+    # Получаем данные
+    worker = await Worker.get_worker(id=worker_id)
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    if not worker or not customer:
+        await callback.answer("Ошибка: данные не найдены", show_alert=True)
+        return
+    
+    try:
+        # Уведомляем исполнителя об отклонении
+        await bot.send_message(
+            chat_id=worker.tg_id,
+            text="Заказчик отклонил ваш запрос на получение контактов"
+        )
+        
+        # Уведомляем заказчика
+        await callback.answer("Запрос контактов отклонен", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Error rejecting contact request: {e}")
+        await callback.answer("Ошибка при отклонении запроса", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith('send-contacts-new_'))
+async def send_contacts_to_worker_new(callback: CallbackQuery, state: FSMContext) -> None:
+    """Новый обработчик отправки контактов заказчиком исполнителю"""
+    logger.debug(f'send_contacts_to_worker_new...')
+    kbc = KeyboardCollection()
+    
+    # Парсим данные из callback_data
+    parts = callback.data.split('_')
+    worker_id = int(parts[1])
+    abs_id = int(parts[2])
+    
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    if not customer:
+        await callback.answer("Ошибка: заказчик не найден", show_alert=True)
+        return
+    
+    # Проверяем, что контакты еще не отправлены
+    if await help_defs.check_contact_already_sent(worker_id, abs_id):
+        await callback.answer("Контакты уже отправлены этому исполнителю", show_alert=True)
+        return
+    
+    # Получаем исполнителя
+    worker = await Worker.get_worker(id=worker_id)
+    if not worker:
+        await callback.answer("Исполнитель не найден", show_alert=True)
+        return
+    
+    # Отправляем контакты заказчика исполнителю
+    customer_contacts = f"Telegram: @{customer.tg_name}\nID: {customer.tg_id}"
+    
+    try:
+        # Используем унифицированную функцию для обработки обмена контактами
+        result = await help_defs.process_contact_exchange(
+            worker_id=worker.id,
+            customer_id=customer.id,
+            abs_id=abs_id,
+            action="send_contacts"
+        )
+        
+        if result['success']:
+            # Уведомляем заказчика об успехе
+            await callback.answer("Контакт успешно был отправлен ✅", show_alert=True)
+            
+            # Удаляем текущее сообщение с кнопками
+            try:
+                await callback.message.delete()
+            except Exception as e:
+                logger.error(f"Error deleting customer message: {e}")
+        else:
+            # Показываем ошибку
+            await callback.answer(f"Ошибка: {result['message']}", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Error sending contacts to worker: {e}")
+        await callback.answer("Ошибка при отправке контактов", show_alert=True)
+
+
 @router.callback_query(lambda c: c.data.startswith('send-contacts_'))
 async def send_contacts_to_worker(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик отправки контактов заказчиком исполнителю"""
@@ -2876,17 +2261,33 @@ async def send_contacts_to_worker(callback: CallbackQuery, state: FSMContext) ->
         return
     
     # Отправляем уведомление исполнителю
-    text = f"Заказчик отправил свои контакты\n\nОбъявление #{abs_id}\n{help_defs.read_text_file(advertisement.text_path)}"
+    text = f"Заказчик отправил свои контакты\n\nОбъявление #{abs_id}\n{help_defs.read_text_file(advertisement.text_path) if advertisement.text_path else 'Текст не найден'}"
     
     try:
         await bot.send_message(
             chat_id=worker.tg_id,
             text=text,
-            reply_markup=kbc.buy_contact_btn(worker_id=worker_id, abs_id=abs_id)
+            reply_markup=kbc.buy_contact_btn(customer_id=customer.id, abs_id=abs_id)
         )
         
         # Уведомляем заказчика
         await callback.answer("Контакт успешно был отправлен ✅", show_alert=True)
+        
+        # Добавляем запись о передаче контактов в историю
+        await help_defs.add_contact_exchange_to_history(
+            worker_id=worker_id,
+            customer_id=customer.id,
+            abs_id=abs_id,
+            direction="customer_to_worker"
+        )
+        
+        # Закрываем чат после передачи контактов
+        await help_defs.close_chat_after_contact_exchange(
+            worker_id=worker_id,
+            customer_id=customer.id,
+            abs_id=abs_id,
+            direction="customer_to_worker"
+        )
         
         # Закрываем чат для заказчика - убираем кнопки отправки сообщений
         # Оставляем только кнопку "Назад в отклики"
@@ -2894,15 +2295,310 @@ async def send_contacts_to_worker(callback: CallbackQuery, state: FSMContext) ->
             reply_markup=kbc.back_to_responses(abs_id=abs_id, id_now=0)
         )
         
-        # Добавляем сообщение о закрытии чата
-        await callback.message.answer(
-            text="Контакты были успешно отправлены, чат закрыт ✅",
-            reply_markup=kbc.back_to_responses(abs_id=abs_id, id_now=0)
-        )
-        
     except Exception as e:
         logger.error(f"Error sending contacts: {e}")
         await callback.answer("Ошибка при отправке контактов", show_alert=True)
+
+
+
+
+# Обработчики для системы оценки исполнителей
+
+@router.callback_query(lambda c: c.data.startswith('rate-worker_'))
+async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик оценки исполнителя заказчиком"""
+    logger.debug(f'rate_worker...')
+    kbc = KeyboardCollection()
+    
+    # Парсим данные из callback_data
+    parts = callback.data.split('_')
+    worker_id = int(parts[1])
+    abs_id = int(parts[2])
+    rating = int(parts[3])
+    
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    if not customer:
+        await callback.answer("Ошибка: заказчик не найден", show_alert=True)
+        return
+    
+    # Проверяем, что исполнитель купил контакт
+    from app.data.database.models import ContactExchange
+    contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
+    
+    if not contact_exchange or not contact_exchange.contacts_purchased:
+        await callback.answer("Оценить можно только исполнителей, которые купили ваш контакт", show_alert=True)
+        return
+    
+    # Проверяем, что заказчик еще не оценивал этого исполнителя
+    from app.data.database.models import WorkerRating
+    existing_rating = await WorkerRating.get_by_worker_and_abs(worker_id, abs_id)
+    
+    if existing_rating:
+        await callback.answer("Вы уже оценили этого исполнителя", show_alert=True)
+        return
+    
+    # Проверяем, что объявление потеряло актуальность
+    from app.data.database.models import Advertisement
+    advertisement = await Advertisement.get_advertisement(id=abs_id)
+    
+    if not advertisement:
+        await callback.answer("Объявление не найдено", show_alert=True)
+        return
+    
+    from datetime import datetime
+    if advertisement.date_to_delite and datetime.strptime(advertisement.date_to_delite, "%Y-%m-%d") > datetime.now():
+        await callback.answer("Оценить исполнителя можно только после окончания срока объявления", show_alert=True)
+        return
+    
+    # Создаем оценку
+    worker_rating = WorkerRating(
+        worker_id=worker_id,
+        customer_id=customer.id,
+        abs_id=abs_id,
+        rating=rating
+    )
+    await worker_rating.save()
+    
+    # Обновляем рейтинг исполнителя
+    worker = await Worker.get_worker(id=worker_id)
+    if worker:
+        # Проверяем, что у исполнителя есть поле activity_level
+        if not hasattr(worker, 'activity_level') or worker.activity_level is None:
+            worker.activity_level = 100  # Значение по умолчанию
+        
+        total_stars = worker.stars + rating
+        total_ratings = worker.count_ratings + 1
+        await worker.update(stars=total_stars, count_ratings=total_ratings)
+        
+        # Восстанавливаем активность исполнителя (+20 за выполнение заказа)
+        old_activity = worker.activity_level
+        new_activity = max(0, min(100, worker.activity_level + 20))
+        
+        # Обновляем активность с fallback
+        if hasattr(worker, 'change_activity_level'):
+            new_activity = await worker.change_activity_level(20)
+        else:
+            # Fallback: используем универсальную функцию
+            from app.handlers.worker import update_worker_activity_fallback
+            await update_worker_activity_fallback(worker, new_activity)
+        
+        # Отправляем уведомление об изменении активности
+        await send_activity_notification(worker, old_activity, new_activity)
+    
+    # Уведомляем исполнителя об оценке
+    from loaders import bot
+    try:
+        await bot.send_message(
+            chat_id=worker.tg_id,
+            text=f"⭐ Вам поставили оценку {rating}/5!\n\nОбъявление #{abs_id}\nСпасибо за качественную работу!"
+        )
+    except Exception as e:
+        logger.error(f"Error sending rating notification to worker: {e}")
+    
+    await callback.answer(f"Спасибо! Вы оценили исполнителя на {rating} звезд", show_alert=True)
+    
+    # Возвращаемся в меню
+    await callback.message.edit_text(
+        "✅ Оценка поставлена!\n\nСпасибо за обратную связь.",
+        reply_markup=kbc.menu()
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('view_responses_'))
+async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
+    """Обработчик кнопки 'К откликам' - возвращает к списку откликов"""
+    try:
+        # view_responses_{abs_id}
+        abs_id = int(callback.data.split('_')[2])
+        
+        # Получаем отклики на объявление
+        responses = await WorkersAndAbs.get_by_abs(abs_id)
+        
+        if not responses:
+            kbc = KeyboardCollection()
+            await callback.message.edit_text(
+                text="📭 **На это объявление пока нет откликов**\n\n"
+                     "Ожидайте откликов от исполнителей.",
+                reply_markup=kbc.menu_btn(),
+                parse_mode='Markdown'
+            )
+            return
+        
+        # Формируем список откликов для отображения
+        responses_data = []
+        for response in responses:
+            worker = await Worker.get_worker(id=response.worker_id)
+            if worker:
+                # Проверяем статус контактов
+                contact_exchange = await ContactExchange.get_by_worker_and_abs(response.worker_id, abs_id)
+                
+                responses_data.append({
+                    'worker_id': response.worker_id,
+                    'worker_public_id': worker.public_id or f'ID#{worker.id}',
+                    'worker_name': worker.profile_name or worker.tg_name,
+                    'worker_stars': worker.stars,
+                    'worker_ratings': worker.count_ratings,
+                    'worker_verified': worker.confirmed,
+                    'worker_ie': worker.individual_entrepreneur,
+                    'worker_orders': worker.order_count,
+                    'worker_message': response.worker_messages[0] if response.worker_messages else "Исполнитель не отправил сообщение",
+                    'contact_requested': contact_exchange is not None,
+                    'contact_confirmed': contact_exchange and contact_exchange.contacts_sent,
+                    'contact_purchased': contact_exchange and contact_exchange.contacts_purchased,
+                    'active': response.applyed
+                })
+        
+        # Получаем объявление для контекста
+        advertisement = await Abs.get_one(id=abs_id)
+        city_name = "Неизвестно"
+        if advertisement:
+            city = await City.get_city(id=advertisement.city_id)
+            if city:
+                city_name = city.city
+        
+        kbc = KeyboardCollection()
+        await callback.message.edit_text(
+            text=f"📋 **Отклики на объявление #{abs_id}**\n"
+                 f"🏙️ Город: {city_name}\n"
+                 f"👥 Количество откликов: {len(responses_data)}\n\n"
+                 "Выберите отклик для просмотра:",
+            reply_markup=kbc.customer_responses_list_buttons(
+                responses_data=responses_data,
+                abs_id=abs_id
+            ),
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in view_responses_handler: {e}")
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+@router.callback_query(lambda c: c.data.startswith('customer-responses_'))
+async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
+    """Заказчик просматривает отклики на свое объявление"""
+    try:
+        # customer-responses_{abs_id}_{id_now}
+        # Разбиваем по дефису, затем по подчеркиванию
+        main_parts = callback.data.split('-')
+        if len(main_parts) < 2:
+            await callback.answer("❌ Неверный формат callback данных", show_alert=True)
+            return
+        
+        # Берем часть после "customer-responses_"
+        data_part = main_parts[1]  # "responses_{abs_id}_{id_now}"
+        parts = data_part.split('_')
+        
+        logger.info(f"[CUSTOMER_RESPONSES] Callback data: {callback.data}")
+        logger.info(f"[CUSTOMER_RESPONSES] Main parts: {main_parts}")
+        logger.info(f"[CUSTOMER_RESPONSES] Data part: {data_part}")
+        logger.info(f"[CUSTOMER_RESPONSES] Parts: {parts}")
+        
+        if len(parts) < 3:
+            await callback.answer("❌ Неверный формат callback данных", show_alert=True)
+            return
+            
+        abs_id = int(parts[1])  # {abs_id}
+        id_now = int(parts[2])  # {id_now}
+        
+        # Получаем отклики на объявление
+        responses = await WorkersAndAbs.get_by_abs(abs_id)
+        
+        if not responses:
+            kbc = KeyboardCollection()
+            await callback.message.edit_text(
+                text="📭 **На это объявление пока нет откликов**\n\n"
+                     "Ожидайте откликов от исполнителей.",
+                reply_markup=kbc.menu_btn(),
+                parse_mode='Markdown'
+            )
+            return
+        
+        # Формируем список откликов для отображения
+        responses_data = []
+        for response in responses:
+            worker = await Worker.get_worker(id=response.worker_id)
+            if worker:
+                # Проверяем статус контактов
+                contact_exchange = await ContactExchange.get_by_worker_and_abs(response.worker_id, abs_id)
+                
+                responses_data.append({
+                    'worker_id': response.worker_id,
+                    'worker_public_id': worker.public_id or f'ID#{worker.id}',
+                    'worker_name': worker.profile_name or worker.tg_name,
+                    'worker_stars': worker.stars,
+                    'worker_ratings': worker.count_ratings,
+                    'worker_verified': worker.confirmed,
+                    'worker_ie': worker.individual_entrepreneur,
+                    'worker_orders': worker.order_count,
+                    'worker_message': response.worker_messages[0] if response.worker_messages else "Исполнитель не отправил сообщение",
+                    'contact_requested': contact_exchange is not None,
+                    'contact_confirmed': contact_exchange and contact_exchange.contacts_sent,
+                    'contact_purchased': contact_exchange and contact_exchange.contacts_purchased,
+                    'active': response.applyed
+                })
+        
+        # Получаем объявление для контекста
+        advertisement = await Abs.get_one(id=abs_id)
+        city_name = "Неизвестно"
+        if advertisement:
+            city = await City.get_city(id=advertisement.city_id)
+            if city:
+                city_name = city.city
+        
+        kbc = KeyboardCollection()
+        await callback.message.edit_text(
+            text=f"📋 **Отклики на объявление #{abs_id}**\n"
+                 f"🏙️ Город: {city_name}\n"
+                 f"👥 Количество откликов: {len(responses_data)}\n\n"
+                 "Выберите отклик для просмотра:",
+            reply_markup=kbc.customer_responses_list_buttons(
+                responses_data=responses_data,
+                abs_id=abs_id
+            ),
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in customer_view_responses: {e}")
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+async def send_activity_notification(worker, old_activity: int, new_activity: int):
+    """Отправляет уведомление об изменении активности исполнителя"""
+    from loaders import bot
+    
+    # Определяем зоны активности
+    def get_zone(activity):
+        if activity >= 74:
+            return "зеленую"
+        elif activity >= 48:
+            return "желтую"
+        elif activity >= 9:
+            return "оранжевую"
+        else:
+            return "красную"
+    
+    old_zone = get_zone(old_activity)
+    new_zone = get_zone(new_activity)
+    
+    # Отправляем уведомление только при переходе между зонами
+    if old_zone != new_zone:
+        if old_zone == "красную" and new_zone == "оранжевую":
+            message = "🟠 Хорошая новость! Ваша активность выросла, и доступ к заказам частично восстановлен. Продолжайте повышать активность, чтобы снять все ограничения."
+        elif old_zone == "оранжевую" and new_zone == "желтую":
+            message = "🟡 Отлично! Вы улучшили свою активность — ещё немного, и вы вернётесь в зелёную зону!"
+        elif old_zone == "желтую" and new_zone == "зеленую":
+            message = "🟢 Поздравляем! Вы снова в зелёной зоне активности. Теперь у вас полный доступ к заказам. Так держать!"
+        else:
+            message = f"📈 Ваша активность изменилась: {old_activity} → {new_activity}"
+        
+        try:
+            await bot.send_message(
+                chat_id=worker.tg_id,
+                text=message
+            )
+        except Exception as e:
+            logger.error(f"Error sending activity notification to worker {worker.tg_id}: {e}")
 
 
 #  _    _        _      _____              _

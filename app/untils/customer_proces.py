@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from aiogram.exceptions import TelegramForbiddenError
 
 import config
-from app.data.database.models import Banned, WorkType, WorkSubType, Customer, BannedAbs, Worker, WorkerAndSubscription, \
+from app.data.database.models import Banned, WorkType, Customer, BannedAbs, Worker, WorkerAndSubscription, \
     SubscriptionType, City, WorkerAndCustomer, WorkerAndRefsAssociation
 from app.keyboards import KeyboardCollection
 from app.untils import help_defs, checks
@@ -20,9 +20,6 @@ async def ban_task(message, work_type_id, task, time, ban_reason, msg):
     work_type = await WorkType.get_work_type(id=int(work_type_id_list[0]))
     work = work_type.work_type.capitalize()
 
-    if len(work_type_id_list) > 1:
-        work_sub_type = await WorkSubType.get_work_type(id=int(work_type_id_list[1]))
-        work += " | " + work_sub_type.work_type
 
     customer = await Customer.get_customer(tg_id=message.chat.id)
 
@@ -94,7 +91,7 @@ async def same_task(message, advertisements, text):
 
     if advertisements:
         for advertisement in advertisements:
-            text_old = help_defs.read_text_file(advertisement.text_path)
+            text_old = help_defs.read_text_file(advertisement.text_path) if advertisement.text_path else "Текст не найден"
             if await checks.are_texts_similar(text_old, text):
                 await message.answer(
                     'Вы предлагали схожий запрос, удалите предыдущий и попробуйте снова',
@@ -113,13 +110,8 @@ async def close_task(workers_and_abs, advertisement_now, workers_for_assessments
         if sub.notification:
 
             city = await City.get_city(id=advertisement_now.city_id)
-            if advertisement_now.work_type_id == 20:
-                text = help_defs.read_text_file(advertisement_now.text_path)
-                text = text.split(' ||| ')
-                text = f'Заказчик закрыл объявление {advertisement_now.id}\nг. {city.city}\n' + text[0]
-            else:
-                text = f'Заказчик закрыл объявление {advertisement_now.id}\nг. {city.city}\n' + help_defs.read_text_file(
-                    advertisement_now.text_path)
+            text = f'Заказчик закрыл объявление {advertisement_now.id}\nг. {city.city}\n' + help_defs.read_text_file(
+                advertisement_now.text_path)
 
             try:
                 await bot.send_message(chat_id=worker.tg_id, text=text)

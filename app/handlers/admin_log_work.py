@@ -75,9 +75,6 @@ async def unblock_advertisement(callback: CallbackQuery) -> None:
 
     text = help_defs.read_text_file(text_path)
 
-    if advertisement.work_type_id == 20:
-        text_list = text.split(' ||| ')
-        text = text_list[0] + f'\nНомер телефона: {text_list[1]}'
 
     text = f'Объявление{advertisement.id}\n\n' + text
 

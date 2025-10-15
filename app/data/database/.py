@@ -123,6 +123,8 @@ async def choose_city_end(callback: CallbackQuery, state: FSMContext) -> None:
                                                      CustomerStates.customer_change_city))
 async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'customer_menu...')
+    print(state)
+    print("sssssssssssssssssss")
 
     kbc = KeyboardCollection()
 
@@ -1709,127 +1711,7 @@ async def send_worker_with_msg(message: Message, state: FSMContext) -> None:
     await state.set_state(CustomerStates.customer_menu)
 
 
-@router.message(F.contact, CustomerStates.send_contact_to_worker)
-async def handle_send_contact(message: Message, state: FSMContext) -> None:
-    logger.debug(f'handle_send_contact...')
-
-    kbc = KeyboardCollection()
-    phone = help_defs.get_pure_phone(message.contact.phone_number)
-
-    state_data = await state.get_data()
-    worker_id = int(state_data.get('worker_id'))
-    abs_id = int(state_data.get('abs_id'))
-    msg_id = int(state_data.get('msg_id'))
-
-    worker = await Worker.get_worker(id=worker_id)
-
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker_id)
-
-    advertisement = await Abs.get_one(id=abs_id)
-
-    text = f'Объявление {abs_id}\n\n' + help_defs.read_text_file(advertisement.text_path)
-
-    text += f'Заказчик принял ваш отклик. Свяжитесь с ним по номеру телефона: {phone}'
-
-    if worker_sub.subscription_id == 1:
-        await worker_sub.update(guaranteed_orders=worker_sub.guaranteed_orders - 1)
-        text += f'Заказчик принял ваш отклик.\n\nСвяжитесь с ним по номеру телефона: {phone}\n\nОсталось выполнить заказов до истечении стартовой подписки: {worker_sub.guaranteed_orders - 1}'
-
-    worker_and_abs = await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker_id, abs_id=abs_id)
-    await worker_and_abs.update(applyed=True)
-
-    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
-    for worker_and_abs in workers_and_abs:
-        if worker_and_abs.worker_id != worker_id:
-            worker_not_apply = await Worker.get_worker(worker_and_abs.worker_id)
-
-            advertisement = await Abs.get_one(id=abs_id)
-
-            city = await City.get_city(id=advertisement.city_id)
-            text += f'Объявление {advertisement.id} г. {city.city}\n' + help_defs.read_text_file(
-                advertisement.text_path)
-            try:
-                await bot.send_message(chat_id=worker_not_apply.tg_id,
-                                       text=f'Заказчик выбрал исполнителя\n\nОбъявление неактуально\n\n{text}')
-            except TelegramForbiddenError:
-                pass
-            await worker_and_abs.delete()
-
-    advertisement = await Abs.get_one(id=abs_id)
-    await advertisement.update(relevance=False)
-
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-    await bot.send_message(chat_id=worker.tg_id, text=text)
-    msg = await message.answer(text='Контакт отправлен, ожидайте звонка!',
-                               reply_markup=ReplyKeyboardRemove())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-    await message.answer(text='Вернуться в меню', reply_markup=kbc.menu())
-    await state.set_state(CustomerStates.customer_menu)
-
-
-@router.message(F.text, CustomerStates.send_contact_to_worker)
-async def handle_send_contact(message: Message, state: FSMContext) -> None:
-    logger.debug(f'handle_send_contact...')
-
-    kbc = KeyboardCollection()
-    phone = message.text
-
-    if not phone.isnumeric():
-        msg = await message.answer(text='Что-то пошло не так',
-                                   reply_markup=ReplyKeyboardRemove())
-        await state.update_data(msg_id=msg.message_id)
-        return
-
-    if not checks.contains_phone_number(phone):
-        msg = await message.answer(text='Что-то пошло не так',
-                                   reply_markup=ReplyKeyboardRemove())
-        await state.update_data(msg_id=msg.message_id)
-        return
-
-    state_data = await state.get_data()
-    worker_id = int(state_data.get('worker_id'))
-    abs_id = int(state_data.get('abs_id'))
-    msg_id = int(state_data.get('msg_id'))
-
-    worker = await Worker.get_worker(id=worker_id)
-
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker_id)
-
-    text = f'Заказчик принял ваш отклик. Свяжитесь с ним по номеру телефона: {phone}'
-
-    if worker_sub.subscription_id == 1:
-        await worker_sub.update(guaranteed_orders=worker_sub.guaranteed_orders - 1)
-        text = f'Заказчик принял ваш отклик.\n\nСвяжитесь с ним по номеру телефона: {phone}\n\nОсталось выполнить заказов до истечении стартовой подписки: {worker_sub.guaranteed_orders - 1}'
-
-    worker_and_abs = await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker_id, abs_id=abs_id)
-    await worker_and_abs.update(applyed=True)
-
-    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
-    for worker_and_abs in workers_and_abs:
-        if worker_and_abs.worker_id != worker_id:
-            worker_not_apply = await Worker.get_worker(worker_and_abs.worker_id)
-
-            advertisement = await Abs.get_one(id=abs_id)
-
-            city = await City.get_city(id=advertisement.city_id)
-            text = f'Объявление {advertisement.id} г. {city.city}\n' + help_defs.read_text_file(advertisement.text_path)
-            try:
-                await bot.send_message(chat_id=worker_not_apply.tg_id,
-                                       text=f'Заказчик выбрал исполнителя\n\nОбъявление неактуально\n\n{text}')
-            except TelegramForbiddenError:
-                pass
-            await worker_and_abs.delete()
-
-    advertisement = await Abs.get_one(id=abs_id)
-    await advertisement.update(relevance=False)
-
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-    await bot.send_message(chat_id=worker.tg_id, text=text)
-    msg = await message.answer(text='Контакт отправлен, ожидайте звонка!',
-                               reply_markup=ReplyKeyboardRemove())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-    await message.answer(text='Вернуться в меню', reply_markup=kbc.menu())
-    await state.set_state(CustomerStates.customer_menu)
+# Старые функции отправки контактов удалены - используется новая система ContactExchange
 
 
 @router.callback_query(F.data == "customer_change_city", CustomerStates.customer_menu)

@@ -21,19 +21,24 @@ class WorkStates(StatesGroup):
     worker_check_subscription = State()
     worker_buy_subscription = State()
     worker_choose_work_types = State()
-    worker_apply_order = State()
     worker_check_abs = State()
     worker_change_city = State()
-    worker_responses = State()
+    worker_choose_city = State()
+    worker_change_main_city = State()
     create_portfolio = State()
-    # Новые состояния для системы покупки контактов
-    worker_buy_contacts = State()
-    worker_contact_purchase = State()
+    # Новые стейты для откликов и анонимного чата
+    worker_response_init = State()  # Инициализация отклика
+    worker_response_chat_rules = State()  # Подтверждение правил чата
+    worker_response_write_text = State()  # Ввод текста отклика
+    worker_anonymous_chat = State()  # Анонимный чат
+    worker_my_responses = State()  # Просмотр откликов
+    worker_request_contact = State()  # Запрос контакта
+    worker_buy_tokens = State()  # Покупка жетонов
+    worker_choose_subscription_cities = State()  # Выбор городов для подписки
 
 
 class CustomerStates(StatesGroup):
     customer_extend_abc = State()
-    enter_phone_number = State()
     # customer_buy_subscription = State()  # Убрано - размещение всегда бесплатно
     registration_enter_city = State()
     # Верификация убрана согласно ТЗ
@@ -41,7 +46,6 @@ class CustomerStates(StatesGroup):
     worker_check_abs = State()
     customer_create_abs = State()
     customer_create_abs_work_type = State()
-    customer_choose_work_sub_types = State()
     customer_create_abs_task = State()
     customer_create_abs_volume = State()
     customer_create_abs_details = State()
@@ -50,19 +54,13 @@ class CustomerStates(StatesGroup):
     customer_create_abs_choose_time = State()
     customer_create_abs_add_photo = State()
     customer_check_abs = State()
-    customer_apply_worker = State()
-    customer_apply_worker_send_msg = State()
-    send_contact_to_worker = State()
     starring_worker = State()
     customer_change_city = State()
-    customer_apply_worker_text = State()
-    customer_response = State()
-    customer_response_apply_worker = State()
-    response_send_contact_to_worker = State()
-    customer_response_apply_worker_text = State()
     customer_create_abs_personal_add_photo =State()
-    # Новые состояния для системы покупки контактов
-    customer_send_contacts = State()
+    # Новые стейты для откликов и анонимного чата
+    customer_view_responses = State()  # Просмотр откликов
+    customer_anonymous_chat = State()  # Анонимный чат
+    customer_confirm_contact_share = State()  # Подтверждение передачи контакта
 
 
 class AdminStates(StatesGroup):

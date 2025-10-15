@@ -36,57 +36,89 @@ async def ping_cmd(message: Message) -> None:
 (_／''')
 
 
+async def get_user_data_optimized(tg_id: int):
+    """Оптимизированное получение всех данных пользователя одним запросом"""
+    import aiosqlite
+
+    conn = await aiosqlite.connect(database='app/data/database/database.db')
+    try:
+        cursor = await conn.execute('''
+                                    SELECT (SELECT id FROM ban_list WHERE tg_id = ? AND (ban_now = 1 OR forever = 1)) as banned_id,
+                                           (SELECT id FROM admins WHERE tg_id = ?)                                    as admin_id,
+                                           (SELECT id FROM workers WHERE tg_id = ?)                                   as worker_id,
+                                           (SELECT id FROM customers WHERE tg_id = ?)                                 as customer_id
+                                    ''', (tg_id, tg_id, tg_id, tg_id))
+
+        result = await cursor.fetchone()
+        await cursor.close()
+
+        return {
+            'banned_id': result[0],
+            'admin_id': result[1],
+            'worker_id': result[2],
+            'customer_id': result[3]
+        }
+    finally:
+        await conn.close()
+
+
 @router.message(Command("start"))
 async def start_cmd(message: Message, state: FSMContext) -> None:
-    print("aaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-    # logger.debug(f'start_cmd...')
-    # logger.debug(f'chat_id... {message.chat.id}')
-    print("ddddddddddddddddddddddddddd")
+    logger.debug(f'start_cmd... chat_id: {message.chat.id}')
 
     if message.chat.id < 0:
         await message.answer('Пользоваться ботом можно только из ЛС')
         return
 
+    # Удаляем клавиатуры
     msg = await message.answer(f'Удаляю клавиатуры',
                                reply_markup=ReplyKeyboardRemove())
     await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
     await state.clear()
     kbc = KeyboardCollection()
-    logger.debug(f"user_name: {message.from_user.username}")
-    print(message.from_user.username)
-    if user_baned := await Banned.get_banned(tg_id=message.chat.id):
-        if user_baned.ban_now or user_baned.forever:
-            await message.answer(text='Упс, вы заблокированы')
-            await state.set_state(BannedStates.banned)
-            return
-    if user_admin := await Admin.get_by_tg_id(tg_id=message.chat.id):
-        print("FFFFFFFFFFFFFFFF")
+
+    # Получаем все данные пользователя одним запросом
+    user_data = await get_user_data_optimized(message.chat.id)
+
+    # Проверяем блокировку
+    if user_data['banned_id']:
+        await message.answer(text='Упс, вы заблокированы')
+        await state.set_state(BannedStates.banned)
+        return
+
+    # Проверяем админа
+    if user_data['admin_id']:
+        user_admin = await Admin.get_by_tg_id(tg_id=message.chat.id)
         await state.set_state(UserStates.menu)
         await message.answer(
             text=f'Добро пожаловать, {user_admin.tg_name}',
             reply_markup=kbc.menu_keyboard(admin=True),
         )
         return
-    elif user_worker := await Worker.get_worker(tg_id=message.chat.id):
-        print("FFFFFFFFFFFFFFFFCCCCCCCCCCCCCCCCCCC")
+
+    # Проверяем исполнителя
+    elif user_data['worker_id']:
+        user_worker = await Worker.get_worker(tg_id=message.chat.id)
         await message.answer(
             text=f'Добро пожаловать, {user_worker.tg_name}',
             reply_markup=kbc.menu(),
         )
-        print("ds111111111111111111")
         await state.set_state(WorkStates.worker_menu)
         return
-    elif user_customer := await Customer.get_customer(tg_id=message.chat.id):
-        print("dddddddddddddddddddddddffffffffffccc")
+
+    # Проверяем заказчика
+    elif user_data['customer_id']:
+        user_customer = await Customer.get_customer(tg_id=message.chat.id)
         await message.answer(
             text=f'Добро пожаловать, {user_customer.tg_name}',
             reply_markup=kbc.menu(),
         )
         await state.set_state(CustomerStates.customer_menu)
         return
+
     else:
-        print("KKKKKKHHGFDDDD")
+        # Новый пользователь - показываем приветствие
         text = '''Размещаются запросы только на услуги:
 
  — анонимно;
@@ -105,43 +137,48 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
 
 <b>За попытку предложений не по теме предусмотрена блокировка.</b>
 '''
+
+        # Обрабатываем параметры команды /start
         args = message.text.split(maxsplit=1)
         if len(args) > 1:
             param = args[1]
-            logger.debug(f'param: {param}')
+            logger.debug(f'start param: {param}')
+
+            # Проверяем, является ли параметр городом
             city = await City.get_city(city_en=param)
-            try:
-                print("hhshshshshshs5555555555")
-                logger.debug(f'good')
-                param = int(param)
-                worker = await Worker.get_worker(tg_id=param)
-            except Exception:
-                logger.debug(f'except')
-                worker = None
             if city is not None:
-                print("kkkjdjdhgdgdddddddddd")
                 await state.set_state(UserStates.registration_end)
                 await state.update_data(city_id=str(city.id), username=str(message.from_user.username))
                 return
-            elif worker is not None:
-                print("ffffffffffffffffddsssss")
-                logger.debug(f'find')
-                if not await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id):
-                    worker_and_ref = WorkerAndRefsAssociation(id=None,
-                                                              worker_id=worker.id,
-                                                              ref_id=message.chat.id,
-                                                              work_condition=True if worker.order_count >= 5 else False,
-                                                              ref_condition=False)
-                    await bot.send_message(chat_id=worker.tg_id,
-                                           text=f'Ваша реферальная ссылка была успешно активирована!')
-                    await message.answer(
-                        'Реферальная ссылка была успешно активирована, для получения бонуса выполните 5 заказов',
-                        reply_markup=kbc.btn_ok())
-                    await worker_and_ref.save()
-                    await state.set_state(UserStates.registration_enter_city)
-                    await state.update_data(username=str(message.from_user.username))
-                    return
-        print("ddddddddddddssssssssaaaaaa")
+
+            # Проверяем, является ли параметр ID исполнителя (реферальная ссылка)
+            try:
+                worker_id = int(param)
+                worker = await Worker.get_worker(tg_id=worker_id)
+                if worker is not None:
+                    logger.debug(f'Referral link activated for worker {worker_id}')
+                    # Проверяем, не активирована ли уже реферальная ссылка
+                    existing_ref = await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id)
+                    if not existing_ref:
+                        worker_and_ref = WorkerAndRefsAssociation(id=None,
+                                                                  worker_id=worker.id,
+                                                                  ref_id=message.chat.id,
+                                                                  work_condition=True if worker.order_count >= 5 else False,
+                                                                  ref_condition=False)
+                        await bot.send_message(chat_id=worker.tg_id,
+                                               text=f'Ваша реферальная ссылка была успешно активирована!')
+                        await message.answer(
+                            'Реферальная ссылка была успешно активирована, для получения бонуса выполните 5 заказов',
+                            reply_markup=kbc.btn_ok())
+                        await worker_and_ref.save()
+                        await state.set_state(UserStates.registration_enter_city)
+                        await state.update_data(username=str(message.from_user.username))
+                        return
+            except ValueError:
+                # Параметр не является числом, игнорируем
+                pass
+
+        # Показываем приветственное сообщение новому пользователю
         await message.answer_photo(
             photo=FSInputFile('app/data/database/WhatsApp.jpg'),
             caption=text,
@@ -150,7 +187,6 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
         )
         await state.set_state(UserStates.registration_enter_city)
         await state.update_data(username=str(message.from_user.username))
-        return
 
 
 @router.callback_query(F.data == 'ok', StateFilter(UserStates.registration_enter_city))
@@ -253,6 +289,8 @@ async def apply_user_agreement(callback: CallbackQuery) -> None:
 @router.message(Command("menu"))
 async def menu_cmd(message: Message, state: FSMContext) -> None:
     logger.debug(f'menu_cmd...')
+    print(state)
+    print("sssssssssaaaaaaaaasssssss")
 
     if message.chat.id < 0:
         await message.answer('Пользоваться ботом можно только из ЛС')
@@ -355,13 +393,11 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
             text = ('Ваш профиль\n\n'
                     f'ID: {customer.id}\n'
                     f'Ваш город: {city.city}\n'
-                    f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                    f'Осталось объявлений на сегодня: {customer.abs_count}')
+                    f'Открыто объявлений: {len(user_abs) if user_abs else 0}')
 
             await state.set_state(CustomerStates.customer_menu)
             await message.answer(text=text,
-                                 reply_markup=kbc.menu_customer_keyboard(
-                                     btn_bue=True if customer.abs_count == 0 else False))
+                                 reply_markup=kbc.menu_customer_keyboard())
             return
     elif customer := await Customer.get_customer(tg_id=message.chat.id):
         logger.debug(f'customer_menu...')
@@ -374,13 +410,13 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
         text = ('Ваш профиль\n\n'
                 f'ID: {customer.id}\n'
                 f'Ваш город: {city.city}\n'
-                f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                f'Осталось объявлений на сегодня: {customer.abs_count}')
+                f'Открыто объявлений: {len(user_abs) if user_abs else 0}')
 
         await state.set_state(CustomerStates.customer_menu)
-        await message.answer(text=text,
-                                         reply_markup=kbc.menu_customer_keyboard(
-                                             btn_bue=True if customer.abs_count == 0 else False))
+        await message.answer(
+            text=text,
+            reply_markup=kbc.menu_customer_keyboard()
+        )
         return
     else:
         text = ('Размещаются запросы только на услуги:\n'
@@ -407,6 +443,7 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == 'menu', StateFilter(UserStates.menu, UserStates.user_info))
 async def menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'menu_cmd...')
+    print("ssssxxxccvvvvv")
 
     await state.clear()
     kbc = KeyboardCollection()
