@@ -56,7 +56,7 @@ class Customer:
             # Генерируем public_id, если его нет
             from app.untils.public_id_generator import generate_public_id
             public_id = self.public_id or generate_public_id("C")
-            
+
             cursor = await conn.execute(
                 'INSERT INTO customers (tg_id, city_id, tg_name, access_token, author_name, public_id) VALUES (?, ?, ?, ?, ?, ?)',
                 (self.tg_id, self.city_id, self.tg_name, access_token, author_name, public_id))
@@ -77,7 +77,8 @@ class Customer:
             await cursor.close()
             if record:
                 return cls(id=record[0], city_id=record[1], tg_id=record[2], tg_name=record[3], abs_count=record[4],
-                           access_token=record[5], author_name=record[6], public_id=record[7] if len(record) > 7 else None)
+                           access_token=record[5], author_name=record[6],
+                           public_id=record[7] if len(record) > 7 else None)
             else:
                 return None
         finally:
@@ -218,15 +219,16 @@ class Worker:
         try:
             city_id = [str(x) for x in self.city_id]
             city_id = ' | '.join(city_id)
-            
+
             # Генерируем public_id, если его нет
             from app.untils.public_id_generator import generate_public_id
             public_id = self.public_id or generate_public_id("W")
-            
+
             cursor = await conn.execute(
                 'INSERT INTO workers (tg_id, tg_name, city_id, phone_number, confirmation_code, ref_code, registration_data, purchased_contacts, unlimited_contacts_until, public_id, activity_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (self.tg_id, self.tg_name, city_id, self.phone_number, self.confirmation_code, self.tg_id,
-                 self.registration_data, self.purchased_contacts, self.unlimited_contacts_until, public_id, self.activity_level))
+                 self.registration_data, self.purchased_contacts, self.unlimited_contacts_until, public_id,
+                 self.activity_level))
             await conn.commit()
             await cursor.close()
         finally:
@@ -336,14 +338,14 @@ class Worker:
         import logging
         logger = logging.getLogger()
         logger.info(f'[DEBUG] get_active_workers_for_advertisement: city_id={city_id}, work_type_id={work_type_id}')
-        
+
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             # Получаем всех активных исполнителей
             query = '''
                     SELECT w.*, ws.work_type_ids
                     FROM workers w
-                    LEFT JOIN worker_and_subscription ws ON w.id = ws.worker_id
+                             LEFT JOIN worker_and_subscription ws ON w.id = ws.worker_id
                     WHERE w.active = 1
                     '''
             cursor = await conn.execute(query)
@@ -351,7 +353,7 @@ class Worker:
             await cursor.close()
 
             logger.info(f'[DEBUG] Found {len(records)} active workers in database')
-            
+
             matching_workers = []
             work_type_id_str = str(work_type_id)
 
@@ -359,7 +361,7 @@ class Worker:
                 worker_tg_id = record[1]
                 worker_id = record[0]
                 logger.info(f'[DEBUG] Processing worker {worker_tg_id}')
-                
+
                 # Проверяем основной город (формат: "1 | 2 | 3")
                 try:
                     main_city_ids = str(record[4]).split(' | ') if record[4] is not None else []
@@ -370,21 +372,24 @@ class Worker:
                 # Проверяем дополнительные города из подписок
                 additional_city_ids = []
                 cursor = await conn.execute('''
-                    SELECT city_ids FROM worker_city_subscriptions 
-                    WHERE worker_id = ? AND active = 1
-                ''', [worker_id])
+                                            SELECT city_ids
+                                            FROM worker_city_subscriptions
+                                            WHERE worker_id = ?
+                                              AND active = 1
+                                            ''', [worker_id])
                 subscription_records = await cursor.fetchall()
                 await cursor.close()
-                
+
                 for sub_record in subscription_records:
                     if sub_record[0]:  # city_ids не пустые
                         additional_city_ids.extend(sub_record[0].split('|'))
-                
+
                 # Объединяем основной город и дополнительные города
                 all_city_ids = main_city_ids + [str(cid).strip() for cid in additional_city_ids if cid.strip()]
-                
-                logger.info(f'[DEBUG] Worker {worker_tg_id}: main_cities={main_city_ids}, additional_cities={additional_city_ids}, all_cities={all_city_ids}')
-                
+
+                logger.info(
+                    f'[DEBUG] Worker {worker_tg_id}: main_cities={main_city_ids}, additional_cities={additional_city_ids}, all_cities={all_city_ids}')
+
                 # Проверяем, есть ли нужный город в списке всех городов
                 if str(city_id) not in all_city_ids:
                     logger.info(f'[DEBUG] Worker {worker_tg_id}: city {city_id} not in {all_city_ids}')
@@ -392,7 +397,8 @@ class Worker:
 
                 # Проверяем тип работы (work_type_ids из таблицы worker_and_subscription)
                 # w.* дает 22 поля (0-21), ws.work_type_ids это поле 23
-                logger.info(f'[DEBUG] Worker {worker_tg_id}: record length={len(record)}, record[23]={record[23] if len(record) > 23 else "N/A"}')
+                logger.info(
+                    f'[DEBUG] Worker {worker_tg_id}: record length={len(record)}, record[23]={record[23] if len(record) > 23 else "N/A"}')
                 try:
                     work_type_ids = str(record[23]).split('|') if len(record) > 23 and record[23] is not None else []
                 except (AttributeError, TypeError, IndexError):
@@ -400,19 +406,20 @@ class Worker:
 
                 # Убираем пустые строки из списка
                 work_type_ids = [id for id in work_type_ids if id and id.strip()]
-                
-                logger.info(f'[DEBUG] Worker {worker_tg_id}: work_type_ids={work_type_ids}, looking for {work_type_id_str}')
+
+                logger.info(
+                    f'[DEBUG] Worker {worker_tg_id}: work_type_ids={work_type_ids}, looking for {work_type_id_str}')
 
                 # Проверяем тип работы
                 # Если work_type_ids=['0'] - это безлимитная подписка (получает все типы)
                 # Если work_type_ids пустой - тоже получает все типы
                 # Если есть конкретные типы - проверяем совпадение
                 is_unlimited = len(work_type_ids) == 1 and work_type_ids[0] == '0'
-                
+
                 if work_type_ids and not is_unlimited and work_type_id_str not in work_type_ids:
                     logger.info(f'[DEBUG] Worker {worker_tg_id}: work_type {work_type_id_str} not in {work_type_ids}')
                     continue
-                
+
                 logger.info(f'[DEBUG] Worker {worker_tg_id}: MATCH! Adding to list')
 
                 worker = cls(
@@ -2314,12 +2321,12 @@ class WorkersAndAbs:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             cursor = await conn.execute(
-                'SELECT * FROM workers_and_abs WHERE worker_id = ? AND abs_id = ?', 
+                'SELECT * FROM workers_and_abs WHERE worker_id = ? AND abs_id = ?',
                 [worker_id, abs_id]
             )
             record = await cursor.fetchone()
             await cursor.close()
-            
+
             if record:
                 return cls(
                     id=record[0],
@@ -2830,6 +2837,7 @@ class AskAnswer:
         finally:
             await conn.close()
 
+
 # "⣿⣿⣿⡇⢩⠘⣴⣿⣥⣤⢦⢁⠄⠉⡄⡇⠛⠛⠛⢛⣭⣾⣿⣿⡏
 # ⣿⣿⣿⡇⠹⢇⡹⣿⣿⣛⣓⣿⡿⠞⠑⣱⠄⢀⣴⣿⣿⣿⣿⡟
 # ⣿⣿⣿⣧⣸⡄⣿⣪⡻⣿⠿⠋⠄⠄⣀⣀⢡⣿⣿⣿⣿⡿⠋
@@ -2848,7 +2856,8 @@ class AskAnswer:
 
 class ContactTariff:
     """Модель для тарифов покупки контактов"""
-    def __init__(self, id: int | None, name: str, contacts_count: int, price: int, 
+
+    def __init__(self, id: int | None, name: str, contacts_count: int, price: int,
                  unlimited: bool = False, unlimited_days: int = None):
         self.id = id
         self.name = name
@@ -2914,7 +2923,8 @@ class ContactTariff:
 
 class WorkerRating:
     """Модель для оценок исполнителей заказчиками"""
-    def __init__(self, id: int | None, worker_id: int, customer_id: int, abs_id: int, 
+
+    def __init__(self, id: int | None, worker_id: int, customer_id: int, abs_id: int,
                  rating: int, comment: str = None, created_at: str = None):
         self.id = id
         self.worker_id = worker_id
@@ -2941,12 +2951,12 @@ class WorkerRating:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             cursor = await conn.execute(
-                'SELECT * FROM worker_ratings WHERE worker_id = ? AND abs_id = ?', 
+                'SELECT * FROM worker_ratings WHERE worker_id = ? AND abs_id = ?',
                 [worker_id, abs_id]
             )
             record = await cursor.fetchone()
             await cursor.close()
-            
+
             if record:
                 return cls(
                     id=record[0],
@@ -2966,7 +2976,7 @@ class WorkerRating:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             cursor = await conn.execute(
-                'SELECT * FROM worker_ratings WHERE worker_id = ? ORDER BY created_at DESC', 
+                'SELECT * FROM worker_ratings WHERE worker_id = ? ORDER BY created_at DESC',
                 [worker_id])
             records = await cursor.fetchall()
             await cursor.close()
@@ -2990,8 +3000,9 @@ class WorkerRating:
 
 class WorkerCitySubscription:
     """Модель для подписок исполнителей на дополнительные города"""
-    def __init__(self, id: int | None, worker_id: int, city_ids: list, 
-                 subscription_start: str, subscription_end: str, 
+
+    def __init__(self, id: int | None, worker_id: int, city_ids: list,
+                 subscription_start: str, subscription_end: str,
                  subscription_months: int, price: int, active: bool = True):
         self.id = id
         self.worker_id = worker_id
@@ -3008,17 +3019,18 @@ class WorkerCitySubscription:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             await conn.execute('''
-                CREATE TABLE IF NOT EXISTS worker_city_subscriptions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    worker_id INTEGER NOT NULL,
-                    city_ids TEXT NOT NULL,
-                    subscription_start TEXT NOT NULL,
-                    subscription_end TEXT NOT NULL,
-                    subscription_months INTEGER NOT NULL,
-                    price INTEGER NOT NULL,
-                    active INTEGER DEFAULT 1
-                )
-            ''')
+                               CREATE TABLE IF NOT EXISTS worker_city_subscriptions
+                               (
+                                   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id           INTEGER NOT NULL,
+                                   city_ids            TEXT    NOT NULL,
+                                   subscription_start  TEXT    NOT NULL,
+                                   subscription_end    TEXT    NOT NULL,
+                                   subscription_months INTEGER NOT NULL,
+                                   price               INTEGER NOT NULL,
+                                   active              INTEGER DEFAULT 1
+                               )
+                               ''')
             await conn.commit()
         finally:
             await conn.close()
@@ -3030,7 +3042,7 @@ class WorkerCitySubscription:
             city_ids_str = '|'.join(map(str, self.city_ids))
             cursor = await conn.execute(
                 'INSERT INTO worker_city_subscriptions (worker_id, city_ids, subscription_start, subscription_end, subscription_months, price, active) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [self.worker_id, city_ids_str, self.subscription_start, self.subscription_end, 
+                [self.worker_id, city_ids_str, self.subscription_start, self.subscription_end,
                  self.subscription_months, self.price, self.active])
             await conn.commit()
             self.id = cursor.lastrowid
@@ -3047,7 +3059,7 @@ class WorkerCitySubscription:
                 [worker_id])
             records = await cursor.fetchall()
             await cursor.close()
-            
+
             subscriptions = []
             for record in records:
                 city_ids = [int(x) for x in record[2].split('|')] if record[2] else []
@@ -3076,7 +3088,7 @@ class WorkerCitySubscription:
                 [tomorrow])
             records = await cursor.fetchall()
             await cursor.close()
-            
+
             subscriptions = []
             for record in records:
                 city_ids = [int(x) for x in record[2].split('|')] if record[2] else []
@@ -3108,8 +3120,9 @@ class WorkerCitySubscription:
 
 class ContactExchange:
     """Модель для отслеживания обмена контактами"""
+
     def __init__(self, id: int | None, worker_id: int, customer_id: int, abs_id: int,
-                 contacts_sent: bool = False, contacts_purchased: bool = False, 
+                 contacts_sent: bool = False, contacts_purchased: bool = False,
                  created_at: str = None, updated_at: str = None):
         self.id = id
         self.worker_id = worker_id
@@ -3125,7 +3138,7 @@ class ContactExchange:
         try:
             cursor = await conn.execute(
                 'INSERT INTO contact_exchanges (worker_id, customer_id, abs_id, contacts_sent, contacts_purchased, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (self.worker_id, self.customer_id, self.abs_id, self.contacts_sent, 
+                (self.worker_id, self.customer_id, self.abs_id, self.contacts_sent,
                  self.contacts_purchased, self.created_at, self.updated_at))
             await conn.commit()
             await cursor.close()
@@ -3137,25 +3150,25 @@ class ContactExchange:
         try:
             updates = []
             params = []
-            
+
             if contacts_sent is not None:
                 updates.append('contacts_sent = ?')
                 params.append(contacts_sent)
-            
+
             if contacts_purchased is not None:
                 updates.append('contacts_purchased = ?')
                 params.append(contacts_purchased)
-            
+
             if updates:
                 updates.append('updated_at = ?')
                 params.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 params.append(self.id)
-                
+
                 query = f"UPDATE contact_exchanges SET {', '.join(updates)} WHERE id = ?"
                 cursor = await conn.execute(query, params)
                 await conn.commit()
                 await cursor.close()
-                
+
                 # Обновляем локальные значения
                 if contacts_sent is not None:
                     self.contacts_sent = contacts_sent
@@ -3169,7 +3182,7 @@ class ContactExchange:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             cursor = await conn.execute(
-                'SELECT * FROM contact_exchanges WHERE worker_id = ? AND abs_id = ?', 
+                'SELECT * FROM contact_exchanges WHERE worker_id = ? AND abs_id = ?',
                 [worker_id, abs_id])
             record = await cursor.fetchone()
             await cursor.close()
@@ -3189,18 +3202,18 @@ class ContactExchange:
             await conn.close()
 
     @classmethod
-    async def create_or_update(cls, worker_id: int, customer_id: int, abs_id: int, 
-                              contacts_sent: bool = False, contacts_purchased: bool = False) -> 'ContactExchange':
+    async def create_or_update(cls, worker_id: int, customer_id: int, abs_id: int,
+                               contacts_sent: bool = False, contacts_purchased: bool = False) -> 'ContactExchange':
         """Создает новую запись или обновляет существующую"""
         existing = await cls.get_by_worker_and_abs(worker_id, abs_id)
-        
+
         if existing:
             # Проверяем, не пытаемся ли мы сделать повторное действие
             if contacts_sent and existing.contacts_sent:
                 raise ValueError("Контакты уже были отправлены")
             if contacts_purchased and existing.contacts_purchased:
                 raise ValueError("Контакты уже были куплены")
-            
+
             await existing.update(contacts_sent=contacts_sent, contacts_purchased=contacts_purchased)
             return existing
         else:
@@ -3214,7 +3227,7 @@ class ContactExchange:
             )
             await new_exchange.save()
             return new_exchange
-    
+
     async def delete(self) -> None:
         """Удаляет запись ContactExchange"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
@@ -3224,14 +3237,14 @@ class ContactExchange:
             await cursor.close()
         finally:
             await conn.close()
-    
+
     @classmethod
     async def get_by_abs(cls, abs_id: int) -> list['ContactExchange']:
         """Получает все записи ContactExchange для объявления"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             cursor = await conn.execute(
-                'SELECT * FROM contact_exchanges WHERE abs_id = ?', 
+                'SELECT * FROM contact_exchanges WHERE abs_id = ?',
                 [abs_id])
             records = await cursor.fetchall()
             await cursor.close()
@@ -3249,22 +3262,60 @@ class ContactExchange:
             return []
         finally:
             await conn.close()
-    
+
+    @classmethod
+    async def count_by_worker(cls, worker_id: int) -> int:
+        """Подсчитывает количество купленных контактов исполнителем"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                'SELECT COUNT(*) FROM contact_exchanges WHERE worker_id = ? AND contacts_purchased = 1',
+                [worker_id])
+            count = await cursor.fetchone()
+            await cursor.close()
+            return count[0] if count else 0
+        finally:
+            await conn.close()
+
     # Функция get_status удалена - использовалась только для откликов
 
 
 class WorkerRank:
     """Модель для рангов исполнителей"""
-    
+
     RANK_TYPES = {
         'bronze': {'emoji': '🥉', 'name': 'Бронза', 'orders_required': 0, 'work_types_limit': 1},
         'silver': {'emoji': '🥈', 'name': 'Серебро', 'orders_required': 3, 'work_types_limit': 5},
         'gold': {'emoji': '🥇', 'name': 'Золото', 'orders_required': 5, 'work_types_limit': 10},
         'platinum': {'emoji': '💎', 'name': 'Платина', 'orders_required': 10, 'work_types_limit': None}
     }
-    
-    def __init__(self, id: int | None, worker_id: int, rank_type: str, 
-                 current_rank: str, completed_orders_count: int, 
+
+    def get_rank_description(self) -> str:
+        """Возвращает полное описание ранга"""
+        orders = self.orders_this_month
+        rank_name = self.get_rank_name()
+        rank_emoji = self.get_rank_emoji()
+
+        description = (
+            f"**Ваш ранг:** {rank_emoji} {rank_name}\n"
+            f"**Выполнено заказов за 30 дней:** {orders}\n\n"
+            "**🔹 Уровни рангов**\n\n"
+            "🥉 **Бронза** — 0–2 заказа\n"
+            "Доступно 1 направление для получения заказов.\n\n"
+            "🥈 **Серебро** — 3–4 заказа\n"
+            "Можно выбрать до 5 направлений.\n\n"
+            "🥇 **Золото** — 5–9 заказов\n"
+            "Можно выбрать до 10 направлений, приоритет выше.\n\n"
+            "💎 **Платина** — 10+ заказов\n"
+            "Доступны все направления без ограничений, максимальный приоритет.\n\n"
+            "💡 Чтобы повысить ранг, выполняйте больше заказов в течение 30 дней.\n"
+            "Ранг может снизиться, если заказы не выполняются."
+        )
+
+        return description
+
+    def __init__(self, id: int | None, worker_id: int, rank_type: str,
+                 current_rank: str, completed_orders_count: int,
                  orders_this_month: int, last_updated: str, created_at: str):
         self.id = id
         self.worker_id = worker_id
@@ -3274,46 +3325,47 @@ class WorkerRank:
         self.orders_this_month = orders_this_month
         self.last_updated = last_updated
         self.created_at = created_at
-    
+
     @classmethod
     async def create_table_if_not_exists(cls) -> None:
         """Создает таблицу если она не существует"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             await conn.execute('''
-                CREATE TABLE IF NOT EXISTS worker_ranks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    worker_id INTEGER NOT NULL,
-                    rank_type TEXT NOT NULL,
-                    current_rank TEXT NOT NULL,
-                    completed_orders_count INTEGER DEFAULT 0,
-                    orders_this_month INTEGER DEFAULT 0,
-                    last_updated TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (worker_id) REFERENCES workers (id)
-                )
-            ''')
-            
+                               CREATE TABLE IF NOT EXISTS worker_ranks
+                               (
+                                   id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id              INTEGER NOT NULL,
+                                   rank_type              TEXT    NOT NULL,
+                                   current_rank           TEXT    NOT NULL,
+                                   completed_orders_count INTEGER DEFAULT 0,
+                                   orders_this_month      INTEGER DEFAULT 0,
+                                   last_updated           TEXT    NOT NULL,
+                                   created_at             TEXT    NOT NULL,
+                                   FOREIGN KEY (worker_id) REFERENCES workers (id)
+                               )
+                               ''')
+
             # Создание индексов
             await conn.execute('''
-                CREATE INDEX IF NOT EXISTS idx_worker_ranks_worker_id 
-                ON worker_ranks(worker_id)
-            ''')
-            
+                               CREATE INDEX IF NOT EXISTS idx_worker_ranks_worker_id
+                                   ON worker_ranks (worker_id)
+                               ''')
+
             await conn.execute('''
-                CREATE INDEX IF NOT EXISTS idx_worker_ranks_rank_type 
-                ON worker_ranks(rank_type)
-            ''')
-            
+                               CREATE INDEX IF NOT EXISTS idx_worker_ranks_rank_type
+                                   ON worker_ranks (rank_type)
+                               ''')
+
             await conn.execute('''
-                CREATE INDEX IF NOT EXISTS idx_worker_ranks_updated 
-                ON worker_ranks(last_updated)
-            ''')
-            
+                               CREATE INDEX IF NOT EXISTS idx_worker_ranks_updated
+                                   ON worker_ranks (last_updated)
+                               ''')
+
             await conn.commit()
         finally:
             await conn.close()
-    
+
     async def save(self) -> None:
         """Сохраняет ранг в базу данных"""
         await self.create_table_if_not_exists()
@@ -3323,18 +3375,20 @@ class WorkerRank:
                 # Создание нового ранга
                 cursor = await conn.execute(
                     'INSERT INTO worker_ranks (worker_id, rank_type, current_rank, completed_orders_count, orders_this_month, last_updated, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [self.worker_id, self.rank_type, self.current_rank, self.completed_orders_count, self.orders_this_month, self.last_updated, self.created_at])
+                    [self.worker_id, self.rank_type, self.current_rank, self.completed_orders_count,
+                     self.orders_this_month, self.last_updated, self.created_at])
                 self.id = cursor.lastrowid
             else:
                 # Обновление существующего ранга
                 await conn.execute(
                     'UPDATE worker_ranks SET rank_type = ?, current_rank = ?, completed_orders_count = ?, orders_this_month = ?, last_updated = ? WHERE id = ?',
-                    [self.rank_type, self.current_rank, self.completed_orders_count, self.orders_this_month, self.last_updated, self.id])
-            
+                    [self.rank_type, self.current_rank, self.completed_orders_count, self.orders_this_month,
+                     self.last_updated, self.id])
+
             await conn.commit()
         finally:
             await conn.close()
-    
+
     @classmethod
     async def get_by_worker(cls, worker_id: int) -> 'WorkerRank | None':
         """Получает ранг исполнителя"""
@@ -3346,7 +3400,7 @@ class WorkerRank:
                 [worker_id])
             record = await cursor.fetchone()
             await cursor.close()
-            
+
             if record:
                 return cls(
                     id=record[0],
@@ -3361,77 +3415,97 @@ class WorkerRank:
             return None
         finally:
             await conn.close()
-    
+
     @classmethod
     async def calculate_rank(cls, worker_id: int) -> 'WorkerRank':
-        """Рассчитывает ранг исполнителя на основе выполненных заказов"""
-        from datetime import datetime
-        
-        # Получаем количество выполненных заказов за месяц
+        """Рассчитывает ранг исполнителя на основе выполненных заказов за последние 30 дней"""
+        from datetime import datetime, timedelta
+
+        # Получаем количество выполненных заказов за последние 30 дней
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
-            # Подсчитываем заказы за текущий месяц (завершенные заказы с оценками)
-            current_month = datetime.now().strftime('%Y-%m')
+            # Вычисляем дату 30 дней назад
+            date_30_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+
+            # Подсчитываем заказы за последние 30 дней (завершенные заказы с оценками)
             cursor = await conn.execute('''
-                SELECT COUNT(*) FROM worker_ratings 
-                WHERE worker_id = ?
-                AND strftime('%Y-%m', created_at) = ?
-            ''', [worker_id, current_month])
-            
-            orders_this_month = (await cursor.fetchone())[0]
+                                        SELECT COUNT(*)
+                                        FROM worker_ratings
+                                        WHERE worker_id = ?
+                                          AND created_at >= ?
+                                        ''', [worker_id, date_30_days_ago])
+
+            orders_last_30_days = (await cursor.fetchone())[0]
             await cursor.close()
-            
+
             # Подсчитываем общее количество выполненных заказов
             cursor = await conn.execute('''
-                SELECT COUNT(*) FROM worker_ratings 
-                WHERE worker_id = ?
-            ''', [worker_id])
-            
+                                        SELECT COUNT(*)
+                                        FROM worker_ratings
+                                        WHERE worker_id = ?
+                                        ''', [worker_id])
+
             completed_orders_count = (await cursor.fetchone())[0]
             await cursor.close()
-            
+
         finally:
             await conn.close()
-        
-        # Определяем ранг на основе заказов за месяц
+
+        # Определяем ранг на основе заказов за последние 30 дней
         rank_type = 'bronze'
-        if orders_this_month >= 10:
+        if orders_last_30_days >= 10:
             rank_type = 'platinum'
-        elif orders_this_month >= 5:
+        elif orders_last_30_days >= 5:
             rank_type = 'gold'
-        elif orders_this_month >= 3:
+        elif orders_last_30_days >= 3:
             rank_type = 'silver'
-        
+
         rank_info = cls.RANK_TYPES[rank_type]
         current_rank = rank_info['emoji']
         last_updated = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
+
         return cls(
             id=None,
             worker_id=worker_id,
             rank_type=rank_type,
             current_rank=current_rank,
             completed_orders_count=completed_orders_count,
-            orders_this_month=orders_this_month,
+            orders_this_month=orders_last_30_days,  # Используем это поле для хранения заказов за 30 дней
             last_updated=last_updated,
             created_at=created_at
         )
-    
+
     @classmethod
     async def get_or_create_rank(cls, worker_id: int) -> 'WorkerRank':
         """Получает существующий ранг или создает новый"""
         await cls.create_table_if_not_exists()
-        
+
         # Получаем существующий ранг
         existing_rank = await cls.get_by_worker(worker_id)
-        
+
         # Рассчитываем текущий ранг
         current_rank = await cls.calculate_rank(worker_id)
-        
+
         # Если ранг изменился или не существует, обновляем/создаем
         if not existing_rank or existing_rank.rank_type != current_rank.rank_type:
+            # Проверяем, изменился ли ранг (не первое создание)
+            rank_changed = existing_rank is not None and existing_rank.rank_type != current_rank.rank_type
+
+            # Определяем направление изменения ранга (повышение или понижение)
+            old_rank_level = 0
+            new_rank_level = 0
+            if rank_changed:
+                rank_levels = {'bronze': 1, 'silver': 2, 'gold': 3, 'platinum': 4}
+                old_rank_level = rank_levels.get(existing_rank.rank_type, 0)
+                new_rank_level = rank_levels.get(current_rank.rank_type, 0)
+
             await current_rank.save()
+            
+            # Примечание: Счетчик изменений направлений НЕ сбрасывается при изменении ранга
+            # Он сбрасывается только через 30 дней после последнего изменения
+            # Выбор/добавление направлений НЕ считается изменением (только замена)
+            
             return current_rank
         else:
             # Обновляем статистику в существующем ранге
@@ -3441,11 +3515,23 @@ class WorkerRank:
             await existing_rank.save()
             return existing_rank
 
+    def get_rank_name(self) -> str:
+        """Возвращает название ранга"""
+        return self.RANK_TYPES.get(self.rank_type, {}).get('name', 'Бронза')
+
+    def get_rank_emoji(self) -> str:
+        """Возвращает эмодзи ранга"""
+        return self.RANK_TYPES.get(self.rank_type, {}).get('emoji', '🥉')
+
+    def get_work_types_limit(self) -> int | None:
+        """Возвращает лимит направлений для ранга"""
+        return self.RANK_TYPES.get(self.rank_type, {}).get('work_types_limit', 1)
+
 
 class WorkerDailyResponses:
     """Модель для отслеживания откликов исполнителей в день"""
-    
-    def __init__(self, id: int = None, worker_id: int = None, date: str = None, 
+
+    def __init__(self, id: int = None, worker_id: int = None, date: str = None,
                  responses_count: int = 0, created_at: str = None, updated_at: str = None):
         self.id = id
         self.worker_id = worker_id
@@ -3487,7 +3573,7 @@ class WorkerDailyResponses:
             )
             record = await cursor.fetchone()
             await cursor.close()
-            
+
             if record:
                 return cls(
                     id=record[0],
@@ -3508,7 +3594,7 @@ class WorkerDailyResponses:
         try:
             # Пытаемся получить существующую запись
             existing = await cls.get_by_worker_and_date(worker_id, date)
-            
+
             if existing:
                 # Обновляем существующую запись
                 existing.responses_count += 1
@@ -3529,10 +3615,152 @@ class WorkerDailyResponses:
         return record.responses_count if record else 0
 
 
+class WorkerStatus:
+    """Модель для хранения статусов исполнителей (ИП, ООО, СЗ)"""
+
+    def __init__(self, id: int = None, worker_id: int = None,
+                 has_ip: bool = False, ip_number: str = None,
+                 has_ooo: bool = False, ooo_number: str = None,
+                 has_sz: bool = False, sz_number: str = None,
+                 last_status_check: str = None,
+                 created_at: str = None, updated_at: str = None):
+        self.id = id
+        self.worker_id = worker_id
+        self.has_ip = has_ip
+        self.ip_number = ip_number
+        self.has_ooo = has_ooo
+        self.ooo_number = ooo_number
+        self.has_sz = has_sz
+        self.sz_number = sz_number
+        self.last_status_check = last_status_check
+        self.created_at = created_at or datetime.now().isoformat()
+        self.updated_at = updated_at or datetime.now().isoformat()
+
+    async def save(self) -> None:
+        """Создает или обновляет запись о статусе исполнителя"""
+        conn = await aiosqlite.connect('app/data/database/database.db')
+        try:
+            # Проверяем, есть ли уже запись
+            cursor = await conn.execute(
+                'SELECT id FROM worker_statuses WHERE worker_id = ?',
+                (self.worker_id,)
+            )
+            existing = await cursor.fetchone()
+            await cursor.close()
+
+            if existing:
+                # Обновляем существующую запись
+                self.updated_at = datetime.now().isoformat()
+                await conn.execute('''
+                                   UPDATE worker_statuses
+                                   SET has_ip            = ?,
+                                       ip_number         = ?,
+                                       has_ooo           = ?,
+                                       ooo_number        = ?,
+                                       has_sz            = ?,
+                                       sz_number         = ?,
+                                       last_status_check = ?,
+                                       updated_at        = ?
+                                   WHERE worker_id = ?
+                                   ''', (self.has_ip, self.ip_number, self.has_ooo, self.ooo_number,
+                                         self.has_sz, self.sz_number, self.last_status_check, self.updated_at,
+                                         self.worker_id))
+            else:
+                # Создаем новую запись
+                await conn.execute('''
+                                   INSERT INTO worker_statuses
+                                   (worker_id, has_ip, ip_number, has_ooo, ooo_number, has_sz, sz_number,
+                                    last_status_check, created_at, updated_at)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   ''', (self.worker_id, self.has_ip, self.ip_number, self.has_ooo, self.ooo_number,
+                                         self.has_sz, self.sz_number, self.last_status_check, self.created_at,
+                                         self.updated_at))
+
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_by_worker(cls, worker_id: int) -> Optional['WorkerStatus']:
+        """Получает статус исполнителя по worker_id"""
+        conn = await aiosqlite.connect('app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                'SELECT * FROM worker_statuses WHERE worker_id = ?',
+                (worker_id,)
+            )
+            record = await cursor.fetchone()
+            await cursor.close()
+
+            if record:
+                return cls(
+                    id=record[0],
+                    worker_id=record[1],
+                    has_ip=bool(record[2]),
+                    ip_number=record[3],
+                    has_ooo=bool(record[4]),
+                    ooo_number=record[5],
+                    has_sz=bool(record[6]),
+                    sz_number=record[7],
+                    last_status_check=record[8],
+                    created_at=record[9],
+                    updated_at=record[10]
+                )
+            return None
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_or_create(cls, worker_id: int) -> 'WorkerStatus':
+        """Получает или создает статус для исполнителя"""
+        status = await cls.get_by_worker(worker_id)
+        if not status:
+            status = cls(worker_id=worker_id)
+            await status.save()
+        return status
+
+    @classmethod
+    async def get_all_for_recheck(cls) -> list['WorkerStatus']:
+        """Получает все статусы, которые нужно перепроверить (старше 6 месяцев)"""
+        conn = await aiosqlite.connect('app/data/database/database.db')
+        try:
+            from datetime import timedelta
+            six_months_ago = (datetime.now() - timedelta(days=180)).isoformat()
+
+            cursor = await conn.execute('''
+                                        SELECT *
+                                        FROM worker_statuses
+                                        WHERE (has_ip = 1 OR has_ooo = 1 OR has_sz = 1)
+                                          AND (last_status_check IS NULL OR last_status_check < ?)
+                                        ''', (six_months_ago,))
+
+            records = await cursor.fetchall()
+            await cursor.close()
+
+            statuses = []
+            for record in records:
+                statuses.append(cls(
+                    id=record[0],
+                    worker_id=record[1],
+                    has_ip=bool(record[2]),
+                    ip_number=record[3],
+                    has_ooo=bool(record[4]),
+                    ooo_number=record[5],
+                    has_sz=bool(record[6]),
+                    sz_number=record[7],
+                    last_status_check=record[8],
+                    created_at=record[9],
+                    updated_at=record[10]
+                ))
+            return statuses
+        finally:
+            await conn.close()
+
+
 class WorkerResponseCancellation:
     """Модель для отслеживания отмен откликов исполнителями"""
-    
-    def __init__(self, id: int = None, worker_id: int = None, abs_id: int = None, 
+
+    def __init__(self, id: int = None, worker_id: int = None, abs_id: int = None,
                  cancelled_at: str = None):
         self.id = id
         self.worker_id = worker_id
@@ -3569,31 +3797,183 @@ class WorkerResponseCancellation:
             await conn.close()
 
 
-class WorkerRank:
-    """Модель для рангов исполнителей"""
-    
-    RANK_TYPES = {
-        1: {'name': 'Новичок', 'work_types_limit': 2, 'orders_required': 0},
-        2: {'name': 'Стажер', 'work_types_limit': 3, 'orders_required': 5},
-        3: {'name': 'Специалист', 'work_types_limit': 5, 'orders_required': 15},
-        4: {'name': 'Эксперт', 'work_types_limit': 8, 'orders_required': 35},
-        5: {'name': 'Мастер', 'work_types_limit': None, 'orders_required': 70}
-    }
-    
-    def __init__(self, id: int = None, worker_id: int = None, rank_type: int = 1,
-                 completed_orders_count: int = 0, orders_this_month: int = 0,
-                 last_updated: str = None):
+class WorkerWorkTypeChanges:
+    """Модель для отслеживания изменений направлений работы исполнителя"""
+
+    def __init__(self, id: int | None, worker_id: int, changes_count: int = 0,
+                 last_change_date: str | None = None, reset_date: str | None = None,
+                 pending_selection: bool = False):
         self.id = id
         self.worker_id = worker_id
-        self.rank_type = rank_type
-        self.completed_orders_count = completed_orders_count
-        self.orders_this_month = orders_this_month
-        self.last_updated = last_updated
+        self.changes_count = changes_count  # Количество изменений
+        self.last_change_date = last_change_date  # Дата последнего изменения
+        self.reset_date = reset_date  # Дата когда можно снова изменять (через 30 дней)
+        self.pending_selection = pending_selection  # Флаг ожидания выбора после обнуления ранга
 
-    def get_work_types_limit(self) -> int | None:
-        """Возвращает лимит направлений для ранга"""
-        return self.RANK_TYPES[self.rank_type]['work_types_limit']
-    
-    def get_rank_name(self) -> str:
-        """Возвращает название ранга"""
-        return self.RANK_TYPES[self.rank_type]['name']
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        """Создает таблицу если она не существует"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS worker_work_type_changes
+                               (
+                                   id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id        INTEGER NOT NULL UNIQUE,
+                                   changes_count    INTEGER DEFAULT 0,
+                                   last_change_date TEXT,
+                                   reset_date       TEXT,
+                                   pending_selection INTEGER DEFAULT 0,
+                                   FOREIGN KEY (worker_id) REFERENCES workers (id)
+                               )
+                               ''')
+
+            # Создание индекса
+            await conn.execute('''
+                               CREATE INDEX IF NOT EXISTS idx_worker_work_type_changes_worker_id
+                                   ON worker_work_type_changes (worker_id)
+                               ''')
+
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    async def save(self) -> None:
+        """Сохраняет или обновляет запись об изменениях направлений"""
+        await self.create_table_if_not_exists()
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            if self.id is None:
+                # Создание новой записи
+                cursor = await conn.execute(
+                    'INSERT INTO worker_work_type_changes (worker_id, changes_count, last_change_date, reset_date, pending_selection) VALUES (?, ?, ?, ?, ?)',
+                    (self.worker_id, self.changes_count, self.last_change_date, self.reset_date, 1 if self.pending_selection else 0)
+                )
+                self.id = cursor.lastrowid
+            else:
+                # Обновление существующей записи
+                await conn.execute(
+                    'UPDATE worker_work_type_changes SET changes_count = ?, last_change_date = ?, reset_date = ?, pending_selection = ? WHERE id = ?',
+                    (self.changes_count, self.last_change_date, self.reset_date, 1 if self.pending_selection else 0, self.id)
+                )
+
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_by_worker(cls, worker_id: int) -> Optional['WorkerWorkTypeChanges']:
+        """Получает запись об изменениях направлений исполнителя"""
+        await cls.create_table_if_not_exists()
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                'SELECT * FROM worker_work_type_changes WHERE worker_id = ?',
+                (worker_id,)
+            )
+            record = await cursor.fetchone()
+            await cursor.close()
+
+            if record:
+                return cls(
+                    id=record[0],
+                    worker_id=record[1],
+                    changes_count=record[2],
+                    last_change_date=record[3],
+                    reset_date=record[4],
+                    pending_selection=bool(record[5]) if len(record) > 5 else False
+                )
+            return None
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_or_create(cls, worker_id: int) -> 'WorkerWorkTypeChanges':
+        """Получает существующую запись или создает новую"""
+        existing = await cls.get_by_worker(worker_id)
+        if existing:
+            return existing
+
+        # Создаем новую запись
+        new_record = cls(
+            id=None,
+            worker_id=worker_id,
+            changes_count=0,
+            last_change_date=None,
+            reset_date=None,
+            pending_selection=False
+        )
+        await new_record.save()
+        return await cls.get_by_worker(worker_id)
+
+    def can_change_work_types(self) -> tuple[bool, str]:
+        """
+        Проверяет, может ли исполнитель изменить направления
+        Возвращает (можно_изменить, сообщение)
+        """
+        from datetime import datetime, timedelta
+
+        # Если изменений еще не было
+        if self.changes_count == 0:
+            return (
+                True,
+                ""
+            )
+
+        # Если уже использовал все 3 попытки
+        if self.changes_count >= 3:
+            # Проверяем, прошло ли 30 дней
+            if self.reset_date:
+                reset_date = datetime.strptime(self.reset_date, '%Y-%m-%d %H:%M:%S')
+                now = datetime.now()
+
+                if now >= reset_date:
+                    # Прошло 30 дней, можно сбросить счетчик
+                    return (
+                        True,
+                        ""
+                    )
+                else:
+                    # Еще не прошло 30 дней
+                    days_left = (reset_date - now).days + 1
+                    return (
+                        False,
+                        f"❌ Вы достигли лимита изменений (3 раза). Вы сможете изменить направления через {days_left} дней."
+                    )
+            else:
+                # Нет даты сброса (не должно быть)
+                return (
+                    False,
+                    "❌ Вы достигли лимита изменений (3 раза)."
+                )
+
+        # Еще есть попытки
+        remaining = 3 - self.changes_count
+        return (
+            True,
+            f"✅ Осталось изменений: {remaining}/3"
+        )
+
+    async def register_change(self) -> None:
+        """Регистрирует изменение направлений"""
+        from datetime import datetime, timedelta
+
+        now = datetime.now()
+
+        # Если достигли лимита и прошло 30 дней - сбрасываем
+        if self.changes_count >= 3 and self.reset_date:
+            reset_date = datetime.strptime(self.reset_date, '%Y-%m-%d %H:%M:%S')
+            if now >= reset_date:
+                # Сброс счетчика
+                self.changes_count = 0
+
+        # Увеличиваем счетчик
+        self.changes_count += 1
+        self.last_change_date = now.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Если достигли лимита - устанавливаем дату сброса
+        if self.changes_count >= 3:
+            reset_date = now + timedelta(days=30)
+            self.reset_date = reset_date.strftime('%Y-%m-%d %H:%M:%S')
+
+        await self.save()

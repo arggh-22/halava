@@ -295,6 +295,301 @@ async def restore_weekly_activity():
         logger.error(f'restore_weekly_activity: Error - {e}')
 
 
+async def check_worker_statuses():
+    """
+    Проверяет статусы исполнителей (ИП, ООО, СЗ) каждые 6 месяцев.
+    Если статус больше не действителен - снимает его.
+    """
+    try:
+        logger.info('check_worker_statuses: Starting...')
+        from app.data.database.models import WorkerStatus
+        
+        # Получаем все статусы, которые нужно проверить (старше 6 месяцев)
+        statuses_to_check = await WorkerStatus.get_all_for_recheck()
+        
+        if not statuses_to_check:
+            logger.info('check_worker_statuses: No statuses to check')
+            return
+        
+        logger.info(f'check_worker_statuses: Checking {len(statuses_to_check)} statuses...')
+        
+        checked_count = 0
+        revoked_count = 0
+        
+        for status in statuses_to_check:
+            status_changed = False
+            revoked_status_name = None
+            
+            # Проверяем ИП
+            if status.has_ip and status.ip_number:
+                result = help_defs.check_ip_status_by_ogrnip(status.ip_number)
+                if not result:
+                    # ИП больше не действует
+                    status.has_ip = False
+                    status.ip_number = None
+                    status_changed = True
+                    revoked_status_name = "ИП"
+                    revoked_count += 1
+                    logger.info(f'check_worker_statuses: Revoked IP for worker {status.worker_id}')
+            
+            # Проверяем ООО
+            if status.has_ooo and status.ooo_number:
+                result = help_defs.check_ooo(status.ooo_number)
+                if result != True:  # False or "error"
+                    # ООО больше не действует или ошибка
+                    if result == False:  # Только если точно не действует
+                        status.has_ooo = False
+                        status.ooo_number = None
+                        status_changed = True
+                        revoked_status_name = "ООО"
+                        revoked_count += 1
+                        logger.info(f'check_worker_statuses: Revoked OOO for worker {status.worker_id}')
+            
+            # Проверяем СЗ
+            if status.has_sz and status.sz_number:
+                result = help_defs.check_npd(status.sz_number)
+                if result != True:  # False or "error"
+                    # СЗ больше не действует или ошибка
+                    if result == False:  # Только если точно не действует
+                        status.has_sz = False
+                        status.sz_number = None
+                        status_changed = True
+                        revoked_status_name = "Самозанятость"
+                        revoked_count += 1
+                        logger.info(f'check_worker_statuses: Revoked SZ for worker {status.worker_id}')
+            
+            # Обновляем дату последней проверки
+            status.last_status_check = datetime.now().isoformat()
+            
+            # Сохраняем изменения
+            if status_changed or True:  # Всегда обновляем last_status_check
+                await status.save()
+                checked_count += 1
+                
+                # Отправляем уведомление исполнителю о снятии статуса
+                if status_changed and revoked_status_name:
+                    try:
+                        from app.data.database.models import Worker
+                        from loaders import bot
+                        
+                        worker = await Worker.get_worker(id=status.worker_id)
+                        if worker:
+                            notification_text = (
+                                f"⚠️ **Уведомление о статусе**\n\n"
+                                f"Ваш статус **{revoked_status_name}** больше не действителен.\n\n"
+                                f"Статус изменен на: **Статус не подтвержден ⚠️**\n\n"
+                                f"Вы можете подтвердить статус заново в разделе 'Статус' вашего профиля."
+                            )
+                            await bot.send_message(
+                                chat_id=worker.tg_id,
+                                text=notification_text,
+                                parse_mode='Markdown'
+                            )
+                            logger.info(f'check_worker_statuses: Notification sent to worker {status.worker_id}')
+                    except Exception as notify_error:
+                        logger.error(f'check_worker_statuses: Failed to send notification - {notify_error}')
+        
+        logger.info(f'check_worker_statuses: Checked {checked_count} statuses, revoked {revoked_count} statuses')
+        
+    except Exception as e:
+        logger.error(f'check_worker_statuses: Error - {e}')
+
+
+async def update_worker_ranks():
+    """
+    Обновляет ранги всех исполнителей на основе заказов за последние 30 дней.
+    Запускается автоматически каждый день.
+    При понижении ранга обнуляет направления, если они превышают новый лимит.
+    """
+    logger.info('update_worker_ranks: Starting rank update for all workers')
+    
+    try:
+        from app.data.database.models import Worker, WorkerRank, WorkerAndSubscription
+        from loaders import bot
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        
+        # Получаем всех исполнителей
+        workers = await Worker.get_all()
+        if not workers:
+            logger.info('update_worker_ranks: No workers found')
+            return
+        
+        updated_count = 0
+        upgraded_count = 0
+        downgraded_count = 0
+        reset_work_types_count = 0
+        
+        for worker in workers:
+            try:
+                # Получаем старый ранг
+                old_rank = await WorkerRank.get_by_worker(worker.id)
+                old_rank_type = old_rank.rank_type if old_rank else None
+                old_work_types_limit = old_rank.get_work_types_limit() if old_rank else 1
+                
+                # Обновляем ранг (пересчитываем на основе заказов за последние 30 дней)
+                new_rank = await WorkerRank.get_or_create_rank(worker.id)
+                new_work_types_limit = new_rank.get_work_types_limit()
+                
+                # Проверяем, изменился ли ранг
+                if old_rank_type and old_rank_type != new_rank.rank_type:
+                    rank_levels = {'bronze': 1, 'silver': 2, 'gold': 3, 'platinum': 4}
+                    old_level = rank_levels.get(old_rank_type, 0)
+                    new_level = rank_levels.get(new_rank.rank_type, 0)
+                    
+                    if new_level > old_level:
+                        upgraded_count += 1
+                        logger.info(f'update_worker_ranks: Worker {worker.id} upgraded from {old_rank_type} to {new_rank.rank_type}')
+                    elif new_level < old_level:
+                        downgraded_count += 1
+                        logger.info(f'update_worker_ranks: Worker {worker.id} downgraded from {old_rank_type} to {new_rank.rank_type}')
+                        
+                        # При понижении ранга ВСЕГДА отправляем уведомление
+                        worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+                        current_work_types_count = len(worker_sub.work_type_ids) if worker_sub and worker_sub.work_type_ids else 0
+                        
+                        # Проверяем, нужно ли обнулять направления
+                        if worker_sub and worker_sub.work_type_ids and new_work_types_limit is not None and current_work_types_count > new_work_types_limit:
+                                # Сохраняем старые направления для отображения в уведомлении
+                                from app.data.database.models import WorkType
+                                old_work_types_names = []
+                                for wt_id in worker_sub.work_type_ids:
+                                    work_type = await WorkType.get_work_type(id=int(wt_id))
+                                    if work_type:
+                                        old_work_types_names.append(work_type.work_type)
+                                
+                                # Обнуляем направления
+                                worker_sub.work_type_ids = []
+                                await worker_sub.save()
+                                reset_work_types_count += 1
+                                
+                                # Устанавливаем флаг ожидания выбора (не считается изменением)
+                                from app.data.database.models import WorkerWorkTypeChanges
+                                work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+                                work_type_changes.pending_selection = True
+                                await work_type_changes.save()
+                                
+                                logger.info(f'update_worker_ranks: Reset work types for worker {worker.id} (had {current_work_types_count}, limit now {new_work_types_limit}), set pending_selection flag')
+                                
+                                # Отправляем уведомление исполнителю
+                                try:
+                                    old_rank_name = WorkerRank.RANK_TYPES[old_rank_type]['name']
+                                    old_rank_emoji = WorkerRank.RANK_TYPES[old_rank_type]['emoji']
+                                    new_rank_name = new_rank.get_rank_name()
+                                    new_rank_emoji = new_rank.get_rank_emoji()
+                                    
+                                    notification_text = (
+                                        f"⚠️ **Изменение ранга**\n\n"
+                                        f"Ваш ранг изменился:\n"
+                                        f"{old_rank_emoji} **{old_rank_name}** → {new_rank_emoji} **{new_rank_name}**\n\n"
+                                        f"📊 **Изменение лимита направлений:**\n"
+                                        f"Было доступно: **{old_work_types_limit if old_work_types_limit else 'без ограничений'}**\n"
+                                        f"Стало доступно: **{new_work_types_limit}**\n\n"
+                                        f"❌ **Ваши направления были сброшены:**\n"
+                                    )
+                                    
+                                    for i, wt_name in enumerate(old_work_types_names, 1):
+                                        notification_text += f"{i}. {wt_name}\n"
+                                    
+                                    notification_text += (
+                                        f"\n💡 Вам нужно выбрать до {new_work_types_limit} направлений заново.\n"
+                                        f"Нажмите **ОК**, чтобы перейти к выбору направлений."
+                                    )
+                                    
+                                    # Создаем кнопку "ОК" которая перенаправит в раздел "Мои направления"
+                                    builder = InlineKeyboardBuilder()
+                                    builder.button(text="✅ ОК", callback_data="rank_downgrade_ok")
+                                    
+                                    await bot.send_message(
+                                        chat_id=worker.tg_id,
+                                        text=notification_text,
+                                        reply_markup=builder.as_markup(),
+                                        parse_mode='Markdown'
+                                    )
+                                    
+                                    logger.info(f'update_worker_ranks: Sent rank downgrade notification to worker {worker.id}')
+                                    
+                                except Exception as notify_error:
+                                    logger.error(f'update_worker_ranks: Failed to send notification to worker {worker.id} - {notify_error}')
+                        
+                        else:
+                            # Направления НЕ обнулены (в рамках лимита или нет направлений вообще)
+                            # Отправляем информационное уведомление
+                            try:
+                                old_rank_name = WorkerRank.RANK_TYPES[old_rank_type]['name']
+                                old_rank_emoji = WorkerRank.RANK_TYPES[old_rank_type]['emoji']
+                                new_rank_name = new_rank.get_rank_name()
+                                new_rank_emoji = new_rank.get_rank_emoji()
+                                
+                                notification_text = (
+                                    f"⚠️ **Изменение ранга**\n\n"
+                                    f"Ваш ранг изменился:\n"
+                                    f"{old_rank_emoji} **{old_rank_name}** → {new_rank_emoji} **{new_rank_name}**\n\n"
+                                    f"📊 **Изменение лимита направлений:**\n"
+                                    f"Было доступно: **{old_work_types_limit if old_work_types_limit else 'без ограничений'}**\n"
+                                    f"Стало доступно: **{new_work_types_limit}**\n\n"
+                                )
+                                
+                                if current_work_types_count > 0:
+                                    # Получаем названия текущих направлений
+                                    from app.data.database.models import WorkType
+                                    current_work_types_names = []
+                                    for wt_id in worker_sub.work_type_ids:
+                                        work_type = await WorkType.get_work_type(id=int(wt_id))
+                                        if work_type:
+                                            current_work_types_names.append(work_type.work_type)
+                                    
+                                    notification_text += (
+                                        f"✅ **Ваши направления сохранены:**\n"
+                                        f"У вас было выбрано **{current_work_types_count}** направлений, "
+                                        f"что в рамках нового лимита (**{new_work_types_limit}**).\n\n"
+                                    )
+                                    
+                                    for i, wt_name in enumerate(current_work_types_names, 1):
+                                        notification_text += f"{i}. {wt_name}\n"
+                                    
+                                    # Проверяем, можно ли добавить еще направлений
+                                    remaining_slots = new_work_types_limit - current_work_types_count
+                                    if remaining_slots > 0:
+                                        notification_text += (
+                                            f"\n💡 Вы можете выбрать еще **{remaining_slots}** "
+                                            f"{'направление' if remaining_slots == 1 else 'направления' if remaining_slots < 5 else 'направлений'}.\n"
+                                            f"Перейдите в раздел 'Мои направления' для изменения."
+                                        )
+                                    else:
+                                        notification_text += (
+                                            f"\n🎯 Вы используете максимальное количество направлений для вашего ранга."
+                                        )
+                                else:
+                                    notification_text += (
+                                        f"💡 У вас нет выбранных направлений.\n"
+                                        f"Вы можете выбрать до **{new_work_types_limit}** "
+                                        f"{'направление' if new_work_types_limit == 1 else 'направления' if new_work_types_limit < 5 else 'направлений'}.\n"
+                                        f"Перейдите в раздел 'Мои направления' для выбора."
+                                    )
+                                
+                                # Кнопка без callback (просто информационное сообщение)
+                                await bot.send_message(
+                                    chat_id=worker.tg_id,
+                                    text=notification_text,
+                                    parse_mode='Markdown'
+                                )
+                                
+                                logger.info(f'update_worker_ranks: Sent rank downgrade info (no reset) to worker {worker.id}')
+                                
+                            except Exception as notify_error:
+                                logger.error(f'update_worker_ranks: Failed to send info notification to worker {worker.id} - {notify_error}')
+                
+                updated_count += 1
+                
+            except Exception as worker_error:
+                logger.error(f'update_worker_ranks: Error updating rank for worker {worker.id} - {worker_error}')
+        
+        logger.info(f'update_worker_ranks: Updated {updated_count} workers. Upgraded: {upgraded_count}, Downgraded: {downgraded_count}, Reset work types: {reset_work_types_count}')
+        
+    except Exception as e:
+        logger.error(f'update_worker_ranks: Error - {e}')
+
+
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |
 # | |  | |  ___ | |__    | |    ___   ___ | |__

@@ -299,6 +299,297 @@ async def choose_city_end(callback: CallbackQuery, state: FSMContext) -> None:
 # Верификация убрана согласно ТЗ
 
 
+async def show_worker_menu_for_message(message: Message, state: FSMContext, user_worker: 'Worker') -> None:
+    """Общая функция для отображения меню исполнителя (для Message)"""
+    kbc = KeyboardCollection()
+    
+    # Получаем данные для профиля
+    from app.data.database.models import WorkerRank, WorkerStatus, ContactExchange, WorkerCitySubscription
+    import aiosqlite
+    
+    # Получаем подписку
+    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=user_worker.id)
+    
+    # Ранг
+    worker_rank = await WorkerRank.get_or_create_rank(user_worker.id)
+    rank_name = worker_rank.get_rank_name()
+    rank_emoji = worker_rank.get_rank_emoji()
+    
+    # Активность
+    activity_level = user_worker.activity_level if hasattr(user_worker, 'activity_level') else 100
+    activity_emoji = "🔥" if activity_level >= 80 else "⚡" if activity_level >= 50 else "💤"
+    
+    # Статус (ИП/ООО/СЗ)
+    worker_status_obj = await WorkerStatus.get_by_worker(user_worker.id)
+    if worker_status_obj and (worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz):
+        if worker_status_obj.has_ip:
+            status_text = "ИП ✅"
+        elif worker_status_obj.has_ooo:
+            status_text = "ООО ✅"
+        else:
+            status_text = "Самозанятость ✅"
+    else:
+        status_text = "Статус не подтвержден ⚠️"
+    
+    # Город и купленные города
+    main_city = await City.get_city(id=user_worker.city_id[0])
+    
+    # Получаем ВСЕ подписки (активные и неактивные) для подсчета купленных городов
+    conn = await aiosqlite.connect(database='app/data/database/database.db')
+    try:
+        cursor = await conn.execute(
+            'SELECT city_ids, active, price FROM worker_city_subscriptions WHERE worker_id = ?',
+            [user_worker.id])
+        all_subscriptions = await cursor.fetchall()
+        await cursor.close()
+    finally:
+        await conn.close()
+    
+    # Подсчитываем купленные и выбранные города
+    total_purchased_cities = 1  # Основной город
+    total_selected_cities = 1   # Основной город
+    
+    # Словарь соответствия цены и количества купленных городов
+    prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
+    
+    for sub_data in all_subscriptions:
+        city_ids_str = sub_data[0]
+        is_active = bool(sub_data[1])
+        price = sub_data[2]
+        
+        # Определяем КУПЛЕННОЕ количество городов по цене
+        purchased_count = prices.get(price, 1)
+        total_purchased_cities += purchased_count
+        
+        # Определяем ВЫБРАННОЕ количество городов
+        if city_ids_str:
+            selected_count = len(city_ids_str.split('|'))
+            if is_active:
+                total_selected_cities += selected_count
+    
+    if total_selected_cities == 1:
+        city_text = f"Ваш город: {main_city.city}"
+    else:
+        additional = total_selected_cities - 1
+        city_text = f"Ваш город: {main_city.city} +{additional} {'город' if additional == 1 else 'города' if additional < 5 else 'городов'}"
+    
+    # Количество контактов
+    contacts_purchased = await ContactExchange.count_by_worker(user_worker.id)
+    
+    # Рейтинг
+    if user_worker.count_ratings > 0:
+        rating = round(user_worker.stars / user_worker.count_ratings, 1)
+        rating_text = f"Рейтинг: {rating} ⭐ ({user_worker.count_ratings} {'оценка' if user_worker.count_ratings == 1 else 'оценки' if user_worker.count_ratings < 5 else 'оценок'})"
+    else:
+        rating_text = f"Рейтинг: 0 ⭐ (0 оценок)"
+    
+    # Формируем текст профиля
+    text = f"**Ваш профиль**\n\n"
+    text += f"ID: {user_worker.id} {user_worker.profile_name}\n"
+    text += f"{rating_text}\n"
+    text += f"Ранг: {rank_name} {rank_emoji}\n"
+    text += f"Активность: {activity_level} {activity_emoji}\n"
+    text += f"{status_text}\n"
+    text += f"{city_text}\n\n"
+    text += f"Количество контактов: {contacts_purchased}\n"
+    
+    # Если купил больше городов, чем выбрал - показываем "не выбрано"
+    if total_purchased_cities > total_selected_cities:
+        not_selected = total_purchased_cities - total_selected_cities
+        text += f"Количество городов: {total_selected_cities} (не выбрано: {not_selected})\n"
+    else:
+        text += f"Количество городов: {total_selected_cities}\n"
+    
+    text += f"Выполненных заказов: {user_worker.order_count}\n"
+    text += f"Зарегистрирован: {user_worker.registration_data}"
+
+    choose_works = True if worker_sub.unlimited_work_types else False
+
+    profile_name = True if user_worker.profile_name else False
+    
+    # has_status уже определен выше при формировании текста статуса
+    has_status = False
+    if worker_status_obj:
+        has_status = worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz
+
+    if user_worker.profile_photo:
+        await message.answer_photo(
+            photo=FSInputFile(user_worker.profile_photo),
+            caption=text,
+            reply_markup=kbc.menu_worker_keyboard(
+                confirmed=True,  # Верификация убрана
+                choose_works=choose_works,
+                individual_entrepreneur=user_worker.individual_entrepreneur,
+                create_photo=False,
+                create_name=profile_name,
+                has_status=has_status
+            ),
+            parse_mode='Markdown'
+        )
+    else:
+        await message.answer(
+            text=text,
+            reply_markup=kbc.menu_worker_keyboard(
+                confirmed=True,  # Верификация убрана
+                choose_works=choose_works,
+                individual_entrepreneur=user_worker.individual_entrepreneur,
+                create_photo=True,
+                create_name=profile_name,
+                has_status=has_status
+            ),
+            parse_mode='Markdown'
+        )
+    await state.set_state(WorkStates.worker_menu)
+
+
+async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_worker: 'Worker') -> None:
+    """Общая функция для отображения меню исполнителя (для CallbackQuery)"""
+    kbc = KeyboardCollection()
+    
+    # Получаем данные для профиля
+    from app.data.database.models import WorkerRank, WorkerStatus, ContactExchange, WorkerCitySubscription
+    import aiosqlite
+    
+    # Получаем подписку
+    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=user_worker.id)
+    
+    # Ранг
+    worker_rank = await WorkerRank.get_or_create_rank(user_worker.id)
+    rank_name = worker_rank.get_rank_name()
+    rank_emoji = worker_rank.get_rank_emoji()
+    
+    # Активность
+    activity_level = user_worker.activity_level if hasattr(user_worker, 'activity_level') else 100
+    activity_emoji = "🔥" if activity_level >= 80 else "⚡" if activity_level >= 50 else "💤"
+    
+    # Статус (ИП/ООО/СЗ)
+    worker_status_obj = await WorkerStatus.get_by_worker(user_worker.id)
+    if worker_status_obj and (worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz):
+        if worker_status_obj.has_ip:
+            status_text = "ИП ✅"
+        elif worker_status_obj.has_ooo:
+            status_text = "ООО ✅"
+        else:
+            status_text = "Самозанятость ✅"
+    else:
+        status_text = "Статус не подтвержден ⚠️"
+    
+    # Город и купленные города
+    main_city = await City.get_city(id=user_worker.city_id[0])
+    
+    # Получаем ВСЕ подписки (активные и неактивные) для подсчета купленных городов
+    conn = await aiosqlite.connect(database='app/data/database/database.db')
+    try:
+        cursor = await conn.execute(
+            'SELECT city_ids, active, price FROM worker_city_subscriptions WHERE worker_id = ?',
+            [user_worker.id])
+        all_subscriptions = await cursor.fetchall()
+        await cursor.close()
+    finally:
+        await conn.close()
+    
+    # Подсчитываем купленные и выбранные города
+    total_purchased_cities = 1  # Основной город
+    total_selected_cities = 1   # Основной город
+    
+    # Словарь соответствия цены и количества купленных городов
+    prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
+    
+    for sub_data in all_subscriptions:
+        city_ids_str = sub_data[0]
+        is_active = bool(sub_data[1])
+        price = sub_data[2]
+        
+        # Определяем КУПЛЕННОЕ количество городов по цене
+        purchased_count = prices.get(price, 1)
+        total_purchased_cities += purchased_count
+        
+        # Определяем ВЫБРАННОЕ количество городов
+        if city_ids_str:
+            selected_count = len(city_ids_str.split('|'))
+            if is_active:
+                total_selected_cities += selected_count
+    
+    if total_selected_cities == 1:
+        city_text = f"Ваш город: {main_city.city}"
+    else:
+        additional = total_selected_cities - 1
+        city_text = f"Ваш город: {main_city.city} +{additional} {'город' if additional == 1 else 'города' if additional < 5 else 'городов'}"
+    
+    # Количество контактов
+    contacts_purchased = await ContactExchange.count_by_worker(user_worker.id)
+    
+    # Рейтинг
+    if user_worker.count_ratings > 0:
+        rating = round(user_worker.stars / user_worker.count_ratings, 1)
+        rating_text = f"Рейтинг: {rating} ⭐ ({user_worker.count_ratings} {'оценка' if user_worker.count_ratings == 1 else 'оценки' if user_worker.count_ratings < 5 else 'оценок'})"
+    else:
+        rating_text = f"Рейтинг: 0 ⭐ (0 оценок)"
+    
+    # Формируем текст профиля
+    text = f"**Ваш профиль**\n\n"
+    text += f"ID: {user_worker.id} {user_worker.profile_name}\n"
+    text += f"{rating_text}\n"
+    text += f"Ранг: {rank_name} {rank_emoji}\n"
+    text += f"Активность: {activity_level} {activity_emoji}\n"
+    text += f"{status_text}\n"
+    text += f"{city_text}\n\n"
+    text += f"Количество контактов: {contacts_purchased}\n"
+    
+    # Если купил больше городов, чем выбрал - показываем "не выбрано"
+    if total_purchased_cities > total_selected_cities:
+        not_selected = total_purchased_cities - total_selected_cities
+        text += f"Количество городов: {total_selected_cities} (не выбрано: {not_selected})\n"
+    else:
+        text += f"Количество городов: {total_selected_cities}\n"
+    
+    text += f"Выполненных заказов: {user_worker.order_count}\n"
+    text += f"Зарегистрирован: {user_worker.registration_data}"
+
+    choose_works = True if worker_sub.unlimited_work_types else False
+
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+
+    profile_name = True if user_worker.profile_name else False
+    
+    # has_status уже определен выше при формировании текста статуса
+    has_status = False
+    if worker_status_obj:
+        has_status = worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz
+
+    if user_worker.profile_photo:
+        await callback.message.answer_photo(
+            photo=FSInputFile(user_worker.profile_photo),
+            caption=text,
+            reply_markup=kbc.menu_worker_keyboard(
+                confirmed=True,  # Верификация убрана
+                choose_works=choose_works,
+                individual_entrepreneur=user_worker.individual_entrepreneur,
+                create_photo=False,
+                create_name=profile_name,
+                has_status=has_status
+            ),
+            parse_mode='Markdown'
+        )
+    else:
+        await callback.message.answer(
+            text=text,
+            reply_markup=kbc.menu_worker_keyboard(
+                confirmed=True,  # Верификация убрана
+                choose_works=choose_works,
+                individual_entrepreneur=user_worker.individual_entrepreneur,
+                create_photo=True,
+                create_name=profile_name,
+                has_status=has_status
+            ),
+            parse_mode='Markdown'
+        )
+    await state.set_state(WorkStates.worker_menu)
+
+
 @router.callback_query(F.data == "worker_menu")
 async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'menu_worker...')
@@ -340,71 +631,8 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await state.update_data(msg_id=msg.message_id)
         return
 
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=user_worker.id)
-    subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-    work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-                       worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None
-
-    if len(user_worker.city_id) == 1:
-        cites = 'Ваш город: '
-        step = ''
-    else:
-        cites = 'Ваши города:\n'
-        step = '    '
-    for city_id in user_worker.city_id:
-        city = await City.get_city(id=city_id)
-        cites += f'{step}{city.city}\n'
-
-    end = '\n' if subscription.count_cites == 1 else ""
-
-    text = (f'Ваш профиль\n\n'
-            f'ID: {user_worker.id} {user_worker.profile_name}\n'
-            f'Ваш рейтинг: {round(user_worker.stars / user_worker.count_ratings, 1) if user_worker.count_ratings else user_worker.stars} ⭐️ ({user_worker.count_ratings if user_worker.count_ratings else 0} {help_defs.get_grade_word(user_worker.count_ratings if user_worker.count_ratings else 0)})\n'
-            f'Наличие ИП: {"✅" if user_worker.individual_entrepreneur else "☑️"}\n'
-            f'{cites + end if subscription.count_cites == 1 else ""}'
-            f'Выполненных заказов: {user_worker.order_count}\n'
-            f'Выполненных заказов за неделю: {user_worker.order_count_on_week}\n'
-            f'Ваш тариф: {subscription.subscription_type}\n'
-            f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'
-            f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-            f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-            f'Зарегистрирован с {user_worker.registration_data}\n'
-            f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'
-            f'{cites + end if subscription.count_cites != 1 else ""}')
-
-    choose_works = True if worker_sub.unlimited_work_types else False
-
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-
-    profile_name = True if user_worker.profile_name else False
-
-    if user_worker.profile_photo:
-        await callback.message.answer_photo(
-            photo=FSInputFile(user_worker.profile_photo),
-            caption=text,
-            reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=False,
-                create_name=profile_name
-            )
-        )
-    else:
-        await callback.message.answer(
-            text=text,
-            reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=True,
-                create_name=profile_name
-            )
-        )
-    await state.set_state(WorkStates.worker_menu)
+    # Используем общую функцию для отображения меню
+    await show_worker_menu(callback, state, user_worker)
 
 
 @router.callback_query(F.data == "menu", StateFilter(WorkStates.worker_menu, WorkStates.worker_check_abs,
@@ -458,75 +686,8 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await state.update_data(msg_id=msg.message_id)
         return
 
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=user_worker.id)
-    subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-    work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-                       worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None
-
-    if len(user_worker.city_id) == 1:
-        cites = 'Ваш город: '
-        step = ''
-        city = await City.get_city(id=user_worker.city_id[0])
-        cites += f'{step}{city.city}\n'
-
-    else:
-        cites = 'Ваши города: '
-        cites_temp = []
-        for city_id in user_worker.city_id:
-            city = await City.get_city(id=city_id)
-            cites_temp.append(city.city)
-        cites += ', '.join(cites_temp)
-
-    end = '\n' if subscription.count_cites == 1 else ""
-
-    text = (f'Ваш профиль\n\n'
-            f'ID: {user_worker.id} {user_worker.profile_name}\n'
-            f'Ваш рейтинг: {round(user_worker.stars / user_worker.count_ratings, 1) if user_worker.count_ratings else user_worker.stars} ⭐️ ({user_worker.count_ratings if user_worker.count_ratings else 0} {help_defs.get_grade_word(user_worker.count_ratings if user_worker.count_ratings else 0)})\n'
-            f'Наличие ИП: {"✅" if user_worker.individual_entrepreneur else "☑️"}\n'
-            f'{cites + end if subscription.count_cites == 1 else ""}'
-            f'Выполненных заказов: {user_worker.order_count}\n'
-            f'Выполненных заказов за неделю: {user_worker.order_count_on_week}\n'
-            f'Ваш тариф: {subscription.subscription_type}\n'
-            f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'
-            f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-            f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-            f'Зарегистрирован с {user_worker.registration_data}\n'
-            f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'
-            f'{cites + end if subscription.count_cites != 1 else ""}')
-
-    choose_works = True if worker_sub.unlimited_work_types else False
-
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-
-    profile_name = True if user_worker.profile_name else False
-
-    if user_worker.profile_photo:
-        await callback.message.answer_photo(
-            photo=FSInputFile(user_worker.profile_photo),
-            caption=text,
-            reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=False,
-                create_name=profile_name
-            )
-        )
-    else:
-        await callback.message.answer(
-            text=text,
-            reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=True,
-                create_name=profile_name
-            )
-        )
-    await state.set_state(WorkStates.worker_menu)
+    # Используем общую функцию для отображения меню
+    await show_worker_menu(callback, state, user_worker)
 
 
 @router.callback_query(F.data == "my_portfolio", WorkStates.worker_menu)
@@ -902,71 +1063,7 @@ async def process_photos(message: Message, state: FSMContext):
     await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
-@router.callback_query(F.data == "individual_entrepreneur", WorkStates.worker_menu)
-async def individual_entrepreneur(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'individual_entrepreneur...')
-
-    kbc = KeyboardCollection()
-
-    text = 'Введите ваш ОГРНИП'
-
-    await state.set_state(WorkStates.individual_entrepreneur)
-
-    msg = await callback.message.answer(
-        text=text,
-        reply_markup=kbc.back_btn()
-    )
-
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-
-    await state.update_data(msg_id=msg.message_id)
-
-
-@router.message(F.text, WorkStates.individual_entrepreneur)
-async def individual_entrepreneur_yes(message: Message, state: FSMContext) -> None:
-    logger.debug(f'individual_entrepreneur_yes...')
-
-    kbc = KeyboardCollection()
-
-    state_data = await state.get_data()
-    msg_id = state_data.get('msg_id')
-
-    ogrnip = message.text
-
-    result = help_defs.check_ip_status_by_ogrnip(ogrnip=ogrnip)
-
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-
-    await state.set_state(WorkStates.worker_menu)
-
-    if result:
-        worker = await Worker.get_worker(tg_id=message.chat.id)
-        await worker.update_individual_entrepreneur(individual_entrepreneur=True)
-        await message.answer(text=f'Ваше ИП {result}\nСтатус ИП подтвержден', reply_markup=kbc.menu())
-    else:
-        await message.answer(text='ИП не найдено', reply_markup=kbc.menu())
-
-
-@router.callback_query(F.data == "back", WorkStates.individual_entrepreneur)
-async def individual_entrepreneur_no(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'individual_entrepreneur_no...')
-
-    kbc = KeyboardCollection()
-
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-    await worker.update_individual_entrepreneur(individual_entrepreneur=False)
-
-    await state.set_state(WorkStates.worker_menu)
-
-    await callback.message.answer(text='Вернуться в меню', reply_markup=kbc.menu())
-
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
+# Старые обработчики ИП удалены - заменены на новую систему подтверждения статусов
 
 
 @router.callback_query(F.data == 'look-abs-in-city', WorkStates.worker_menu)
@@ -1617,6 +1714,53 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
     subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
 
+    # Получаем запись об изменениях направлений
+    from app.data.database.models import WorkerWorkTypeChanges
+    
+    # Создаем таблицу если её нет
+    await WorkerWorkTypeChanges.create_table_if_not_exists()
+    
+    # Получаем или создаем запись для исполнителя
+    work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+    
+    # Проверяем, может ли исполнитель изменить направления
+    can_change, message = work_type_changes.can_change_work_types()
+    
+    if not can_change:
+        # Показываем сообщение об ограничении с текущими направлениями
+        # Получаем текущие направления
+        selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
+        
+        limit_text = message + "\n\n"
+        
+        if selected_ids:
+            # Показываем текущие направления
+            limit_text += "✅ **Текущие направления:**\n"
+            selected_work_types = await get_worker_selected_work_types(worker_sub)
+            for i, wt in enumerate(selected_work_types, 1):
+                limit_text += f"{i}. {wt.work_type}\n"
+            limit_text += "\n"
+        
+        limit_text += "💡 Вы сможете изменить направления после истечения периода ожидания."
+        
+        try:
+            await callback.message.edit_text(
+                text=limit_text,
+                reply_markup=kbc.menu_btn(),
+                parse_mode='Markdown'
+            )
+        except Exception:
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.message.answer(
+                text=limit_text,
+                reply_markup=kbc.menu_btn(),
+                parse_mode='Markdown'
+            )
+        return
+
     # Получаем ранг исполнителя
     from app.data.database.models import WorkerRank
     rank = await WorkerRank.get_or_create_rank(worker.id)
@@ -1643,6 +1787,17 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     text = f"🎯 Выберите направления работы\n\n"
     text += f"🏆 **Ваш ранг:** {rank.current_rank} {rank.get_rank_name()}\n"
     text += f"📊 Выбрано: {selected_count}/{available_count} {limit_text}\n"
+    
+    # Показываем информацию о лимите изменений (всегда)
+    remaining = 3 - work_type_changes.changes_count
+    if work_type_changes.changes_count == 0:
+        text += f"🔄 **Изменений использовано:** 0/3\n"
+        text += f"💡 *Вы можете изменить направления 3 раза*\n"
+    elif remaining > 0:
+        text += f"🔄 **Изменений использовано:** {work_type_changes.changes_count}/3 (осталось: {remaining})\n"
+    else:
+        text += f"❌ **Изменений использовано:** {work_type_changes.changes_count}/3 (лимит исчерпан)\n"
+        text += f"⏰ *Следующее изменение будет доступно через 30 дней*\n"
 
     if selected_count > 0:
         selected_work_types = await get_worker_selected_work_types(worker_sub)
@@ -1674,6 +1829,9 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
         await callback.message.delete()
     except TelegramBadRequest:
         pass
+
+    # Сохраняем исходные направления для сравнения при выходе
+    await state.update_data(original_work_types=selected_ids.copy())
 
     await state.set_state(WorkStates.worker_choose_work_types)
     await state.update_data(subscription_id=str(subscription.id))
@@ -1836,6 +1994,10 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
     rank = await WorkerRank.get_or_create_rank(worker.id)
     work_types_limit = rank.get_work_types_limit()
 
+    # Получаем информацию о лимитах изменений
+    from app.data.database.models import WorkerWorkTypeChanges
+    work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+
     # Получаем данные из кэша
     work_types = await get_cached_work_types()
     selected_ids = work_type_ids.split('|') if work_type_ids else []
@@ -1856,6 +2018,17 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
     text = f"🎯 Выберите направления работы\n\n"
     text += f"🏆 **Ваш ранг:** {rank.current_rank} {rank.get_rank_name()}\n"
     text += f"📊 Выбрано: {selected_count}/{available_count} {limit_text}\n"
+    
+    # Показываем информацию о лимите изменений (всегда)
+    remaining = 3 - work_type_changes.changes_count
+    if work_type_changes.changes_count == 0:
+        text += f"🔄 **Изменений использовано:** 0/3\n"
+        text += f"💡 *Вы можете изменить направления 3 раза*\n"
+    elif remaining > 0:
+        text += f"🔄 **Изменений использовано:** {work_type_changes.changes_count}/3 (осталось: {remaining})\n"
+    else:
+        text += f"❌ **Изменений использовано:** {work_type_changes.changes_count}/3 (лимит исчерпан)\n"
+        text += f"⏰ *Следующее изменение будет доступно через 30 дней*\n"
 
     if selected_count > 0:
         selected_work_types = [wt for wt in work_types if str(wt.id) in selected_ids]
@@ -2049,6 +2222,44 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
     )
 
 
+async def is_selection_not_change(original_ids: set, current_ids: set, pending_selection: bool) -> bool:
+    """
+    Определяет, было ли это ВЫБОРОМ или ИЗМЕНЕНИЕМ направлений.
+    
+    ВЫБОР (не считается изменением, возвращает True):
+    - Если есть флаг pending_selection (после обнуления ранга)
+    - Если было 0 направлений (первый выбор)
+    - Если только добавлялись направления без удаления (все старые есть + новые)
+    
+    ИЗМЕНЕНИЕ (считается изменением, возвращает False):
+    - Если удалялись направления
+    - Если заменялись направления
+    - Если количество после < количества до
+    """
+    
+    # Проверяем флаг после обнуления ранга
+    if pending_selection:
+        logger.info(f'[WORK_TYPES] Selection detected: pending_selection flag is set')
+        return True  # ВЫБОР
+    
+    # Если было 0 - это выбор
+    if len(original_ids) == 0:
+        logger.info(f'[WORK_TYPES] Selection detected: first time selection (was 0)')
+        return True  # ВЫБОР
+    
+    # Если только добавляли (все старые есть + новые)
+    if original_ids.issubset(current_ids):
+        added_count = len(current_ids) - len(original_ids)
+        logger.info(f'[WORK_TYPES] Selection detected: only adding new work types (added {added_count})')
+        return True  # ВЫБОР (добавление)
+    
+    # Во всех остальных случаях - изменение
+    removed = original_ids - current_ids
+    added = current_ids - original_ids
+    logger.info(f'[WORK_TYPES] Change detected: removed {len(removed)}, added {len(added)}')
+    return False  # ИЗМЕНЕНИЕ
+
+
 @router.callback_query(F.data == 'back', WorkStates.worker_choose_work_types)
 async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> None:
     kbc = KeyboardCollection()
@@ -2056,6 +2267,7 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
 
     state_data = await state.get_data()
     work_type_ids = str(state_data.get('work_type_ids', ''))
+    original_work_types = set(state_data.get('original_work_types', []))
 
     # Обрабатываем выбранные направления
     work_type_id_list = work_type_ids.split('|') if work_type_ids else []
@@ -2066,6 +2278,64 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
 
     # Сохраняем выбранные направления в БД
     await worker_sub.update(work_type_ids=work_type_id_list)
+
+    # Проверяем, были ли изменения
+    current_work_types = set(work_type_id_list)
+    
+    if original_work_types != current_work_types:
+        # Что-то изменилось - нужно определить, ВЫБОР или ИЗМЕНЕНИЕ
+        from app.data.database.models import WorkerWorkTypeChanges
+        work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+        
+        logger.info(f'[WORK_TYPES] Worker {worker.id} work types changed. Original: {original_work_types}, Current: {current_work_types}')
+        
+        # Определяем тип действия
+        was_selection = await is_selection_not_change(
+            original_work_types, 
+            current_work_types, 
+            work_type_changes.pending_selection
+        )
+        
+        if was_selection:
+            # Это был ВЫБОР - не регистрируем изменение, но сбрасываем флаг
+            logger.info(f'[WORK_TYPES] Worker {worker.id}: SELECTION (not counted as change)')
+            
+            if work_type_changes.pending_selection:
+                # Сбрасываем флаг после первого выбора
+                work_type_changes.pending_selection = False
+                await work_type_changes.save()
+                logger.info(f'[WORK_TYPES] Worker {worker.id}: pending_selection flag cleared')
+            
+            await callback.answer(
+                f"✅ Направления успешно выбраны!",
+                show_alert=False
+            )
+        else:
+            # Это было ИЗМЕНЕНИЕ - регистрируем
+            logger.info(f'[WORK_TYPES] Worker {worker.id}: CHANGE (counted as change)')
+            
+            await work_type_changes.register_change()
+            
+            logger.info(f'[WORK_TYPES] Worker {worker.id} registered change. Total changes: {work_type_changes.changes_count}/3')
+            
+            # Если достигли лимита - покажем уведомление
+            if work_type_changes.changes_count >= 3:
+                from datetime import datetime
+                if work_type_changes.reset_date:
+                    reset_date = datetime.strptime(work_type_changes.reset_date, '%Y-%m-%d %H:%M:%S')
+                    days_left = (reset_date - datetime.now()).days + 1
+                    await callback.answer(
+                        f"⚠️ Вы использовали все 3 изменения направлений.\nСледующее изменение будет доступно через {days_left} дней.",
+                        show_alert=True
+                    )
+            else:
+                remaining = 3 - work_type_changes.changes_count
+                await callback.answer(
+                    f"✅ Изменения сохранены!\nОсталось изменений: {remaining}/3",
+                    show_alert=False
+                )
+    else:
+        logger.info(f'[WORK_TYPES] Worker {worker.id} exited without changes')
 
     logger.debug(f'work_type_id_list...{work_type_id_list}')
 
@@ -2205,11 +2475,23 @@ async def worker_activity(callback: CallbackQuery, state: FSMContext) -> None:
     
     text += "💡 Оставайтесь активными для получения больше заказов!"
     
-    await callback.message.edit_text(
-        text=text,
-        reply_markup=kbc.menu_btn(),
-        parse_mode='Markdown'
-    )
+    # Безопасное редактирование
+    try:
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.menu_btn(),
+            parse_mode='Markdown'
+        )
+    except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
+            text=text,
+            reply_markup=kbc.menu_btn(),
+            parse_mode='Markdown'
+        )
     await state.set_state(WorkStates.worker_menu)
 
 
@@ -2221,18 +2503,847 @@ async def worker_status(callback: CallbackQuery, state: FSMContext) -> None:
     
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     
-    text = f"📋 **Ваш статус**\n\n"
-    text += f"👤 ИП: {'✅ Есть' if worker.individual_entrepreneur else '❌ Нет'}\n"
-    text += f"🏢 ООО: {'✅ Есть' if hasattr(worker, 'ooo') and worker.ooo else '❌ Нет'}\n"
-    text += f"🏭 СЗ: {'✅ Есть' if hasattr(worker, 'sz') and worker.sz else '❌ Нет'}\n\n"
-    text += f"💡 Указание статуса поможет заказчикам лучше вас найти!"
+    # Получаем статус исполнителя
+    from app.data.database.models import WorkerStatus
+    worker_status_obj = await WorkerStatus.get_or_create(worker.id)
     
-    await callback.message.edit_text(
+    text = "📋 **Подтверждение статуса исполнителя**\n\n"
+    text += "Для повышения доверия заказчиков вы можете подтвердить наличие:\n\n"
+    text += "✅ **ИП** (Индивидуального предпринимателя)\n"
+    text += "✅ **ООО** (Общество с ограниченной ответственностью)\n"
+    text += "✅ **СЗ** (Самозанятости)\n\n"
+    text += "После подтверждения в вашем профиле появится соответствующая отметка — это увеличивает шансы получить заказ.\n\n"
+    
+    # Проверяем, есть ли уже подтвержденный статус
+    has_any_status = worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz
+    
+    # Показываем текущий статус
+    if worker_status_obj.has_ip:
+        text += "**Ваш статус:**\n✅ ИП подтвержден\n"
+    elif worker_status_obj.has_ooo:
+        text += "**Ваш статус:**\n✅ ООО подтверждено\n"
+    elif worker_status_obj.has_sz:
+        text += "**Ваш статус:**\n✅ Самозанятость подтверждена\n"
+    else:
+        text += "⚠️ Статус не подтвержден\n"
+    
+    # Создаем кнопки
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    
+    # Показываем кнопки выбора ТОЛЬКО если НЕТ подтвержденного статуса
+    if not has_any_status:
+        builder.add(kbc._inline("👤 ИП", "confirm_ip_status"))
+        builder.add(kbc._inline("🏢 ООО", "confirm_ooo_status"))
+        builder.add(kbc._inline("🏭 СЗ", "confirm_sz_status"))
+    
+    builder.add(kbc._inline("◀️ Назад", "worker_menu"))
+    builder.adjust(1)
+    
+    # Безопасное редактирование
+    try:
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode='Markdown'
+        )
+    except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode='Markdown'
+        )
+    await state.set_state(WorkStates.worker_menu)
+
+
+# ========== ОБРАБОТЧИКИ ПОДТВЕРЖДЕНИЯ СТАТУСОВ ==========
+
+@router.callback_query(F.data == "confirm_ip_status", WorkStates.worker_menu)
+async def confirm_ip_status(callback: CallbackQuery, state: FSMContext) -> None:
+    """Запрос ОГРНИП для подтверждения ИП"""
+    logger.debug(f'confirm_ip_status...')
+    kbc = KeyboardCollection()
+    
+    # Проверяем, нет ли уже подтвержденного статуса
+    worker = await Worker.get_worker(tg_id=callback.from_user.id)
+    from app.data.database.models import WorkerStatus
+    worker_status = await WorkerStatus.get_or_create(worker.id)
+    
+    if worker_status.has_ip or worker_status.has_ooo or worker_status.has_sz:
+        await callback.answer("❌ У вас уже есть подтвержденный статус", show_alert=True)
+        return
+    
+    text = "👤 **Подтверждение ИП**\n\n"
+    text += "Введите Ваш **ОГРНИП**\n\n"
+    text += "💡 ОГРНИП — это 15-значный номер индивидуального предпринимателя"
+    
+    await state.set_state(WorkStates.individual_entrepreneur)
+    
+    msg = await callback.message.answer(
         text=text,
-        reply_markup=kbc.menu_btn(),
+        reply_markup=kbc.back_btn(),
         parse_mode='Markdown'
     )
+    
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    await state.update_data(msg_id=msg.message_id)
+
+
+@router.callback_query(F.data == "confirm_ooo_status", WorkStates.worker_menu)
+async def confirm_ooo_status(callback: CallbackQuery, state: FSMContext) -> None:
+    """Запрос ОГРН для подтверждения ООО"""
+    logger.debug(f'confirm_ooo_status...')
+    kbc = KeyboardCollection()
+    
+    # Проверяем, нет ли уже подтвержденного статуса
+    worker = await Worker.get_worker(tg_id=callback.from_user.id)
+    from app.data.database.models import WorkerStatus
+    worker_status = await WorkerStatus.get_or_create(worker.id)
+    
+    if worker_status.has_ip or worker_status.has_ooo or worker_status.has_sz:
+        await callback.answer("❌ У вас уже есть подтвержденный статус", show_alert=True)
+        return
+    
+    text = "🏢 **Подтверждение ООО**\n\n"
+    text += "Введите Ваш **ОГРН**\n\n"
+    text += "💡 ОГРН — это 13-значный номер юридического лица"
+    
+    await state.set_state(WorkStates.confirm_ooo_status)
+    
+    msg = await callback.message.answer(
+        text=text,
+        reply_markup=kbc.back_btn(),
+        parse_mode='Markdown'
+    )
+    
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    await state.update_data(msg_id=msg.message_id)
+
+
+@router.callback_query(F.data == "confirm_sz_status", WorkStates.worker_menu)
+async def confirm_sz_status(callback: CallbackQuery, state: FSMContext) -> None:
+    """Запрос ИНН для подтверждения СЗ"""
+    logger.debug(f'confirm_sz_status...')
+    kbc = KeyboardCollection()
+    
+    # Проверяем, нет ли уже подтвержденного статуса
+    worker = await Worker.get_worker(tg_id=callback.from_user.id)
+    from app.data.database.models import WorkerStatus
+    worker_status = await WorkerStatus.get_or_create(worker.id)
+    
+    if worker_status.has_ip or worker_status.has_ooo or worker_status.has_sz:
+        await callback.answer("❌ У вас уже есть подтвержденный статус", show_alert=True)
+        return
+    
+    text = "🏭 **Подтверждение Самозанятости**\n\n"
+    text += "Введите Ваш **ИНН**\n\n"
+    text += "💡 ИНН — это 12-значный номер налогоплательщика"
+    
+    await state.set_state(WorkStates.confirm_sz_status)
+    
+    msg = await callback.message.answer(
+        text=text,
+        reply_markup=kbc.back_btn(),
+        parse_mode='Markdown'
+    )
+    
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    await state.update_data(msg_id=msg.message_id)
+
+
+# Обработчик ввода ОГРНИП (ИП) - обновляем существующий
+@router.message(F.text, WorkStates.individual_entrepreneur)
+async def process_ip_confirmation(message: Message, state: FSMContext) -> None:
+    """Обработка подтверждения ИП"""
+    logger.debug(f'process_ip_confirmation...')
+    kbc = KeyboardCollection()
+    
+    state_data = await state.get_data()
+    msg_id = state_data.get('msg_id')
+    
+    ogrnip = message.text.strip()
+    
+    # Проверяем, что введены только цифры
+    if not ogrnip.isdigit():
+        await message.answer(
+            text="❌ ОГРНИП должен содержать только цифры!\n\n"
+                 "Пожалуйста, введите номер без букв и символов.",
+            reply_markup=kbc.back_btn()
+        )
+        return
+    
+    # Проверяем длину ОГРНИП (должен быть 15 цифр)
+    if len(ogrnip) != 15:
+        await message.answer(
+            text="❌ ОГРНИП должен состоять из 15 цифр!\n\n"
+                 f"Вы ввели {len(ogrnip)} цифр. Проверьте номер и попробуйте снова.",
+            reply_markup=kbc.back_btn()
+        )
+        return
+    
+    # Проверяем ОГРНИП
+    from app.untils import help_defs
+    result = help_defs.check_ip_status_by_ogrnip(ogrnip=ogrnip)
+    
+    if msg_id:
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        except Exception:
+            pass
+    
     await state.set_state(WorkStates.worker_menu)
+    
+    if result:
+        # Сохраняем статус
+        worker = await Worker.get_worker(tg_id=message.chat.id)
+        from app.data.database.models import WorkerStatus
+        from datetime import datetime
+        worker_status = await WorkerStatus.get_or_create(worker.id)
+        worker_status.has_ip = True
+        worker_status.ip_number = ogrnip
+        worker_status.last_status_check = datetime.now().isoformat()
+        await worker_status.save()
+        
+        # Также обновляем старое поле для обратной совместимости
+        await worker.update_individual_entrepreneur(individual_entrepreneur=True)
+        
+        await message.answer(
+            text=f"✅ **Ваш статус ИП подтвержден!**\n\n{result}",
+            reply_markup=kbc.menu(),
+            parse_mode='Markdown'
+        )
+    else:
+        await message.answer(
+            text="❌ Введен неверный номер, повторите пожалуйста попытку...\n\n"
+                 "Нажмите 'Статус' в меню, чтобы попробовать снова.",
+            reply_markup=kbc.menu()
+        )
+
+
+# Обработчик ввода ОГРН (ООО)
+@router.message(F.text, WorkStates.confirm_ooo_status)
+async def process_ooo_confirmation(message: Message, state: FSMContext) -> None:
+    """Обработка подтверждения ООО"""
+    logger.debug(f'process_ooo_confirmation...')
+    kbc = KeyboardCollection()
+    
+    state_data = await state.get_data()
+    msg_id = state_data.get('msg_id')
+    
+    ogrn = message.text.strip()
+    
+    # Проверяем, что введены только цифры
+    if not ogrn.isdigit():
+        await message.answer(
+            text="❌ ОГРН должен содержать только цифры!\n\n"
+                 "Пожалуйста, введите номер без букв и символов.",
+            reply_markup=kbc.back_btn()
+        )
+        return
+    
+    # Проверяем длину ОГРН (должен быть 13 цифр)
+    if len(ogrn) != 13:
+        await message.answer(
+            text="❌ ОГРН должен состоять из 13 цифр!\n\n"
+                 f"Вы ввели {len(ogrn)} цифр. Проверьте номер и попробуйте снова.",
+            reply_markup=kbc.back_btn()
+        )
+        return
+    
+    # Проверяем ОГРН
+    from app.untils import help_defs
+    result = help_defs.check_ooo(query=ogrn)
+    
+    if msg_id:
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        except Exception:
+            pass
+    
+    await state.set_state(WorkStates.worker_menu)
+    
+    if result == "error":
+        await message.answer(
+            text="⚠️ К сожалению произошла ошибка, повторите попытку пожалуйста позже...",
+            reply_markup=kbc.menu()
+        )
+    elif result:
+        # Сохраняем статус
+        worker = await Worker.get_worker(tg_id=message.chat.id)
+        from app.data.database.models import WorkerStatus
+        from datetime import datetime
+        worker_status = await WorkerStatus.get_or_create(worker.id)
+        worker_status.has_ooo = True
+        worker_status.ooo_number = ogrn
+        worker_status.last_status_check = datetime.now().isoformat()
+        await worker_status.save()
+        
+        await message.answer(
+            text="✅ **Ваш статус ООО подтвержден!**",
+            reply_markup=kbc.menu(),
+            parse_mode='Markdown'
+        )
+    else:
+        await message.answer(
+            text="❌ Введен неверный номер, повторите пожалуйста попытку...\n\n"
+                 "Нажмите 'Статус' в меню, чтобы попробовать снова.",
+            reply_markup=kbc.menu()
+        )
+
+
+# Обработчик ввода ИНН (СЗ)
+@router.message(F.text, WorkStates.confirm_sz_status)
+async def process_sz_confirmation(message: Message, state: FSMContext) -> None:
+    """Обработка подтверждения самозанятости"""
+    logger.debug(f'process_sz_confirmation...')
+    kbc = KeyboardCollection()
+    
+    state_data = await state.get_data()
+    msg_id = state_data.get('msg_id')
+    
+    inn = message.text.strip()
+    
+    # Проверяем, что введены только цифры
+    if not inn.isdigit():
+        await message.answer(
+            text="❌ ИНН должен содержать только цифры!\n\n"
+                 "Пожалуйста, введите номер без букв и символов.",
+            reply_markup=kbc.back_btn()
+        )
+        return
+    
+    # Проверяем длину ИНН (должен быть 12 цифр)
+    if len(inn) != 12:
+        await message.answer(
+            text="❌ ИНН должен состоять из 12 цифр!\n\n"
+                 f"Вы ввели {len(inn)} цифр. Проверьте номер и попробуйте снова.",
+            reply_markup=kbc.back_btn()
+        )
+        return
+    
+    # Проверяем ИНН
+    from app.untils import help_defs
+    result = help_defs.check_npd(inn=inn)
+    
+    if msg_id:
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        except Exception:
+            pass
+    
+    await state.set_state(WorkStates.worker_menu)
+    
+    if result == "error":
+        await message.answer(
+            text="⚠️ К сожалению произошла ошибка, повторите попытку пожалуйста позже...",
+            reply_markup=kbc.menu()
+        )
+    elif result:
+        # Сохраняем статус
+        worker = await Worker.get_worker(tg_id=message.chat.id)
+        from app.data.database.models import WorkerStatus
+        from datetime import datetime
+        worker_status = await WorkerStatus.get_or_create(worker.id)
+        worker_status.has_sz = True
+        worker_status.sz_number = inn
+        worker_status.last_status_check = datetime.now().isoformat()
+        await worker_status.save()
+        
+        await message.answer(
+            text="✅ **Ваш статус Самозанятости подтвержден!**",
+            reply_markup=kbc.menu(),
+            parse_mode='Markdown'
+        )
+    else:
+        await message.answer(
+            text="❌ Введен неверный номер, повторите пожалуйста попытку...\n\n"
+                 "Нажмите 'Статус' в меню, чтобы попробовать снова.",
+            reply_markup=kbc.menu()
+        )
+
+
+# Обработчики кнопки "Назад" для всех статусов
+@router.callback_query(F.data == "back", WorkStates.individual_entrepreneur)
+async def back_from_ip_confirmation(callback: CallbackQuery, state: FSMContext) -> None:
+    """Возврат из подтверждения ИП"""
+    logger.debug(f'back_from_ip_confirmation...')
+    
+    # Удаляем сообщение с запросом ОГРНИП
+    state_data = await state.get_data()
+    msg_id = state_data.get('msg_id')
+    if msg_id:
+        try:
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
+        except Exception:
+            pass
+    
+    # Возвращаемся в меню статусов
+    await state.set_state(WorkStates.worker_menu)
+    await worker_status(callback, state)
+
+
+@router.callback_query(F.data == "back", WorkStates.confirm_ooo_status)
+async def back_from_ooo_confirmation(callback: CallbackQuery, state: FSMContext) -> None:
+    """Возврат из подтверждения ООО"""
+    logger.debug(f'back_from_ooo_confirmation...')
+    
+    # Удаляем сообщение с запросом ОГРН
+    state_data = await state.get_data()
+    msg_id = state_data.get('msg_id')
+    if msg_id:
+        try:
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
+        except Exception:
+            pass
+    
+    # Возвращаемся в меню статусов
+    await state.set_state(WorkStates.worker_menu)
+    await worker_status(callback, state)
+
+
+@router.callback_query(F.data == "back", WorkStates.confirm_sz_status)
+async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) -> None:
+    """Возврат из подтверждения СЗ"""
+    logger.debug(f'back_from_sz_confirmation...')
+    
+    # Удаляем сообщение с запросом ИНН
+    state_data = await state.get_data()
+    msg_id = state_data.get('msg_id')
+    if msg_id:
+        try:
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
+        except Exception:
+            pass
+    
+    # Возвращаемся в меню статусов
+    await state.set_state(WorkStates.worker_menu)
+    await worker_status(callback, state)
+
+
+# # ========== ОБРАБОТЧИКИ НАПРАВЛЕНИЙ РАБОТЫ ==========
+
+# @router.callback_query(F.data == "choose_work_types", WorkStates.worker_menu)
+# async def choose_work_types_handler(callback: CallbackQuery, state: FSMContext) -> None:
+#     """Обработчик кнопки 'Мои направления'"""
+#     logger.debug(f'choose_work_types_handler...')
+#     kbc = KeyboardCollection()
+    
+#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
+#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+    
+#     # Получаем запись об изменениях направлений
+#     from app.data.database.models import WorkerWorkTypeChanges
+    
+#     # Создаем таблицу если её нет
+#     await WorkerWorkTypeChanges.create_table_if_not_exists()
+    
+#     # Получаем или создаем запись для исполнителя
+#     work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+    
+#     # Проверяем, может ли исполнитель изменить направления
+#     can_change, message = work_type_changes.can_change_work_types()
+    
+#     if not can_change:
+#         # Показываем сообщение об ограничении
+#         try:
+#             await callback.message.edit_text(
+#                 text=message + "\n\n💡 Вы сможете изменить направления после истечения периода ожидания.",
+#                 reply_markup=kbc.menu_btn(),
+#                 parse_mode='Markdown'
+#             )
+#         except Exception:
+#             try:
+#                 await callback.message.delete()
+#             except Exception:
+#                 pass
+#             await callback.message.answer(
+#                 text=message + "\n\n💡 Вы сможете изменить направления после истечения периода ожидания.",
+#                 reply_markup=kbc.menu_btn(),
+#                 parse_mode='Markdown'
+#             )
+#         return
+    
+#     # Получаем лимит направлений из ранга
+#     from app.data.database.models import WorkerRank
+#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
+#     rank_work_types_limit = worker_rank.get_work_types_limit()
+    
+#     # Определяем лимит направлений
+#     if worker_sub.unlimited_work_types:
+#         count_work_types = 100  # Безлимит
+#         limit_text = "неограниченно"
+#     else:
+#         # Используем лимит из ранга
+#         count_work_types = rank_work_types_limit or 1
+#         limit_text = f"{count_work_types} из 20"
+    
+#     # Получаем все направления
+#     all_work_types = await WorkType.get_all()
+    
+#     # Получаем выбранные направления
+#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
+    
+#     # Сохраняем исходное состояние для проверки изменений при выходе
+#     original_work_types = set(selected_ids) if selected_ids else set()
+    
+#     # Формируем текст
+#     text = "🎯 **Мои направления работ**\n\n"
+#     text += f"📊 Доступно направлений: {limit_text}\n"
+    
+#     # Показываем информацию о лимите изменений
+#     if work_type_changes.changes_count > 0:
+#         remaining = 3 - work_type_changes.changes_count
+#         if remaining > 0:
+#             text += f"⚙️ Изменений использовано: {work_type_changes.changes_count}/3 (осталось: {remaining})\n"
+#         else:
+#             text += f"⚠️ Изменений использовано: {work_type_changes.changes_count}/3 (лимит исчерпан)\n"
+    
+#     if message:  # Если есть сообщение об оставшихся изменениях
+#         text += f"{message}\n"
+    
+#     text += f"\n"
+    
+#     if selected_ids:
+#         text += f"**Выбрано:** {len(selected_ids)} направлений\n\n"
+#         text += "Нажмите на направление, чтобы удалить его из списка.\n"
+#         text += "Или выберите новое направление из списка доступных."
+#     else:
+#         text += "**У вас пока нет выбранных направлений.**\n\n"
+#         text += "Выберите направления из списка ниже."
+    
+#     # Показываем клавиатуру с пагинацией
+#     await state.set_state(WorkStates.worker_choose_work_types)
+#     await state.update_data(page=0, original_work_types=list(original_work_types))
+    
+#     try:
+#         await callback.message.edit_text(
+#             text=text,
+#             reply_markup=kbc.choose_work_types_improved(
+#                 all_work_types=all_work_types,
+#                 selected_ids=selected_ids,
+#                 count_work_types=count_work_types,
+#                 page=0,
+#                 btn_back=True,
+#                 name_btn_back='◀️ Назад в меню'
+#             ),
+#             parse_mode='Markdown'
+#         )
+#     except Exception:
+#         try:
+#             await callback.message.delete()
+#         except Exception:
+#             pass
+#         await callback.message.answer(
+#             text=text,
+#             reply_markup=kbc.choose_work_types_improved(
+#                 all_work_types=all_work_types,
+#                 selected_ids=selected_ids,
+#                 count_work_types=count_work_types,
+#                 page=0,
+#                 btn_back=True,
+#                 name_btn_back='◀️ Назад в меню'
+#             ),
+#             parse_mode='Markdown'
+#         )
+
+
+# @router.callback_query(lambda c: c.data.startswith('add_work_type_'), WorkStates.worker_choose_work_types)
+# async def add_work_type_handler(callback: CallbackQuery, state: FSMContext) -> None:
+#     """Добавить направление работы"""
+#     logger.debug(f'add_work_type_handler...')
+#     kbc = KeyboardCollection()
+    
+#     work_type_id = int(callback.data.split('_')[3])
+    
+#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
+#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+    
+#     # Получаем лимит направлений из ранга
+#     from app.data.database.models import WorkerRank
+#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
+#     rank_work_types_limit = worker_rank.get_work_types_limit()
+    
+#     # Определяем лимит направлений
+#     if worker_sub.unlimited_work_types:
+#         count_work_types = 100
+#     else:
+#         count_work_types = rank_work_types_limit or 1
+    
+#     # Получаем текущие выбранные направления
+#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
+    
+#     # Добавляем новое направление
+#     if str(work_type_id) not in selected_ids:
+#         selected_ids.append(str(work_type_id))
+        
+#         # Сохраняем в БД
+#         await worker_sub.update_work_type_ids(work_type_ids=selected_ids)
+    
+#     # Обновляем отображение
+#     all_work_types = await WorkType.get_all()
+#     state_data = await state.get_data()
+#     page = state_data.get('page', 0)
+    
+#     text = "🎯 **Мои направления работ**\n\n"
+#     text += f"📊 Доступно направлений: {count_work_types if count_work_types < 100 else 'неограниченно'}\n"
+#     text += f"**Выбрано:** {len(selected_ids)} направлений\n\n"
+#     text += "✅ **Направление добавлено!**\n\n"
+#     text += "Нажмите на направление, чтобы удалить его из списка."
+    
+#     try:
+#         await callback.message.edit_text(
+#             text=text,
+#             reply_markup=kbc.choose_work_types_improved(
+#                 all_work_types=all_work_types,
+#                 selected_ids=selected_ids,
+#                 count_work_types=count_work_types,
+#                 page=page,
+#                 btn_back=True,
+#                 name_btn_back='◀️ Назад в меню'
+#             ),
+#             parse_mode='Markdown'
+#         )
+#     except Exception:
+#         await callback.answer("✅ Направление добавлено!")
+
+
+# @router.callback_query(lambda c: c.data.startswith('remove_work_type_'), WorkStates.worker_choose_work_types)
+# async def remove_work_type_handler(callback: CallbackQuery, state: FSMContext) -> None:
+#     """Удалить направление работы"""
+#     logger.debug(f'remove_work_type_handler...')
+#     kbc = KeyboardCollection()
+    
+#     work_type_id = int(callback.data.split('_')[3])
+    
+#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
+#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+    
+#     # Получаем лимит направлений из ранга
+#     from app.data.database.models import WorkerRank
+#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
+#     rank_work_types_limit = worker_rank.get_work_types_limit()
+    
+#     # Определяем лимит направлений
+#     if worker_sub.unlimited_work_types:
+#         count_work_types = 100
+#     else:
+#         count_work_types = rank_work_types_limit or 1
+    
+#     # Получаем текущие выбранные направления
+#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
+    
+#     # Удаляем направление
+#     if str(work_type_id) in selected_ids:
+#         selected_ids.remove(str(work_type_id))
+        
+#         # Сохраняем в БД
+#         await worker_sub.update_work_type_ids(work_type_ids=selected_ids)
+    
+#     # Обновляем отображение
+#     all_work_types = await WorkType.get_all()
+#     state_data = await state.get_data()
+#     page = state_data.get('page', 0)
+    
+#     text = "🎯 **Мои направления работ**\n\n"
+#     text += f"📊 Доступно направлений: {count_work_types if count_work_types < 100 else 'неограниченно'}\n"
+    
+#     if selected_ids:
+#         text += f"**Выбрано:** {len(selected_ids)} направлений\n\n"
+#         text += "❌ **Направление удалено!**\n\n"
+#         text += "Нажмите на направление, чтобы удалить его из списка."
+#     else:
+#         text += "**У вас нет выбранных направлений.**\n\n"
+#         text += "Выберите направления из списка ниже."
+    
+#     try:
+#         await callback.message.edit_text(
+#             text=text,
+#             reply_markup=kbc.choose_work_types_improved(
+#                 all_work_types=all_work_types,
+#                 selected_ids=selected_ids,
+#                 count_work_types=count_work_types,
+#                 page=page,
+#                 btn_back=True,
+#                 name_btn_back='◀️ Назад в меню'
+#             ),
+#             parse_mode='Markdown'
+#         )
+#     except Exception:
+#         await callback.answer("❌ Направление удалено!")
+
+
+# @router.callback_query(lambda c: c.data.startswith('work_types_page_'), WorkStates.worker_choose_work_types)
+# async def work_types_pagination_handler(callback: CallbackQuery, state: FSMContext) -> None:
+#     """Пагинация по направлениям"""
+#     logger.debug(f'work_types_pagination_handler...')
+#     kbc = KeyboardCollection()
+    
+#     page = int(callback.data.split('_')[3])
+    
+#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
+#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+    
+#     # Получаем лимит направлений из ранга
+#     from app.data.database.models import WorkerRank
+#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
+#     rank_work_types_limit = worker_rank.get_work_types_limit()
+    
+#     # Определяем лимит направлений
+#     if worker_sub.unlimited_work_types:
+#         count_work_types = 100
+#     else:
+#         count_work_types = rank_work_types_limit or 1
+    
+#     # Получаем все направления и выбранные
+#     all_work_types = await WorkType.get_all()
+#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
+    
+#     # Сохраняем текущую страницу
+#     await state.update_data(page=page)
+    
+#     text = "🎯 **Мои направления работ**\n\n"
+#     text += f"📊 Доступно направлений: {count_work_types if count_work_types < 100 else 'неограниченно'}\n"
+    
+#     if selected_ids:
+#         text += f"**Выбрано:** {len(selected_ids)} направлений\n\n"
+#         text += "Нажмите на направление, чтобы удалить его из списка."
+#     else:
+#         text += "**У вас нет выбранных направлений.**\n\n"
+#         text += "Выберите направления из списка ниже."
+    
+#     try:
+#         await callback.message.edit_text(
+#             text=text,
+#             reply_markup=kbc.choose_work_types_improved(
+#                 all_work_types=all_work_types,
+#                 selected_ids=selected_ids,
+#                 count_work_types=count_work_types,
+#                 page=page,
+#                 btn_back=True,
+#                 name_btn_back='◀️ Назад в меню'
+#             ),
+#             parse_mode='Markdown'
+#         )
+#     except Exception:
+#         pass
+
+
+# @router.callback_query(F.data == "show_selected_work_types", WorkStates.worker_choose_work_types)
+# async def show_selected_work_types_handler(callback: CallbackQuery, state: FSMContext) -> None:
+#     """Показать выбранные направления"""
+#     logger.debug(f'show_selected_work_types_handler...')
+#     kbc = KeyboardCollection()
+    
+#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
+#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+    
+#     # Получаем лимит направлений из ранга
+#     from app.data.database.models import WorkerRank
+#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
+#     rank_work_types_limit = worker_rank.get_work_types_limit()
+    
+#     # Определяем лимит направлений
+#     if worker_sub.unlimited_work_types:
+#         count_work_types = 100
+#     else:
+#         count_work_types = rank_work_types_limit or 1
+    
+#     # Получаем выбранные направления
+#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
+    
+#     if not selected_ids:
+#         await callback.answer("У вас нет выбранных направлений", show_alert=True)
+#         return
+    
+#     # Получаем объекты выбранных направлений
+#     selected_work_types = []
+#     for work_type_id in selected_ids:
+#         work_type = await WorkType.get_work_type(id=int(work_type_id))
+#         if work_type:
+#             selected_work_types.append(work_type)
+    
+#     text = "📋 **Выбранные направления работ**\n\n"
+#     text += f"**Всего выбрано:** {len(selected_work_types)}/{count_work_types if count_work_types < 100 else '∞'}\n\n"
+#     text += "Нажмите на направление, чтобы удалить его:"
+    
+#     try:
+#         await callback.message.edit_text(
+#             text=text,
+#             reply_markup=kbc.show_selected_work_types(
+#                 selected_work_types=selected_work_types,
+#                 count_work_types=count_work_types
+#             ),
+#             parse_mode='Markdown'
+#         )
+#     except Exception:
+#         pass
+
+
+# @router.callback_query(F.data == "back", WorkStates.worker_choose_work_types)
+# async def back_from_work_types(callback: CallbackQuery, state: FSMContext) -> None:
+#     """Возврат из выбора направлений в меню"""
+#     logger.debug(f'back_from_work_types...')
+    
+#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
+#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+    
+#     # Получаем исходное состояние направлений
+#     state_data = await state.get_data()
+#     original_work_types = set(state_data.get('original_work_types', []))
+    
+#     # Получаем текущее состояние
+#     current_work_types = set(worker_sub.work_type_ids if worker_sub.work_type_ids else [])
+    
+#     # Проверяем, были ли изменения
+#     if original_work_types != current_work_types:
+#         # Были изменения - регистрируем
+#         from app.data.database.models import WorkerWorkTypeChanges
+#         work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+        
+#         logger.info(f'[WORK_TYPES] Worker {worker.id} changing work types. Original: {original_work_types}, Current: {current_work_types}')
+        
+#         await work_type_changes.register_change()
+        
+#         logger.info(f'[WORK_TYPES] Worker {worker.id} registered change. Total changes: {work_type_changes.changes_count}/3')
+        
+#         # Если достигли лимита - покажем уведомление
+#         if work_type_changes.changes_count >= 3:
+#             from datetime import datetime
+#             if work_type_changes.reset_date:
+#                 reset_date = datetime.strptime(work_type_changes.reset_date, '%Y-%m-%d %H:%M:%S')
+#                 days_left = (reset_date - datetime.now()).days + 1
+#                 await callback.answer(
+#                     f"⚠️ Вы использовали все 3 изменения направлений.\nСледующее изменение будет доступно через {days_left} дней.",
+#                     show_alert=True
+#                 )
+#         else:
+#             remaining = 3 - work_type_changes.changes_count
+#             await callback.answer(
+#                 f"✅ Изменения сохранены!\nОсталось изменений: {remaining}/3",
+#                 show_alert=False
+#             )
+#     else:
+#         logger.info(f'[WORK_TYPES] Worker {worker.id} exited without changes')
+    
+#     # Возвращаемся в меню
+#     await state.set_state(WorkStates.worker_menu)
+#     await show_worker_menu(callback, state, worker)
 
 
 @router.callback_query(F.data == "add_city", WorkStates.worker_menu)
@@ -2273,11 +3384,23 @@ async def add_city(callback: CallbackQuery, state: FSMContext) -> None:
     builder.add(kbc._inline("🏠 В меню", "worker_menu"))
     builder.adjust(1)
     
-    await callback.message.edit_text(
-        text=text,
-        reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
-    )
+    # Безопасное редактирование
+    try:
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode='Markdown'
+        )
+    except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode='Markdown'
+        )
 
 
 @router.callback_query(lambda c: c.data.startswith('city_count_'))
@@ -2977,11 +4100,23 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
     builder.add(kbc._inline("🏠 В меню", "worker_menu"))
     builder.adjust(1)
     
-    await callback.message.edit_text(
-        text=text,
-        reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
-    )
+    # Безопасное редактирование
+    try:
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode='Markdown'
+        )
+    except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode='Markdown'
+        )
 
 
 @router.callback_query(lambda c: c.data.startswith('contact-tariff_'), WorkStates.worker_menu)
@@ -3125,11 +4260,23 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
         builder.add(kbc._inline("◀️ Назад", "worker_menu"))
         builder.adjust(1)
         
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
-        )
+        # Безопасное редактирование
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=builder.as_markup(),
+                parse_mode='Markdown'
+            )
+        except Exception:
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.message.answer(
+                text=text,
+                reply_markup=builder.as_markup(),
+                parse_mode='Markdown'
+            )
     else:
         # Если нет купленных городов - показываем опцию выбора города из всех доступных
         text += "У вас нет купленных городов.\n\n"
@@ -3146,11 +4293,23 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
         builder.add(kbc._inline("◀️ Назад", "worker_menu"))
         builder.adjust(1)
         
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
-        )
+        # Безопасное редактирование
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=builder.as_markup(),
+                parse_mode='Markdown'
+            )
+        except Exception:
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.message.answer(
+                text=text,
+                reply_markup=builder.as_markup(),
+                parse_mode='Markdown'
+            )
 
 
 @router.callback_query(F.data == "worker_change_main_city", WorkStates.worker_menu)
@@ -3865,48 +5024,72 @@ async def worker_rank(callback: CallbackQuery, state: FSMContext) -> None:
         from app.data.database.models import WorkerRank
         rank = await WorkerRank.get_or_create_rank(worker.id)
         
-        # Формируем текст с информацией о ранге
-        text = f"🏆 **Ваш ранг: {rank.current_rank} {rank.get_rank_name()}**\n\n"
-        text += f"📊 **Статистика:**\n"
-        text += f"• Выполнено заказов в этом месяце: {rank.orders_this_month}\n"
-        text += f"• Всего выполнено заказов: {rank.completed_orders_count}\n\n"
-        
-        # Добавляем информацию о всех рангах
-        text += "📋 **Система рангов:**\n\n"
-        
-        for rank_type, rank_info in WorkerRank.RANK_TYPES.items():
-            emoji = rank_info['emoji']
-            name = rank_info['name']
-            orders_required = rank_info['orders_required']
-            work_types_limit = rank_info['work_types_limit']
-            
-            # Выделяем текущий ранг
-            if rank_type == rank.rank_type:
-                text += f"**{emoji} {name}** (ваш ранг) — выполнено {orders_required} заказов за месяц"
-            else:
-                text += f"{emoji} {name} — выполнено {orders_required} заказов за месяц"
-            
-            if work_types_limit is None:
-                text += ", доступны все направления без ограничений.\n"
-            else:
-                text += f", можно выбрать до {work_types_limit} направлений.\n"
-            
-            text += "\n"
+        # Используем метод get_rank_description() для получения полного описания
+        text = rank.get_rank_description()
+        text += f"\n\n📊 **Статистика:**\n"
+        text += f"• Всего выполнено заказов: {rank.completed_orders_count}"
         
         # Кнопка назад
         builder = InlineKeyboardBuilder()
         builder.add(kbc._inline("◀️ Назад", "worker_menu"))
         builder.adjust(1)
         
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
-        )
+        # Пробуем отредактировать текст, если не получится - удаляем и отправляем новое
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=builder.as_markup(),
+                parse_mode='Markdown'
+            )
+        except Exception:
+            # Если сообщение было с фото, удаляем и отправляем новое
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.message.answer(
+                text=text,
+                reply_markup=builder.as_markup(),
+                parse_mode='Markdown'
+            )
         
     except Exception as e:
         logger.error(f"Error in worker_rank: {e}")
         await callback.answer("❌ Ошибка при получении информации о ранге", show_alert=True)
+
+
+@router.callback_query(F.data == "rank_downgrade_ok")
+async def rank_downgrade_ok(callback: CallbackQuery, state: FSMContext) -> None:
+    """
+    Обработчик кнопки OK после уведомления о понижении ранга.
+    Перенаправляет исполнителя в раздел "Мои направления" для выбора новых направлений.
+    """
+    logger.debug(f'rank_downgrade_ok...')
+    
+    try:
+        # Удаляем сообщение с уведомлением
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        
+        # Устанавливаем состояние меню
+        await state.set_state(WorkStates.worker_menu)
+        
+        # Вызываем обработчик "Мои направления" напрямую
+        # Создаем фейковый callback с нужным data
+        from copy import copy
+        
+        # Создаем копию callback с новым data
+        fake_callback = copy(callback)
+        fake_callback._data = "choose_work_types"
+        
+        # Вызываем обработчик выбора направлений (функция на строке 1709)
+        await choose_work_types(fake_callback, state)
+        
+    except Exception as e:
+        logger.error(f"Error in rank_downgrade_ok: {e}")
+        await callback.answer("❌ Ошибка при переходе к выбору направлений", show_alert=True)
 
 
 #  _    _        _      _____              _

@@ -121,7 +121,8 @@ async def close_task(workers_and_abs, advertisement_now, workers_for_assessments
         if worker_and_abs.applyed:
             if await WorkerAndCustomer.get_by_worker_and_customer(worker_id=worker.id, customer_id=customer.id):
                 await worker_and_abs.delete()
-                if worker.order_count + 1 == 5:
+                # Счетчик order_count теперь увеличивается при оценке
+                if worker.order_count == 5:
                     if worker_and_ref := await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id):
                         await worker_and_ref.update(work_condition=True)
                         if worker_and_ref.ref_condition:
@@ -142,12 +143,10 @@ async def close_task(workers_and_abs, advertisement_now, workers_for_assessments
 
                 continue
             else:
+                # Добавляем исполнителя в список для оценки
                 workers_for_assessments.append(worker)
-                worker_and_customer = WorkerAndCustomer(worker_id=worker.id, customer_id=customer.id)
-                await worker_and_customer.save()
-                await worker.update_order_count(order_count=worker.order_count + 1)
-                await worker.update_order_count_on_week(order_count_on_week=worker.order_count_on_week + 1)
-                if worker.order_count + 1 == 5:
+                # Счетчик order_count теперь увеличивается при оценке, а не здесь
+                if worker.order_count == 5:
                     if worker_and_ref := await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id):
                         await worker_and_ref.update(work_condition=True)
                         if worker_and_ref.ref_condition:

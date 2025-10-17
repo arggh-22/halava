@@ -4,7 +4,8 @@ import json
 import shutil
 import logging
 import requests
-from datetime import datetime
+import time
+from datetime import datetime, date
 from bs4 import BeautifulSoup
 from PIL import Image, ImageEnhance
 from aiogram.types import Message
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def check_ip_status_by_ogrnip(ogrnip) -> str | None:
+    """Проверка ИП по ОГРНИП"""
     url = f"https://www.rusprofile.ru/ip/{ogrnip}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -34,6 +36,69 @@ def check_ip_status_by_ogrnip(ogrnip) -> str | None:
 
     except requests.exceptions.RequestException:
         return None
+
+
+def check_ooo(query) -> bool | str:
+    """Проверка ООО по ОГРН"""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+        "Referer": "https://egrul.nalog.ru/index.html",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    try:
+        response = requests.post("https://egrul.nalog.ru/", data={"query": query}, headers=headers)
+        response.raise_for_status()
+
+        data = response.json()  # вернёт строку с ID
+        request_id = data.get("t")
+        if request_id:
+            time.sleep(1.5)
+
+            params = {
+                "r": str(int(time.time() * 1000)),
+                "_": str(int(time.time() * 1000)),
+            }
+            result = requests.get(
+                f"https://egrul.nalog.ru/search-result/{request_id}", 
+                headers=headers, 
+                params=params,
+                timeout=10
+            )
+            result.raise_for_status()
+
+            data = result.json()
+            rows = data.get("rows", [])
+            for row in rows:
+                if row.get("k") == "ul" and row.get("cnt", 0) != 0:
+                    return True
+        return False
+    except Exception as e:
+        logger.warning(f"Error in check_ooo: {e}")
+        return "error"
+
+
+def check_npd(inn) -> bool | str:
+    """Проверка самозанятого (НПД) по ИНН"""
+    url = "https://statusnpd.nalog.ru/api/v1/tracker/taxpayer_status"
+
+    payload = {
+        "inn": inn,
+        "requestDate": str(date.today())
+    }
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("status", False)
+        return False
+    except Exception as e:
+        logger.warning(f"Error in check_npd: {e}")
+        return "error"
 
 
 def get_obj_name_and_id_for_btn(names: list, ids: list, id_now: int):

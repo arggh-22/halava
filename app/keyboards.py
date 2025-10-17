@@ -179,7 +179,7 @@ class KeyboardCollection:
         return builder.as_markup()
 
     def menu_worker_keyboard(self, confirmed, choose_works, individual_entrepreneur,
-                             create_photo, create_name) -> InlineKeyboardMarkup:
+                             create_photo, create_name, has_status=False) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         
         # Основные функции
@@ -189,7 +189,10 @@ class KeyboardCollection:
         # Новые кнопки
         builder.add(self._inline(button_text="Ранг", callback_data="worker_rank"))
         builder.add(self._inline(button_text="Активность", callback_data="worker_activity"))
-        builder.add(self._inline(button_text="Статус", callback_data="worker_status"))
+        
+        # Кнопка "Статус" показывается только если НЕТ подтвержденного статуса
+        if not has_status:
+            builder.add(self._inline(button_text="Статус", callback_data="worker_status"))
         
         # Направления работ
         builder.add(self._inline(button_text="Мои направления", callback_data="choose_work_types"))
@@ -1144,8 +1147,6 @@ class KeyboardCollection:
             builder.add(self._inline(button_text="❌ Отклонить отклик", 
                                      callback_data=f"reject_customer_response_{worker_id}_{abs_id}"))
         
-        builder.add(self._inline(button_text="⭐ Оценить исполнителя", 
-                                 callback_data=f"rate_worker_{worker_id}_{abs_id}"))
         builder.add(self._inline(button_text="◀️ К откликам", 
                                  callback_data=f"view_responses_{abs_id}"))
         builder.adjust(1)

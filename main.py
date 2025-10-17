@@ -26,7 +26,7 @@ import config
 from aiogram.types import BotCommand
 from app.handlers import start, worker, customer, admin, admin_send_msg, admin_edit_stop_words, admin_log_work
 from app.untils import time_checker
-from app.untils.time_checker import restore_weekly_activity
+from app.untils.time_checker import restore_weekly_activity, check_worker_statuses, update_worker_ranks
 from app.handlers.worker import send_city_subscription_expiry_notifications
 from loaders import bot, dp, scheduler
 from aiogram.types import CallbackQuery
@@ -78,6 +78,8 @@ async def run():
     scheduler.add_job(time_checker.cleanup_orphaned_files, "interval", days=7)  # Еженедельная очистка файлов
     scheduler.add_job(send_city_subscription_expiry_notifications, "interval", hours=24)  # Ежедневная проверка истекающих подписок на города
     scheduler.add_job(restore_weekly_activity, "interval", days=7)  # Еженедельное восстановление активности исполнителей
+    scheduler.add_job(check_worker_statuses, "interval", days=7)  # Еженедельная проверка статусов исполнителей (ИП, ООО, СЗ)
+    scheduler.add_job(update_worker_ranks, "interval", hours=24)  # Ежедневное обновление рангов исполнителей на основе заказов за 30 дней
     # scheduler.add_job(time_checker.check_time_workers_top, "interval", days=30)    # minutes=1
 
     await bot.delete_webhook(drop_pending_updates=False)

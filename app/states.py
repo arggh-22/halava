@@ -15,6 +15,8 @@ class WorkStates(StatesGroup):
     create_name_profile = State()
     create_photo_profile = State()
     individual_entrepreneur = State()
+    confirm_ooo_status = State()
+    confirm_sz_status = State()
     registration_enter_city = State()
     # Верификация убрана согласно ТЗ
     worker_menu = State()

@@ -311,69 +311,9 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
     await state.set_state(UserStates.menu)
     if worker := await Worker.get_worker(tg_id=message.chat.id):
         if worker.active:
-            worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-            subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-            work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-                               worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None
-
-            if len(worker.city_id) == 1:
-                cites = 'Ваш город: '
-                step = ''
-                city = await City.get_city(id=worker.city_id[0])
-                cites += f'{step}{city.city}\n'
-
-            else:
-                cites = 'Ваши города: '
-                cites_temp = []
-                for city_id in worker.city_id:
-                    city = await City.get_city(id=city_id)
-                    cites_temp.append(city.city)
-                cites += ', '.join(cites_temp)
-
-            end = '\n' if subscription.count_cites == 1 else ""
-
-            text = (f'Ваш профиль\n\n'
-                    f'ID: {worker.id} {worker.profile_name} {"✅" if worker.confirmed else "☑️"}\n'
-                    f'Ваш рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.stars else 0} ⭐️ ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n'
-                    f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
-                    f'{cites + end if subscription.count_cites == 1 else ""}'
-                    f'Выполненных заказов: {worker.order_count}\n'
-                    f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                    f'Ваш тариф: {subscription.subscription_type}\n'
-                    f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'
-                    f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-                    f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-                    f'Зарегистрирован с {worker.registration_data}\n'
-                    f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'
-                    f'{cites + end if subscription.count_cites != 1 else ""}')
-
-            choose_works = True if worker_sub.unlimited_work_types else False
-            profile_name = True if worker.profile_name else False
-
-            if worker.profile_photo:
-                await message.answer_photo(
-                    photo=FSInputFile(worker.profile_photo),
-                    caption=text,
-                    reply_markup=kbc.menu_worker_keyboard(
-                        confirmed=worker.confirmed,
-                        choose_works=choose_works,
-                        individual_entrepreneur=worker.individual_entrepreneur,
-                        create_photo=False,
-                        create_name=profile_name
-                    )
-                )
-            else:
-                await message.answer(
-                    text=text,
-                    reply_markup=kbc.menu_worker_keyboard(
-                        confirmed=worker.confirmed,
-                        choose_works=choose_works,
-                        individual_entrepreneur=worker.individual_entrepreneur,
-                        create_photo=True,
-                        create_name=profile_name
-                    )
-                )
-            await state.set_state(WorkStates.worker_menu)
+            # Импортируем функцию отображения меню из worker.py
+            from app.handlers.worker import show_worker_menu_for_message
+            await show_worker_menu_for_message(message, state, worker)
         else:
             customer = await Customer.get_customer(tg_id=message.chat.id)
             if customer is None:

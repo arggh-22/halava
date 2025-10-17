@@ -2370,6 +2370,36 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
         total_ratings = worker.count_ratings + 1
         await worker.update(stars=total_stars, count_ratings=total_ratings)
         
+        # УВЕЛИЧИВАЕМ СЧЕТЧИК ВЫПОЛНЕННЫХ ЗАКАЗОВ
+        # Каждая оценка = выполненный заказ (защита от двойной оценки уже есть выше)
+        from app.data.database.models import WorkerAndRefsAssociation
+        
+        # Увеличиваем счетчики (каждая оценка учитывается)
+        await worker.update_order_count(order_count=worker.order_count + 1)
+        await worker.update_order_count_on_week(order_count_on_week=worker.order_count_on_week + 1)
+        
+        # Проверяем реферальную программу (5 заказов)
+        if worker.order_count + 1 == 5:
+            if worker_and_ref := await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id):
+                await worker_and_ref.update(work_condition=True)
+                if worker_and_ref.ref_condition:
+                    await worker_and_ref.update(worker_bonus=True, ref_bonus=True)
+                    from loaders import bot
+                    await bot.send_message(chat_id=worker_and_ref.ref_id,
+                                         text='Условия вашей реферальной программы выполнены!')
+                    await bot.send_message(chat_id=worker.tg_id,
+                                         text='Условия вашей реферальной программы выполнены!')
+            elif worker_and_ref := await WorkerAndRefsAssociation.get_by_ref(ref_id=worker.tg_id):
+                await worker_and_ref.update(ref_condition=True)
+                if worker_and_ref.work_condition:
+                    await worker_and_ref.update(worker_bonus=True, ref_bonus=True)
+                    worker_main = await Worker.get_worker(id=worker_and_ref.worker_id)
+                    from loaders import bot
+                    await bot.send_message(chat_id=worker_and_ref.ref_id,
+                                         text='Условия вашей реферальной программы выполнены!')
+                    await bot.send_message(chat_id=worker_main.tg_id,
+                                         text='Условия вашей реферальной программы выполнены!')
+        
         # Восстанавливаем активность исполнителя (+20 за выполнение заказа)
         old_activity = worker.activity_level
         new_activity = max(0, min(100, worker.activity_level + 20))
@@ -2457,17 +2487,35 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
                 city_name = city.city
         
         kbc = KeyboardCollection()
-        await callback.message.edit_text(
-            text=f"📋 **Отклики на объявление #{abs_id}**\n"
-                 f"🏙️ Город: {city_name}\n"
-                 f"👥 Количество откликов: {len(responses_data)}\n\n"
-                 "Выберите отклик для просмотра:",
-            reply_markup=kbc.customer_responses_list_buttons(
-                responses_data=responses_data,
-                abs_id=abs_id
-            ),
-            parse_mode='Markdown'
-        )
+        text = f"📋 **Отклики на объявление #{abs_id}**\n"
+        text += f"🏙️ Город: {city_name}\n"
+        text += f"👥 Количество откликов: {len(responses_data)}\n\n"
+        text += "Выберите отклик для просмотра:"
+        
+        # Безопасное редактирование (может быть фото)
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=kbc.customer_responses_list_buttons(
+                    responses_data=responses_data,
+                    abs_id=abs_id
+                ),
+                parse_mode='Markdown'
+            )
+        except Exception:
+            # Если было фото, удаляем и отправляем новое
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.message.answer(
+                text=text,
+                reply_markup=kbc.customer_responses_list_buttons(
+                    responses_data=responses_data,
+                    abs_id=abs_id
+                ),
+                parse_mode='Markdown'
+            )
         
     except Exception as e:
         logger.error(f"Error in view_responses_handler: {e}")
