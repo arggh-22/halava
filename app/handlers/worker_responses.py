@@ -18,6 +18,7 @@ from app.keyboards import KeyboardCollection
 from app.data.database.models import Worker, Customer, Abs, WorkersAndAbs, ContactExchange
 from loaders import bot
 from app.untils.contact_filter import check_message_for_contacts
+from app.untils.message_utils import safe_edit_message
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -948,7 +949,10 @@ async def decline_ad(callback: CallbackQuery, state: FSMContext):
         
         kbc = KeyboardCollection()
         await state.set_state(WorkStates.worker_menu)
-        await callback.message.edit_text(
+        
+        # Используем безопасную функцию для редактирования сообщения
+        await safe_edit_message(
+            callback=callback,
             text="✅ Объявление скрыто и больше не будет показываться",
             reply_markup=kbc.menu()
         )
@@ -998,7 +1002,10 @@ async def report_ad(callback: CallbackQuery, state: FSMContext):
         
         kbc = KeyboardCollection()
         await state.set_state(WorkStates.worker_menu)
-        await callback.message.edit_text(
+        
+        # Используем безопасную функцию для редактирования сообщения
+        await safe_edit_message(
+            callback=callback,
             text="✅ Жалоба отправлена администрации.\n"
                  "Мы проверим объявление в ближайшее время.",
             reply_markup=kbc.menu()

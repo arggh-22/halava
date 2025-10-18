@@ -400,8 +400,7 @@ async def create_new_abs_back(callback: CallbackQuery, state: FSMContext) -> Non
 
     await state.set_state(CustomerStates.customer_menu)
     await callback.message.edit_text(text=text,
-                                     reply_markup=kbc.menu_customer_keyboard(
-                                         btn_bue=False))  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
+                                     reply_markup=kbc.menu_customer_keyboard())  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
 
 
 async def get_customer_ads_optimized(customer_id: int):
@@ -415,7 +414,7 @@ async def get_customer_ads_optimized(customer_id: int):
                 a.id, a.work_type_id, a.city_id, a.text_path, a.photo_path, 
                 a.views, a.count_photo,
                 c.city,
-                (SELECT COUNT(*) FROM workers_and_abs wa WHERE wa.abs_id = a.id AND wa.applyed = 1) as responses_count
+                (SELECT COUNT(*) FROM workers_and_abs wa WHERE wa.abs_id = a.id) as responses_count
             FROM abs a
             LEFT JOIN cities c ON a.city_id = c.id
             WHERE a.customer_id = ?
@@ -485,9 +484,18 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
     # Используем количество откликов из оптимизированного запроса
     has_responses = abs_now['responses_count'] > 0
     btn_responses = has_responses
-    workers_applyed = has_responses  # Если есть отклики, значит есть откликнувшиеся
+    
+    # Для кнопки "Закрыть и оценить" нужно проверить активные отклики (applyed = True)
+    # Делаем отдельный запрос для этого
+    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now['id'])
+    workers_applyed = False
+    if workers_and_abs:
+        for worker_and_abs in workers_and_abs:
+            if worker_and_abs.applyed:
+                workers_applyed = True
+                break
 
-    btn_close_name = 'Закрыть и оценить' if workers_applyed else 'Отменить и удалить'
+    btn_close_name = 'Закрыть и оценить'
 
     if abs_now['photo_path']:
         try:
@@ -577,7 +585,8 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     abs_list_id = int(callback.data.split('_')[1])
 
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
+    # Используем оптимизированную функцию для консистентной сортировки
+    advertisements = await get_customer_ads_optimized(customer_id=customer.id)
 
     if len(advertisements) - 1 > abs_list_id:
         btn_next = True
@@ -591,37 +600,56 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     abs_now = advertisements[abs_list_id]
 
-    city = await City.get_city(id=abs_now.city_id)
+    city_name = abs_now['city_name']
 
-    text = help_defs.read_text_file(abs_now.text_path)
+    text = help_defs.read_text_file(abs_now['text_path'])
 
 
-    text = f'Объявление {abs_now.id} г. {city.city}\n\n' + text + f'\n\nПросмотров: {abs_now.views}'
+    text = f'Объявление {abs_now['id']} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now['views']}'
     logger.debug(f"text {text}")
 
-    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now.id)
-
+    # Используем количество откликов из оптимизированного запроса (как в функции my_abs)
+    has_responses = abs_now['responses_count'] > 0
+    btn_responses = has_responses
+    
+    # Для кнопки "Закрыть и оценить" нужно проверить активные отклики (applyed = True)
+    # Делаем отдельный запрос для этого
+    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now['id'])
     workers_applyed = False
-    btn_responses = False
-
     if workers_and_abs:
-        btn_responses = True
         for worker_and_abs in workers_and_abs:
             if worker_and_abs.applyed:
                 workers_applyed = True
-                btn_responses = True
                 break
 
-    btn_close_name = 'Закрыть и оценить' if workers_applyed else 'Отменить и удалить'
+    btn_close_name = 'Закрыть и оценить'
     await state.set_state(CustomerStates.customer_check_abs)
 
-    if abs_now.photo_path:
+    if abs_now['photo_path']:
         try:
             await callback.message.delete()
         except TelegramBadRequest:
             pass
 
-        if 'https' in abs_now.photo_path['0']:
+        # Парсим JSON строку photo_path
+        import json
+        
+        def get_safe_photo_path(photo_path_str):
+            """Безопасно извлекает путь к фотографии из JSON строки"""
+            if not photo_path_str:
+                return ''
+            try:
+                photo_dict = json.loads(photo_path_str)
+                if isinstance(photo_dict, dict):
+                    return photo_dict.get('0', '')
+                return ''
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                return ''
+        
+        photo_path = get_safe_photo_path(abs_now['photo_path'])
+        
+        if not photo_path:
+            # Нет фото - отправляем только текст
             await callback.message.answer(
                 text=text,
                 reply_markup=kbc.choose_obj_with_out_list(
@@ -631,13 +659,45 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                     btn_responses=btn_responses,
                     btn_close=True,
                     btn_close_name=btn_close_name,
-                    abs_id=abs_now.id
+                    abs_id=abs_now['id']
+                )
+            )
+            return
+        elif 'https' in photo_path:
+            # Фото по ссылке - отправляем только текст (фото уже показано)
+            await callback.message.answer(
+                text=text,
+                reply_markup=kbc.choose_obj_with_out_list(
+                    id_now=abs_list_id,
+                    btn_next=btn_next,
+                    btn_back=btn_back,
+                    btn_responses=btn_responses,
+                    btn_close=True,
+                    btn_close_name=btn_close_name,
+                    abs_id=abs_now['id']
+                )
+            )
+            return
+        else:
+            # Локальное фото - проверяем существование файла и отправляем
+            import os
+            if os.path.exists(photo_path) and os.path.isfile(photo_path):
+                await callback.message.answer(
+                    text=text,
+                reply_markup=kbc.choose_obj_with_out_list(
+                    id_now=abs_list_id,
+                    btn_next=btn_next,
+                    btn_back=btn_back,
+                    btn_responses=btn_responses,
+                    btn_close=True,
+                    btn_close_name=btn_close_name,
+                    abs_id=abs_now['id']
                 )
             )
             return
 
         await callback.message.answer_photo(
-            photo=FSInputFile(abs_now.photo_path['0']),
+            photo=FSInputFile(photo_path),
             caption=text,
             reply_markup=kbc.choose_obj_with_out_list(
                 id_now=abs_list_id,
@@ -646,8 +706,8 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                 btn_responses=btn_responses,
                 btn_close=True,
                 btn_close_name=btn_close_name,
-                abs_id=abs_now.id,
-                count_photo=abs_now.count_photo,
+                abs_id=abs_now['id'],
+                count_photo=abs_now['count_photo'],
                 idk_photo=0
             )
         )
@@ -665,7 +725,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
             btn_responses=btn_responses,
             btn_close=True,
             btn_close_name=btn_close_name,
-            abs_id=abs_now.id
+            abs_id=abs_now['id']
         )
     )
 
@@ -678,7 +738,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     abs_id = int(callback.data.split('_')[1])
 
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
+    advertisements = await get_customer_ads_optimized(customer_id=customer.id)
 
     abs_list_id = 0
 
@@ -700,37 +760,56 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     abs_now = advertisements[abs_list_id]
 
-    city = await City.get_city(id=abs_now.city_id)
+    city_name = abs_now['city_name']
 
-    text = help_defs.read_text_file(abs_now.text_path)
+    text = help_defs.read_text_file(abs_now['text_path'])
 
 
-    text = f'Объявление {abs_now.id} г. {city.city}\n\n' + text + f'\n\nПросмотров: {abs_now.views}'
+    text = f'Объявление {abs_now['id']} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now['views']}'
     logger.debug(f"text {text}")
 
-    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now.id)
-
+    # Используем количество откликов из оптимизированного запроса (как в функции my_abs)
+    has_responses = abs_now['responses_count'] > 0
+    btn_responses = has_responses
+    
+    # Для кнопки "Закрыть и оценить" нужно проверить активные отклики (applyed = True)
+    # Делаем отдельный запрос для этого
+    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now['id'])
     workers_applyed = False
-    btn_responses = False
-
     if workers_and_abs:
-        btn_responses = True
         for worker_and_abs in workers_and_abs:
             if worker_and_abs.applyed:
                 workers_applyed = True
-                btn_responses = True
                 break
 
-    btn_close_name = 'Закрыть и оценить' if workers_applyed else 'Отменить и удалить'
+    btn_close_name = 'Закрыть и оценить'
     await state.set_state(CustomerStates.customer_check_abs)
 
-    if abs_now.photo_path:
+    if abs_now['photo_path']:
         try:
             await callback.message.delete()
         except TelegramBadRequest:
             pass
 
-        if 'https' in abs_now.photo_path['0']:
+        # Парсим JSON строку photo_path
+        import json
+        
+        def get_safe_photo_path(photo_path_str):
+            """Безопасно извлекает путь к фотографии из JSON строки"""
+            if not photo_path_str:
+                return ''
+            try:
+                photo_dict = json.loads(photo_path_str)
+                if isinstance(photo_dict, dict):
+                    return photo_dict.get('0', '')
+                return ''
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                return ''
+        
+        photo_path = get_safe_photo_path(abs_now['photo_path'])
+        
+        if not photo_path:
+            # Нет фото - отправляем только текст
             await callback.message.answer(
                 text=text,
                 reply_markup=kbc.choose_obj_with_out_list(
@@ -740,13 +819,45 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                     btn_responses=btn_responses,
                     btn_close=True,
                     btn_close_name=btn_close_name,
-                    abs_id=abs_now.id
+                    abs_id=abs_now['id']
+                )
+            )
+            return
+        elif 'https' in photo_path:
+            # Фото по ссылке - отправляем только текст (фото уже показано)
+            await callback.message.answer(
+                text=text,
+                reply_markup=kbc.choose_obj_with_out_list(
+                    id_now=abs_list_id,
+                    btn_next=btn_next,
+                    btn_back=btn_back,
+                    btn_responses=btn_responses,
+                    btn_close=True,
+                    btn_close_name=btn_close_name,
+                    abs_id=abs_now['id']
+                )
+            )
+            return
+        else:
+            # Локальное фото - проверяем существование файла и отправляем
+            import os
+            if os.path.exists(photo_path) and os.path.isfile(photo_path):
+                await callback.message.answer(
+                    text=text,
+                reply_markup=kbc.choose_obj_with_out_list(
+                    id_now=abs_list_id,
+                    btn_next=btn_next,
+                    btn_back=btn_back,
+                    btn_responses=btn_responses,
+                    btn_close=True,
+                    btn_close_name=btn_close_name,
+                    abs_id=abs_now['id']
                 )
             )
             return
 
         await callback.message.answer_photo(
-            photo=FSInputFile(abs_now.photo_path['0']),
+            photo=FSInputFile(photo_path),
             caption=text,
             reply_markup=kbc.choose_obj_with_out_list(
                 id_now=abs_list_id,
@@ -755,8 +866,8 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                 btn_responses=btn_responses,
                 btn_close=True,
                 btn_close_name=btn_close_name,
-                abs_id=abs_now.id,
-                count_photo=abs_now.count_photo,
+                abs_id=abs_now['id'],
+                count_photo=abs_now['count_photo'],
                 idk_photo=0
             )
         )
@@ -774,7 +885,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
             btn_responses=btn_responses,
             btn_close=True,
             btn_close_name=btn_close_name,
-            abs_id=abs_now.id
+            abs_id=abs_now['id']
         )
     )
 
@@ -788,7 +899,8 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     abs_list_id = int(callback.data.split('_')[2])
 
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
+    # Используем оптимизированную функцию для консистентной сортировки
+    advertisements = await get_customer_ads_optimized(customer_id=customer.id)
 
     if len(advertisements) - 1 > abs_list_id:
         btn_next = True
@@ -802,7 +914,23 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     abs_now = advertisements[abs_list_id]
 
-    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now.id)
+    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now['id'])
+
+    # Используем количество откликов из оптимизированного запроса (как в функции my_abs)
+    has_responses = abs_now['responses_count'] > 0
+    btn_responses = has_responses
+    
+    # Для кнопки "Закрыть и оценить" нужно проверить активные отклики (applyed = True)
+    # Делаем отдельный запрос для этого
+    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now['id'])
+    workers_applyed = False
+    if workers_and_abs:
+        for worker_and_abs in workers_and_abs:
+            if worker_and_abs.applyed:
+                workers_applyed = True
+                break
+
+    btn_close_name = 'Закрыть и оценить'
 
     workers_applyed = False
     btn_responses = False
@@ -815,20 +943,38 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                 btn_responses = True
                 break
 
-    btn_close_name = 'Закрыть и оценить' if workers_applyed else 'Отменить и удалить'
+    btn_close_name = 'Закрыть и оценить'
     await state.set_state(CustomerStates.customer_check_abs)
 
     if photo_id <= -1:
-        photo_id = abs_now.count_photo - 1
-    elif photo_id > (abs_now.count_photo - 1):
+        photo_id = abs_now['count_photo'] - 1
+    elif photo_id > (abs_now['count_photo'] - 1):
         photo_id = 0
 
-    if abs_now.photo_path:
-        await callback.message.edit_media(
-            media=InputMediaPhoto(
-                media=FSInputFile(abs_now.photo_path[str(photo_id)]),
-                caption=callback.message.caption
-            ),
+    if abs_now['photo_path']:
+        # Парсим JSON строку photo_path
+        import json
+        
+        def get_safe_photo_path(photo_path_str):
+            """Безопасно извлекает путь к фотографии из JSON строки"""
+            if not photo_path_str:
+                return ''
+            try:
+                photo_dict = json.loads(photo_path_str)
+                if isinstance(photo_dict, dict):
+                    return photo_dict.get(str(photo_id), '')
+                return ''
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                return ''
+        
+        photo_path = get_safe_photo_path(abs_now['photo_path'])
+        
+        if photo_path:
+            await callback.message.edit_media(
+                media=InputMediaPhoto(
+                    media=FSInputFile(photo_path),
+                    caption=callback.message.caption
+                ),
             reply_markup=kbc.choose_obj_with_out_list(
                 id_now=abs_list_id,
                 btn_next=btn_next,
@@ -836,8 +982,8 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                 btn_responses=btn_responses,
                 btn_close=True,
                 btn_close_name=btn_close_name,
-                abs_id=abs_now.id,
-                count_photo=abs_now.count_photo,
+                abs_id=abs_now['id'],
+                count_photo=abs_now['count_photo'],
                 idk_photo=photo_id
             )
         )
@@ -870,7 +1016,7 @@ async def close_abs(callback: CallbackQuery, state: FSMContext) -> None:
     abs_list_id = int(callback.data.split('_')[1])
 
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
+    advertisements = await get_customer_ads_optimized(customer_id=customer.id)
 
     advertisement_now = advertisements[abs_list_id]
     
@@ -881,9 +1027,9 @@ async def close_abs(callback: CallbackQuery, state: FSMContext) -> None:
         pass
     
     await callback.message.answer(
-        text=f'⚠️ Вы уверены, что хотите закрыть объявление #{advertisement_now.id}?\n\n'
+        text=f'⚠️ Вы уверены, что хотите закрыть объявление #{advertisement_now["id"]}?\n\n'
              f'После закрытия вы сможете оценить исполнителей, которые откликнулись и купили ваши контакты.',
-        reply_markup=kbc.confirm_close_advertisement(abs_id=advertisement_now.id)
+        reply_markup=kbc.confirm_close_advertisement(abs_id=advertisement_now["id"])
     )
 
 

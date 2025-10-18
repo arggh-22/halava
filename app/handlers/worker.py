@@ -1230,6 +1230,25 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
     # Сортируем по дате создания (самые свежие первыми)
     advertisements.sort(key=lambda x: x.id, reverse=True)
 
+    # Получаем списки скрытых объявлений и жалоб
+    from app.data.database.models import WorkerAndReport, WorkerAndBadResponse
+    worker_and_reports = await WorkerAndReport.get_by_worker(worker_id=worker.id)
+    worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
+    worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
+
+    # Собираем ID объявлений, которые не должны показываться
+    bad_abs = []
+    if worker_and_reports:
+        bad_abs += [worker_and_report.abs_id for worker_and_report in worker_and_reports]
+    if worker_and_bad_responses:
+        bad_abs += [worker_and_bad_response.abs_id for worker_and_bad_response in worker_and_bad_responses]
+    if worker_and_abs:
+        bad_abs += [response.abs_id for response in worker_and_abs]
+    
+    # Убираем дубликаты и преобразуем в set для быстрого поиска
+    bad_abs = set(bad_abs)
+    print(f"[ABS_FILTER_NAV] Worker {worker.id} bad_abs: {bad_abs}")
+
     advertisements_final = []
 
     if not advertisements:
@@ -1240,9 +1259,10 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
     for advertisement in advertisements:
         customer = await Customer.get_customer(id=advertisement.customer_id)
         if customer.tg_id == worker.tg_id:
+            print(f"[ABS_FILTER_NAV] Skipping own ad: {advertisement.id}")
             continue
-        # Проверяем, не откликался ли уже исполнитель на это объявление
-        if await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=advertisement.id):
+        if advertisement.id in bad_abs:
+            print(f"[ABS_FILTER_NAV] Skipping hidden/responded ad: {advertisement.id}")
             continue
         # Проверяем, подходит ли объявление по типу работы
         # Если нет направлений и нет безлимитного доступа - пропускаем
@@ -1252,8 +1272,9 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
         is_unlimited = (worker_sub.unlimited_work_types or 
                        (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
         
-        if is_unlimited or (worker_sub.work_type_ids and advertisement.work_type_id in worker_sub.work_type_ids):
-            advertisements_final.append(advertisement)
+        if is_unlimited or (worker_sub.work_type_ids and str(advertisement.work_type_id) in worker_sub.work_type_ids):
+            if advertisement.relevance:
+                advertisements_final.append(advertisement)
 
     if not advertisements_final or abs_list_id >= len(advertisements_final):
         await callback.message.edit_text(text='Объявление не найдено', reply_markup=kbc.menu())
@@ -1469,6 +1490,25 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     # Сортируем по дате создания (самые свежие первыми)
     advertisements.sort(key=lambda x: x.id, reverse=True)
 
+    # Получаем списки скрытых объявлений и жалоб
+    from app.data.database.models import WorkerAndReport, WorkerAndBadResponse
+    worker_and_reports = await WorkerAndReport.get_by_worker(worker_id=worker.id)
+    worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
+    worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
+
+    # Собираем ID объявлений, которые не должны показываться
+    bad_abs = []
+    if worker_and_reports:
+        bad_abs += [worker_and_report.abs_id for worker_and_report in worker_and_reports]
+    if worker_and_bad_responses:
+        bad_abs += [worker_and_bad_response.abs_id for worker_and_bad_response in worker_and_bad_responses]
+    if worker_and_abs:
+        bad_abs += [response.abs_id for response in worker_and_abs]
+    
+    # Убираем дубликаты и преобразуем в set для быстрого поиска
+    bad_abs = set(bad_abs)
+    print(f"[ABS_FILTER_NEXT] Worker {worker.id} bad_abs: {bad_abs}")
+
     advertisements_final = []
 
     if not advertisements:
@@ -1479,9 +1519,10 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     for advertisement in advertisements:
         customer = await Customer.get_customer(id=advertisement.customer_id)
         if customer.tg_id == worker.tg_id:
+            print(f"[ABS_FILTER_NEXT] Skipping own ad: {advertisement.id}")
             continue
-        # Проверяем, не откликался ли уже исполнитель на это объявление
-        if await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=advertisement.id):
+        if advertisement.id in bad_abs:
+            print(f"[ABS_FILTER_NEXT] Skipping hidden/responded ad: {advertisement.id}")
             continue
         # Проверяем, подходит ли объявление по типу работы
         # Если нет направлений и нет безлимитного доступа - пропускаем
@@ -1491,8 +1532,9 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
         is_unlimited = (worker_sub.unlimited_work_types or 
                        (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
         
-        if is_unlimited or (worker_sub.work_type_ids and advertisement.work_type_id in worker_sub.work_type_ids):
-            advertisements_final.append(advertisement)
+        if is_unlimited or (worker_sub.work_type_ids and str(advertisement.work_type_id) in worker_sub.work_type_ids):
+            if advertisement.relevance:
+                advertisements_final.append(advertisement)
 
     if not advertisements_final:
         await callback.message.edit_text(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
@@ -1719,6 +1761,76 @@ async def get_worker_selected_ids(worker_sub) -> list:
     if worker_sub.work_type_ids:
         return [id for id in worker_sub.work_type_ids if id]
     return []
+
+
+async def get_filtered_advertisements_for_worker(worker, worker_sub):
+    """
+    Получить отфильтрованный список объявлений для исполнителя
+    Исключает: собственные объявления, скрытые, жалобы, уже откликнутые
+    """
+    # Получаем все города исполнителя (основной + дополнительные из подписок)
+    all_city_ids = list(worker.city_id)  # Основной город
+    
+    # Добавляем дополнительные города из активных подписок
+    from app.data.database.models import WorkerCitySubscription
+    city_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
+    for subscription in city_subscriptions:
+        all_city_ids.extend(subscription.city_ids)
+    
+    # Убираем дубликаты
+    all_city_ids = list(set(all_city_ids))
+    
+    advertisements = []
+    for city_id in all_city_ids:
+        advertisements_temp = await Abs.get_all_in_city(city_id=city_id)
+        if advertisements_temp:  # Проверяем, что не None
+            advertisements += advertisements_temp
+    
+    # Сортируем по дате создания (самые свежие первыми)
+    advertisements.sort(key=lambda x: x.id, reverse=True)
+
+    # Получаем списки скрытых объявлений и жалоб
+    from app.data.database.models import WorkerAndReport, WorkerAndBadResponse
+    worker_and_reports = await WorkerAndReport.get_by_worker(worker_id=worker.id)
+    worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
+    worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
+
+    # Собираем ID объявлений, которые не должны показываться
+    bad_abs = []
+    if worker_and_reports:
+        bad_abs += [worker_and_report.abs_id for worker_and_report in worker_and_reports]
+    if worker_and_bad_responses:
+        bad_abs += [worker_and_bad_response.abs_id for worker_and_bad_response in worker_and_bad_responses]
+    if worker_and_abs:
+        bad_abs += [response.abs_id for response in worker_and_abs]
+    
+    # Убираем дубликаты и преобразуем в set для быстрого поиска
+    bad_abs = set(bad_abs)
+    print(f"[ABS_FILTER] Worker {worker.id} bad_abs: {bad_abs}")
+
+    advertisements_final = []
+
+    for advertisement in advertisements:
+        customer = await Customer.get_customer(id=advertisement.customer_id)
+        if customer.tg_id == worker.tg_id:
+            print(f"[ABS_FILTER] Skipping own ad: {advertisement.id}")
+            continue
+        if advertisement.id in bad_abs:
+            print(f"[ABS_FILTER] Skipping hidden/responded ad: {advertisement.id}")
+            continue
+        # Проверяем, подходит ли объявление по типу работы
+        # Если нет направлений и нет безлимитного доступа - пропускаем
+        if not worker_sub.work_type_ids and not worker_sub.unlimited_work_types:
+            continue
+            
+        is_unlimited = (worker_sub.unlimited_work_types or 
+                       (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
+        
+        if is_unlimited or (worker_sub.work_type_ids and str(advertisement.work_type_id) in worker_sub.work_type_ids):
+            if advertisement.relevance:
+                advertisements_final.append(advertisement)
+
+    return advertisements_final
 
 
 @router.callback_query(F.data == 'choose_work_types', WorkStates.worker_menu)
