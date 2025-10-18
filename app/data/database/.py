@@ -1051,8 +1051,8 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     )
     await new_abs.save()
 
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-    advertisement = advertisements[-1]
+    # Используем ID из объекта, а не последнее объявление из списка
+    advertisement = new_abs
 
     text = f'Объявление загружено\n\nОбъявление {advertisement.id}\n\n' + text + f'\n\n Осталось размещений на сегодня {customer.abs_count - 1}'
 
@@ -1404,8 +1404,8 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
     )
     await new_abs.save()
 
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-    advertisement = advertisements[-1]
+    # Используем ID из объекта, а не последнее объявление из списка
+    advertisement = new_abs
 
     text = f'Объявление загружено\n\nОбъявление {advertisement.id}\n\n' + text + f'\n\n Осталось размещений на сегодня {customer.abs_count - 1}'
 

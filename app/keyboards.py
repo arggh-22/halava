@@ -748,17 +748,27 @@ class KeyboardCollection:
         return builder.as_markup()
 
     def get_for_staring(self, ids, names, abs_id):
-        """Функция для выбора исполнителя для оценки (новая система)"""
+        """Функция для выбора исполнителей для оценки (новая система)"""
         builder = InlineKeyboardBuilder()
         for id, name in zip(ids, names):
             builder.add(self._inline(button_text=f'{name}',
                                      callback_data=f'choose-worker-for-rating_{id}_{abs_id}'))
-        builder.add(self._inline(button_text=f'Не оценивать',
+        builder.add(self._inline(button_text=f'Завершить оценку',
                                  callback_data=f'skip-star-for-worker'))
         builder.adjust(1)
         return builder.as_markup()
 
 # Старая функция set_star удалена - теперь используется set_rating
+
+    def confirm_close_advertisement(self, abs_id):
+        """Клавиатура подтверждения закрытия объявления"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text=f'✅ Подтвердить',
+                                 callback_data=f'confirm-close_{abs_id}'))
+        builder.add(self._inline(button_text=f'❌ Отменить',
+                                 callback_data=f'cancel-close_{abs_id}'))
+        builder.adjust(1)
+        return builder.as_markup()
 
     def set_rating(self, worker_id, abs_id):
         """Новая система оценки исполнителей"""
@@ -1119,34 +1129,39 @@ class KeyboardCollection:
                                        contact_requested: bool = False,
                                        contact_sent: bool = False,
                                        contacts_purchased: bool = False) -> InlineKeyboardMarkup:
-        """Кнопки для анонимного чата заказчика"""
+        """Кнопки для анонимного чата заказчика - показывает кнопки в зависимости от состояния контактов"""
         builder = InlineKeyboardBuilder()
         
+        # Показываем кнопки в зависимости от состояния контактов
+        
+        # Кнопка подтверждения/статуса контактов
         if contact_sent:
-            # Контакты уже отправлены
+            # Контакты уже отправлены - убираем кнопку подтверждения
             builder.add(self._inline(button_text="✅ Контакты отправлены", 
                                      callback_data="noop"))
         elif contact_requested:
             # Исполнитель запросил контакты
             builder.add(self._inline(button_text="✅ Подтвердить передачу", 
                                      callback_data=f"confirm_contact_share_{worker_id}_{abs_id}"))
-            builder.add(self._inline(button_text="❌ Отклонить", 
-                                     callback_data=f"decline_contact_share_{worker_id}_{abs_id}"))
         else:
             # Можно предложить контакты
             builder.add(self._inline(button_text="📞 Предложить контакты", 
                                      callback_data=f"offer_contact_share_{worker_id}_{abs_id}"))
         
-        # Кнопка для ответа в чате (только если чат не закрыт)
-        if not contact_sent or not contacts_purchased:
-            builder.add(self._inline(button_text="💬 Ответить в чате", 
-                                     callback_data=f"reply_in_chat_{worker_id}_{abs_id}"))
+        # Кнопка отклонения передачи контактов (показываем только если есть что отклонять)
+        if contact_requested or contact_sent:
+            builder.add(self._inline(button_text="❌ Отклонить передачу контактов", 
+                                     callback_data=f"decline_contact_share_{worker_id}_{abs_id}"))
         
-        # Кнопка отклонения отклика (только если контакты не переданы)
-        if not contact_sent:
-            builder.add(self._inline(button_text="❌ Отклонить отклик", 
-                                     callback_data=f"reject_customer_response_{worker_id}_{abs_id}"))
+        # Кнопка ответа в чате (всегда показываем)
+        builder.add(self._inline(button_text="💬 Ответить в чате", 
+                                 callback_data=f"reply_in_chat_{worker_id}_{abs_id}"))
         
+        # Кнопка отклонения отклика (всегда показываем)
+        builder.add(self._inline(button_text="❌ Отклонить отклик", 
+                                 callback_data=f"reject_customer_response_{worker_id}_{abs_id}"))
+        
+        # Кнопка возврата к откликам (всегда показываем)
         builder.add(self._inline(button_text="◀️ К откликам", 
                                  callback_data=f"view_responses_{abs_id}"))
         builder.adjust(1)

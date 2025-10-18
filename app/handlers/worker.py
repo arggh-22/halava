@@ -1092,8 +1092,8 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
         if advertisements_temp:
             advertisements += advertisements_temp
     
-    # Сортируем по дате создания (самые свежие первыми)
-    advertisements.sort(key=lambda x: x.date_to_delite, reverse=True)
+    # Сортируем по ID (самые новые первыми, так как ID автоинкрементный)
+    advertisements.sort(key=lambda x: x.id, reverse=True)
 
     bad_abs = []
 
@@ -1101,12 +1101,17 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
     worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
     worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
 
-    if worker_and_reports is not None:
+    # Собираем ID объявлений, на которые исполнитель уже откликнулся или которые заблокированы
+    if worker_and_reports:
         bad_abs += [worker_and_report.abs_id for worker_and_report in worker_and_reports]
-    if worker_and_bad_responses is not None:
+    if worker_and_bad_responses:
         bad_abs += [worker_and_bad_response.abs_id for worker_and_bad_response in worker_and_bad_responses]
-    if worker_and_abs is not None:
+    if worker_and_abs:
         bad_abs += [response.abs_id for response in worker_and_abs]
+    
+    # Убираем дубликаты и преобразуем в set для быстрого поиска
+    bad_abs = set(bad_abs)
+    print(f"[ABS_FILTER] Worker {worker.id} bad_abs: {bad_abs}")
 
     advertisements_final = []
 
@@ -1122,10 +1127,10 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
     for advertisement in advertisements:
         customer = await Customer.get_customer(id=advertisement.customer_id)
         if customer.tg_id == worker.tg_id:
-            logger.debug(f'double')
+            print(f"[ABS_FILTER] Skipping own ad: {advertisement.id}")
             continue
         if advertisement.id in bad_abs:
-            logger.debug(f'has_reaction')
+            print(f"[ABS_FILTER] Skipping already responded ad: {advertisement.id}")
             continue
         # Проверяем, подходит ли объявление по типу работы
         # Если нет направлений и нет безлимитного доступа - пропускаем
@@ -1145,6 +1150,8 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
         else:
             logger.debug(f'no one')
 
+    print(f"[ABS_FILTER] Total ads found: {len(advertisements)}, after filtering: {len(advertisements_final)}")
+    
     if not advertisements_final:
         await callback.message.answer(text='По вашим выбранным направлениям, пока нет объявлений',
                                       reply_markup=kbc.menu())
@@ -1221,7 +1228,7 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
             advertisements += advertisements_temp
     
     # Сортируем по дате создания (самые свежие первыми)
-    advertisements.sort(key=lambda x: x.date_to_delite, reverse=True)
+    advertisements.sort(key=lambda x: x.id, reverse=True)
 
     advertisements_final = []
 
@@ -1233,6 +1240,9 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
     for advertisement in advertisements:
         customer = await Customer.get_customer(id=advertisement.customer_id)
         if customer.tg_id == worker.tg_id:
+            continue
+        # Проверяем, не откликался ли уже исполнитель на это объявление
+        if await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=advertisement.id):
             continue
         # Проверяем, подходит ли объявление по типу работы
         # Если нет направлений и нет безлимитного доступа - пропускаем
@@ -1351,7 +1361,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
             advertisements += advertisements_temp
     
     # Сортируем по дате создания (самые свежие первыми)
-    advertisements.sort(key=lambda x: x.date_to_delite, reverse=True)
+    advertisements.sort(key=lambda x: x.id, reverse=True)
 
     advertisements_final = []
 
@@ -1363,6 +1373,9 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     for advertisement in advertisements:
         customer = await Customer.get_customer(id=advertisement.customer_id)
         if customer.tg_id == worker.tg_id:
+            continue
+        # Проверяем, не откликался ли уже исполнитель на это объявление
+        if await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=advertisement.id):
             continue
         # Проверяем, подходит ли объявление по типу работы
         # Если нет направлений и нет безлимитного доступа - пропускаем
@@ -1454,7 +1467,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
             advertisements += advertisements_temp
     
     # Сортируем по дате создания (самые свежие первыми)
-    advertisements.sort(key=lambda x: x.date_to_delite, reverse=True)
+    advertisements.sort(key=lambda x: x.id, reverse=True)
 
     advertisements_final = []
 
@@ -1466,6 +1479,9 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     for advertisement in advertisements:
         customer = await Customer.get_customer(id=advertisement.customer_id)
         if customer.tg_id == worker.tg_id:
+            continue
+        # Проверяем, не откликался ли уже исполнитель на это объявление
+        if await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=advertisement.id):
             continue
         # Проверяем, подходит ли объявление по типу работы
         # Если нет направлений и нет безлимитного доступа - пропускаем
@@ -5090,6 +5106,53 @@ async def rank_downgrade_ok(callback: CallbackQuery, state: FSMContext) -> None:
     except Exception as e:
         logger.error(f"Error in rank_downgrade_ok: {e}")
         await callback.answer("❌ Ошибка при переходе к выбору направлений", show_alert=True)
+
+
+async def filter_worker_advertisements(worker_id: int, advertisements: list) -> list:
+    """Фильтрует объявления для исполнителя, исключая уже откликнувшиеся"""
+    worker = await Worker.get_worker(id=worker_id)
+    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+    
+    # Собираем ID объявлений, на которые исполнитель уже откликнулся или которые заблокированы
+    bad_abs = []
+    worker_and_reports = await WorkerAndReport.get_by_worker(worker_id=worker.id)
+    worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
+    worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
+
+    if worker_and_reports:
+        bad_abs += [worker_and_report.abs_id for worker_and_report in worker_and_reports]
+    if worker_and_bad_responses:
+        bad_abs += [worker_and_bad_response.abs_id for worker_and_bad_response in worker_and_bad_responses]
+    if worker_and_abs:
+        bad_abs += [response.abs_id for response in worker_and_abs]
+    
+    # Убираем дубликаты и преобразуем в set для быстрого поиска
+    bad_abs = set(bad_abs)
+    
+    advertisements_final = []
+    
+    for advertisement in advertisements:
+        customer = await Customer.get_customer(id=advertisement.customer_id)
+        if customer.tg_id == worker.tg_id:
+            continue
+        if advertisement.id in bad_abs:
+            continue
+            
+        # Проверяем, подходит ли объявление по типу работы
+        if not worker_sub.work_type_ids and not worker_sub.unlimited_work_types:
+            continue
+            
+        is_unlimited = (worker_sub.unlimited_work_types or 
+                       (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
+        
+        if is_unlimited or (worker_sub.work_type_ids and str(advertisement.work_type_id) in worker_sub.work_type_ids):
+            if advertisement.relevance:
+                advertisements_final.append(advertisement)
+        elif worker_sub.unlimited_work_types:
+            if advertisement.relevance:
+                advertisements_final.append(advertisement)
+    
+    return advertisements_final
 
 
 #  _    _        _      _____              _

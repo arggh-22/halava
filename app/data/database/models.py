@@ -1822,6 +1822,8 @@ class Abs:
                 'INSERT INTO abs (customer_id, work_type_id, city_id, photo_path, text_path, date_to_delite, count_photo) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [self.customer_id, self.work_type_id, self.city_id, photo_path_json, self.text_path,
                  self.date_to_delite, self.count_photo])
+            # Сохраняем ID после вставки
+            self.id = cursor.lastrowid
             await conn.commit()
             await cursor.close()
         finally:
@@ -3123,13 +3125,14 @@ class ContactExchange:
 
     def __init__(self, id: int | None, worker_id: int, customer_id: int, abs_id: int,
                  contacts_sent: bool = False, contacts_purchased: bool = False,
-                 created_at: str = None, updated_at: str = None):
+                 message_id: int = None, created_at: str = None, updated_at: str = None):
         self.id = id
         self.worker_id = worker_id
         self.customer_id = customer_id
         self.abs_id = abs_id
         self.contacts_sent = contacts_sent
         self.contacts_purchased = contacts_purchased
+        self.message_id = message_id
         self.created_at = created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.updated_at = updated_at
 
@@ -3137,15 +3140,16 @@ class ContactExchange:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             cursor = await conn.execute(
-                'INSERT INTO contact_exchanges (worker_id, customer_id, abs_id, contacts_sent, contacts_purchased, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO contact_exchanges (worker_id, customer_id, abs_id, contacts_sent, contacts_purchased, message_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 (self.worker_id, self.customer_id, self.abs_id, self.contacts_sent,
-                 self.contacts_purchased, self.created_at, self.updated_at))
+                 self.contacts_purchased, self.message_id, self.created_at, self.updated_at))
+            self.id = cursor.lastrowid
             await conn.commit()
             await cursor.close()
         finally:
             await conn.close()
 
-    async def update(self, contacts_sent: bool = None, contacts_purchased: bool = None) -> None:
+    async def update(self, contacts_sent: bool = None, contacts_purchased: bool = None, message_id: int = None) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             updates = []
@@ -3159,12 +3163,18 @@ class ContactExchange:
                 updates.append('contacts_purchased = ?')
                 params.append(contacts_purchased)
 
+            if message_id is not None:
+                updates.append('message_id = ?')
+                params.append(message_id)
+
             if updates:
                 updates.append('updated_at = ?')
                 params.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 params.append(self.id)
 
                 query = f"UPDATE contact_exchanges SET {', '.join(updates)} WHERE id = ?"
+                print(query)
+                print(params)
                 cursor = await conn.execute(query, params)
                 await conn.commit()
                 await cursor.close()
@@ -3195,7 +3205,8 @@ class ContactExchange:
                     contacts_sent=bool(record[4]),
                     contacts_purchased=bool(record[5]),
                     created_at=record[6],
-                    updated_at=record[7]
+                    updated_at=record[7],
+                    message_id=record[8],
                 )
             return None
         finally:

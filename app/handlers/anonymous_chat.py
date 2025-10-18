@@ -17,7 +17,7 @@ from aiogram.filters import StateFilter
 from app.states import WorkStates, CustomerStates
 from app.keyboards import KeyboardCollection
 from app.data.database.models import (
-    Worker, Customer, Abs, WorkersAndAbs, 
+    Worker, Customer, Abs, WorkersAndAbs,
     ContactExchange, ContactTariff
 )
 from loaders import bot
@@ -26,6 +26,7 @@ from app.untils.contact_filter import check_message_for_contacts
 logger = logging.getLogger(__name__)
 router = Router()
 
+
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 
 # Функция для получения строки статусов исполнителя
@@ -33,10 +34,10 @@ async def get_worker_status_string(worker_id: int) -> str:
     """Возвращает строку с подтвержденными статусами исполнителя"""
     from app.data.database.models import WorkerStatus
     worker_status = await WorkerStatus.get_by_worker(worker_id)
-    
+
     if not worker_status:
         return "⚠️ Статус не подтвержден"
-    
+
     statuses = []
     if worker_status.has_ip:
         statuses.append("ИП ✅")
@@ -44,14 +45,15 @@ async def get_worker_status_string(worker_id: int) -> str:
         statuses.append("ООО ✅")
     if worker_status.has_sz:
         statuses.append("Самозанятость ✅")
-    
+
     if not statuses:
         return "⚠️ Статус не подтвержден"
-    
+
     return " | ".join(statuses)
 
-async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int, 
-                                    worker, customer, message_text: str, sender: str):
+
+async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
+                                      worker, customer, message_text: str, sender: str):
     """
     Отправляет новое сообщение или обновляет существующее сообщение чата
     с полной историей диалога
@@ -61,23 +63,23 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             return
-        
+
         # Собираем историю диалога в хронологическом порядке
         chat_history = ""
-        
+
         # Получаем списки сообщений
         worker_messages_list = []
         customer_messages_list = []
-        
+
         if response.worker_messages and response.worker_messages != ['Исполнитель не отправил сообщение']:
             worker_messages_list = list(response.worker_messages) if response.worker_messages else []
-        
+
         if response.customer_messages:
             customer_messages_list = list(response.customer_messages) if response.customer_messages else []
-        
+
         # Создаем единый список всех сообщений с их индексами и отправителем
         all_messages = []
-        
+
         # Добавляем сообщения исполнителя с индексами
         for i, msg in enumerate(worker_messages_list):
             if msg and msg.strip():
@@ -87,7 +89,7 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                     'index': i,
                     'sender_type': 'worker'
                 })
-        
+
         # Добавляем сообщения заказчика с индексами
         for i, msg in enumerate(customer_messages_list):
             if msg and msg.strip():
@@ -97,30 +99,30 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                     'index': i,
                     'sender_type': 'customer'
                 })
-        
+
         # УМНОЕ РЕШЕНИЕ: Анализируем соотношение сообщений и определяем правильный порядок
-        
+
         ordered_messages = []
-        
+
         # Если количество сообщений примерно одинаковое - чередуем
         # Если один участник написал намного больше - показываем все его сообщения подряд
-        
+
         worker_count = len(worker_messages_list)
         customer_count = len(customer_messages_list)
-        
+
         # Отладочная информация
         logger.info(f"[CHAT_HISTORY] Worker messages: {worker_count}, Customer messages: {customer_count}")
         logger.info(f"[CHAT_HISTORY] Worker messages: {worker_messages_list}")
         logger.info(f"[CHAT_HISTORY] Customer messages: {customer_messages_list}")
         logger.info(f"[CHAT_HISTORY] Current turn: {response.turn}")
         logger.info(f"[CHAT_HISTORY] User type: {user_type}, Sender: {sender}")
-        
+
         # Определяем, есть ли значительная разница в количестве сообщений
         if abs(worker_count - customer_count) <= 1:
             # Количество примерно одинаковое - чередуем
             worker_idx = 0
             customer_idx = 0
-            
+
             while worker_idx < worker_count or customer_idx < customer_count:
                 # Добавляем сообщение исполнителя
                 if worker_idx < worker_count:
@@ -128,7 +130,7 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                     if msg and msg.strip():
                         ordered_messages.append({'text': msg, 'sender': 'worker'})
                     worker_idx += 1
-                
+
                 # Добавляем сообщение заказчика
                 if customer_idx < customer_count:
                     msg = customer_messages_list[customer_idx]
@@ -141,7 +143,7 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
             worker_idx = 0
             customer_idx = 0
             current_sender = 'worker'  # Начинаем с исполнителя
-            
+
             while worker_idx < worker_count or customer_idx < customer_count:
                 if current_sender == 'worker' and worker_idx < worker_count:
                     msg = worker_messages_list[worker_idx]
@@ -165,15 +167,15 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                         current_sender = 'worker'
                     elif customer_idx < customer_count:
                         current_sender = 'customer'
-        
+
         # Ограничиваем до последних 15 сообщений
         ordered_messages = ordered_messages[-15:]
-        
+
         # Формируем историю переписки
         for msg_data in ordered_messages:
             msg_text = msg_data['text']
             msg_sender = msg_data['sender']
-            
+
             if user_type == "customer":
                 # Заказчик видит свои сообщения как "Вы"
                 if msg_sender == "customer":
@@ -186,23 +188,23 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                     chat_history += f"👤 **Вы:** {msg_text}\n"
                 else:
                     chat_history += f"👤 **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
-        
+
         # Формируем текст сообщения
         if user_type == "customer":
             header = f"💬 **Чат с исполнителем**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n"
         else:  # worker
             header = f"💬 **Чат с заказчиком**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
-        
+
         if chat_history:
             full_text = header + "📝 **История переписки:**\n" + chat_history
         else:
             full_text = header + "💬 Начните диалог, отправив сообщение."
-        
+
         # Проверяем статус контактов для кнопок
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
         contacts_purchased = contact_exchange and contact_exchange.contacts_purchased
         contacts_sent = contact_exchange and contact_exchange.contacts_sent
-        
+
         # Отладочная информация
         logger.info(f"[CHAT_STATUS] ContactExchange found: {contact_exchange is not None}")
         if contact_exchange:
@@ -210,9 +212,9 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
             logger.info(f"[CHAT_STATUS] contacts_sent: {contact_exchange.contacts_sent}")
             logger.info(f"[CHAT_STATUS] ContactExchange ID: {contact_exchange.id}")
             logger.info(f"[CHAT_STATUS] Worker ID: {contact_exchange.worker_id}, ABS ID: {contact_exchange.abs_id}")
-        
+
         kbc = KeyboardCollection()
-        
+
         if user_type == "customer":
             # Кнопки для заказчика
             reply_markup = kbc.anonymous_chat_customer_buttons(
@@ -229,7 +231,7 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                 has_contacts=contacts_purchased,
                 contacts_requested=contacts_sent
             )
-        
+
         # Проверяем, есть ли уже сообщение чата для этого пользователя
         # Для простоты пока отправляем новое сообщение каждый раз
         # В будущем можно добавить сохранение message_id в базе данных
@@ -239,7 +241,7 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
-        
+
     except Exception as e:
         logger.error(f"Error in send_or_update_chat_message: {e}")
         # Fallback - отправляем простое уведомление
@@ -259,6 +261,12 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
 
 # ========== HANDLERS ДЛЯ ЗАКАЗЧИКА ==========
 
+@router.callback_query(lambda c: c.data == "noop")
+async def handle_noop_button(callback: CallbackQuery):
+    """Обработчик для неактивных кнопок"""
+    await callback.answer("ℹ️ Действие недоступно", show_alert=True)
+
+
 @router.callback_query(lambda c: c.data.startswith('confirm_contact_share_'))
 async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
     """Заказчик подтверждает передачу контактов"""
@@ -267,28 +275,34 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
         parts = callback.data.split('_')
         worker_id = int(parts[3])
         abs_id = int(parts[4])
-        
-        print(f"[CONTACT_SHARE] Customer {callback.from_user.id} confirmed contact share for worker {worker_id}, abs {abs_id}")
+
+        print(
+            f"[CONTACT_SHARE] Customer {callback.from_user.id} confirmed contact share for worker {worker_id}, abs {abs_id}")
         logger.info(f"[CONTACT_SHARE] Customer confirmed contact share")
-        
+
         customer = await Customer.get_customer(tg_id=callback.from_user.id)
         worker = await Worker.get_worker(id=worker_id)
-        
+
         if not customer or not worker:
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
-        
+
         # Проверяем, что запрос контакта все еще активен
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
         if not contact_exchange:
             await callback.answer("❌ Запрос контакта уже отменен исполнителем", show_alert=True)
             return
-        
+
+        # Проверяем, не подтвердил ли уже заказчик передачу контактов
+        if contact_exchange.contacts_sent:
+            await callback.answer("⚠️ Контакты уже подтверждены для передачи!", show_alert=True)
+            return
+
         # Обновляем запись - заказчик подтвердил
         await contact_exchange.update(contacts_sent=True)
-        
+
         kbc = KeyboardCollection()
-        
+
         # СЦЕНАРИЙ 1: Исполнитель имеет безлимитную подписку
         if worker.unlimited_contacts_until:
             from datetime import datetime
@@ -297,34 +311,137 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                 if end_date > datetime.now():
                     # Безлимит активен - сразу передаем контакты
                     await contact_exchange.update(contacts_purchased=True)
-                    
+
                     # Передаем контакты исполнителю
                     contacts_text = f"📞 **Контакты заказчика:**\n\n"
                     contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
                     contacts_text += f"📱 **Telegram:** @{customer.tg_name}\n"
                     contacts_text += f"🆔 **ID:** {customer.tg_id}"
-                    
+
                     await bot.send_message(
                         chat_id=worker.tg_id,
                         text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n{contacts_text}",
                         parse_mode='Markdown'
                     )
-                    
+
                     # Уведомляем заказчика
                     await bot.send_message(
                         chat_id=customer.tg_id,
                         text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
                         parse_mode='Markdown'
                     )
-                    
+
                     # Закрываем чат
                     response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
                     if response:
                         await response.update(applyed=False)
-                    
-                    # Обновляем кнопки заказчика
-                    await callback.message.edit_text(
-                        text=callback.message.text + "\n\n✅ **Контакты переданы исполнителю!**",
+
+                    # Обновляем исходное сообщение заказчика
+                    try:
+                        # Получаем исходный текст сообщения
+                        original_text = "Запрос контакта от исполнителя\n\n"
+                        original_text += f"Объявление: #{abs_id}\n"
+                        original_text += f"ID: {worker.public_id or f'W{worker.id}'}\n"
+                        original_text += f"Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}/5 ({worker.count_ratings} оценок)\n"
+                        original_text += f"Статус: {'ИП ✅' if worker.individual_entrepreneur else 'Не подтвержден ⚠️'}\n"
+                        original_text += f"Выполнено заказов: {worker.order_count}\n"
+                        original_text += f"Зарегистрирован: {worker.registration_data}\n\n"
+                        original_text += "✅ **Контакты переданы исполнителю!**"
+
+                        # Проверяем, есть ли фото в сообщении
+                        if callback.message.photo:
+                            # Если есть фото, редактируем caption
+                            await callback.message.edit_caption(
+                                caption=original_text,
+                                reply_markup=kbc.anonymous_chat_customer_buttons(
+                                    worker_id=worker_id,
+                                    abs_id=abs_id,
+                                    contact_requested=True,
+                                    contact_sent=True,
+                                    contacts_purchased=True
+                                ),
+                                parse_mode='Markdown'
+                            )
+                        else:
+                            # Если нет фото, редактируем текст
+                            await callback.message.edit_text(
+                                text=original_text,
+                                reply_markup=kbc.anonymous_chat_customer_buttons(
+                                    worker_id=worker_id,
+                                    abs_id=abs_id,
+                                    contact_requested=True,
+                                    contact_sent=True,
+                                    contacts_purchased=True
+                                ),
+                                parse_mode='Markdown'
+                            )
+                    except Exception as edit_error:
+                        # Если не можем отредактировать, отправляем новое сообщение
+                        await callback.message.answer(
+                            text="✅ **Контакты переданы исполнителю!**",
+                            reply_markup=kbc.anonymous_chat_customer_buttons(
+                                worker_id=worker_id,
+                                abs_id=abs_id,
+                                contact_requested=True,
+                                contact_sent=True,
+                                contacts_purchased=True
+                            ),
+                            parse_mode='Markdown'
+                        )
+
+                    await callback.answer("✅ Контакты переданы исполнителю!")
+                    return
+            except ValueError:
+                pass  # Неверный формат даты
+
+        # СЦЕНАРИЙ 2: Исполнитель имеет купленные контакты
+        if worker.purchased_contacts > 0:
+            # Списываем один контакт
+            new_count = worker.purchased_contacts - 1
+            await worker.update_purchased_contacts(purchased_contacts=new_count)
+            await contact_exchange.update(contacts_purchased=True)
+
+            # Передаем контакты исполнителю
+            contacts_text = f"📞 **Контакты заказчика:**\n\n"
+            contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
+            contacts_text += f"📱 **Telegram:** @{customer.tg_name}\n"
+            contacts_text += f"🆔 **ID:** {customer.tg_id}"
+
+            await bot.send_message(
+                chat_id=worker.tg_id,
+                text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n{contacts_text}",
+                parse_mode='Markdown'
+            )
+
+            # Уведомляем заказчика
+            await bot.send_message(
+                chat_id=customer.tg_id,
+                text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
+                parse_mode='Markdown'
+            )
+
+            # Закрываем чат
+            response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
+            if response:
+                await response.update(applyed=False)
+
+            # Обновляем исходное сообщение заказчика
+            try:
+                # Получаем исходный текст сообщения
+                original_text = "Запрос контакта от исполнителя\n\n"
+                original_text += f"Объявление: #{abs_id}\n"
+                original_text += f"ID: {worker.public_id or f'W{worker.id}'}\n"
+                original_text += f"Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}/5 ({worker.count_ratings} оценок)\n"
+                original_text += f"Статус: {'ИП ✅' if worker.individual_entrepreneur else 'Не подтвержден ⚠️'}\n"
+                original_text += f"Выполнено заказов: {worker.order_count}\n"
+                original_text += f"Зарегистрирован: {worker.registration_data}\n\n"
+                original_text += "✅ **Контакты переданы исполнителю!**"
+
+                # Проверяем, есть ли фото в сообщении
+                if callback.message.photo:
+                    # Если есть фото, редактируем caption
+                    await callback.message.edit_caption(
+                        caption=original_text,
                         reply_markup=kbc.anonymous_chat_customer_buttons(
                             worker_id=worker_id,
                             abs_id=abs_id,
@@ -334,60 +451,38 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                         ),
                         parse_mode='Markdown'
                     )
-                    
-                    await callback.answer("✅ Контакты переданы исполнителю!")
-                    return
-            except ValueError:
-                pass  # Неверный формат даты
-        
-        # СЦЕНАРИЙ 2: Исполнитель имеет купленные контакты
-        if worker.purchased_contacts > 0:
-            # Списываем один контакт
-            new_count = worker.purchased_contacts - 1
-            await worker.update_purchased_contacts(purchased_contacts=new_count)
-            await contact_exchange.update(contacts_purchased=True)
-            
-            # Передаем контакты исполнителю
-            contacts_text = f"📞 **Контакты заказчика:**\n\n"
-            contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
-            contacts_text += f"📱 **Telegram:** @{customer.tg_name}\n"
-            contacts_text += f"🆔 **ID:** {customer.tg_id}"
-            
-            await bot.send_message(
-                chat_id=worker.tg_id,
-                text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n{contacts_text}",
-                parse_mode='Markdown'
-            )
-            
-            # Уведомляем заказчика
-            await bot.send_message(
-                chat_id=customer.tg_id,
-                text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
-                parse_mode='Markdown'
-            )
-            
-            # Закрываем чат
-            response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
-            if response:
-                await response.update(applyed=False)
-            
-            # Обновляем кнопки заказчика
-            await callback.message.edit_text(
-                text=callback.message.text + "\n\n✅ **Контакты переданы исполнителю!**",
-                reply_markup=kbc.anonymous_chat_customer_buttons(
-                    worker_id=worker_id,
-                    abs_id=abs_id,
-                    contact_requested=True,
-                    contact_sent=True,
-                    contacts_purchased=True
-                ),
-                parse_mode='Markdown'
-            )
-            
+                else:
+                    # Если нет фото, редактируем текст
+                    await callback.message.edit_text(
+                        text=original_text,
+                        reply_markup=kbc.anonymous_chat_customer_buttons(
+                            worker_id=worker_id,
+                            abs_id=abs_id,
+                            contact_requested=True,
+                            contact_sent=True,
+                            contacts_purchased=True
+                        ),
+                        parse_mode='Markdown'
+                    )
+            except Exception as edit_error:
+                # Если не можем отредактировать, отправляем новое сообщение
+                await callback.message.answer(
+                    text="✅ **Контакты переданы исполнителю!**",
+                    reply_markup=kbc.anonymous_chat_customer_buttons(
+                        worker_id=worker_id,
+                        abs_id=abs_id,
+                        contact_requested=True,
+                        contact_sent=True,
+                        contacts_purchased=True
+                    ),
+                    parse_mode='Markdown'
+                )
+
             await callback.answer("✅ Контакты переданы исполнителю!")
             return
-        
+
         # СЦЕНАРИЙ 3: Исполнитель не имеет контактов - нужно покупать
+        # Отправляем уведомление исполнителю (только один раз, так как есть проверка выше)
         notification_text = (
             f"🔔 **Заказчик подтвердил передачу контактов!**\n\n"
             f"📋 Объявление: #{abs_id}\n"
@@ -395,37 +490,77 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
             f"💰 У вас нет купленных контактов.\n"
             f"Для получения контактов вам необходимо купить контакты."
         )
-        
+
         # Показываем кнопки покупки контактов
         builder = InlineKeyboardBuilder()
-        builder.add(kbc._inline(button_text="💳 Купить контакты", 
+        builder.add(kbc._inline(button_text="💳 Купить контакты",
                                 callback_data=f"buy_contacts_for_abs_{abs_id}"))
-        builder.add(kbc._inline(button_text="❌ Отказаться", 
+        builder.add(kbc._inline(button_text="❌ Отказаться",
                                 callback_data=f"reject_contact_offer_{abs_id}"))
         builder.adjust(1)
-        
+
         await bot.send_message(
             chat_id=worker.tg_id,
             text=notification_text,
             reply_markup=builder.as_markup(),
             parse_mode='Markdown'
         )
-        
-        # Обновляем кнопки заказчика
-        await callback.message.edit_text(
-            text=callback.message.text + "\n\n⏳ **Ожидаем решения исполнителя...**",
-            reply_markup=kbc.anonymous_chat_customer_buttons(
-                worker_id=worker_id,
-                abs_id=abs_id,
-                contact_requested=True,
-                contact_sent=True,
-                contacts_purchased=False
-            ),
-            parse_mode='Markdown'
-        )
-        
+
+        # Обновляем исходное сообщение заказчика
+        try:
+            # Получаем исходный текст сообщения
+            original_text = "Запрос контакта от исполнителя\n\n"
+            original_text += f"Объявление: #{abs_id}\n"
+            original_text += f"ID: {worker.public_id or f'W{worker.id}'}\n"
+            original_text += f"Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}/5 ({worker.count_ratings} оценок)\n"
+            original_text += f"Статус: {'ИП ✅' if worker.individual_entrepreneur else 'Не подтвержден ⚠️'}\n"
+            original_text += f"Выполнено заказов: {worker.order_count}\n"
+            original_text += f"Зарегистрирован: {worker.registration_data}\n\n"
+            original_text += "⏳ **Ожидаем решения исполнителя...**"
+
+            # Проверяем, есть ли фото в сообщении
+            if callback.message.photo:
+                # Если есть фото, редактируем caption
+                await callback.message.edit_caption(
+                    caption=original_text,
+                    reply_markup=kbc.anonymous_chat_customer_buttons(
+                        worker_id=worker_id,
+                        abs_id=abs_id,
+                        contact_requested=True,
+                        contact_sent=True,
+                        contacts_purchased=False
+                    ),
+                    parse_mode='Markdown'
+                )
+            else:
+                # Если нет фото, редактируем текст
+                await callback.message.edit_text(
+                    text=original_text,
+                    reply_markup=kbc.anonymous_chat_customer_buttons(
+                        worker_id=worker_id,
+                        abs_id=abs_id,
+                        contact_requested=True,
+                        contact_sent=True,
+                        contacts_purchased=False
+                    ),
+                    parse_mode='Markdown'
+                )
+        except Exception as edit_error:
+            # Если не можем отредактировать, отправляем новое сообщение
+            await callback.message.answer(
+                text="⏳ **Ожидаем решения исполнителя...**",
+                reply_markup=kbc.anonymous_chat_customer_buttons(
+                    worker_id=worker_id,
+                    abs_id=abs_id,
+                    contact_requested=True,
+                    contact_sent=True,
+                    contacts_purchased=False
+                ),
+                parse_mode='Markdown'
+            )
+
         await callback.answer("✅ Контакты подтверждены для передачи!")
-        
+
     except Exception as e:
         logger.error(f"Error in confirm_contact_share: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -438,68 +573,68 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
         # buy_contacts_for_abs_{abs_id}
         parts = callback.data.split('_')
         abs_id = int(parts[4])
-        
+
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
-        
+
         if not worker:
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
-        
+
         # Получаем объявление
         advertisement = await Abs.get_one(id=abs_id)
         if not advertisement:
             await callback.answer("❌ Объявление не найдено", show_alert=True)
             return
-        
+
         customer = await Customer.get_customer(id=advertisement.customer_id)
         if not customer:
             await callback.answer("❌ Заказчик не найден", show_alert=True)
             return
-        
+
         # Проверяем, что заказчик подтвердил передачу контактов
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
         if not contact_exchange or not contact_exchange.contacts_sent:
             await callback.answer("❌ Заказчик еще не подтвердил передачу контактов", show_alert=True)
             return
-        
+
         # Проверяем, не куплены ли уже контакты
         if contact_exchange.contacts_purchased:
             await callback.answer("✅ Контакты уже получены", show_alert=True)
             return
-        
+
         # Проверяем, есть ли у исполнителя купленные контакты
         if worker.purchased_contacts > 0:
             # Есть купленные контакты - сразу списываем и передаем
             new_count = worker.purchased_contacts - 1
             await worker.update_purchased_contacts(purchased_contacts=new_count)
-            
+
             # Обновляем ContactExchange
             await contact_exchange.update(contacts_purchased=True)
-            
+
             # Передаем контакты исполнителю
             contacts_text = f"📞 **Контакты заказчика:**\n\n"
             contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
             contacts_text += f"📱 **Telegram:** @{customer.tg_name}\n"
             contacts_text += f"🆔 **ID:** {customer.tg_id}"
-            
+
             await bot.send_message(
                 chat_id=worker.tg_id,
                 text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n{contacts_text}\n\n💰 Осталось контактов: {new_count}",
                 parse_mode='Markdown'
             )
-            
+
             # Уведомляем заказчика
             await bot.send_message(
                 chat_id=customer.tg_id,
                 text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
                 parse_mode='Markdown'
             )
-            
+
             # Закрываем чат
             response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
             if response:
                 await response.update(applyed=False)
-            
+
             # Обновляем сообщение
             kbc = KeyboardCollection()
             await callback.message.edit_text(
@@ -507,13 +642,13 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
                 reply_markup=kbc.menu_btn(),
                 parse_mode='Markdown'
             )
-            
+
             # Устанавливаем правильное состояние
             await state.set_state(WorkStates.worker_menu)
-            
+
             await callback.answer("✅ Контакты получены!")
             return
-        
+
         # Нет купленных контактов - показываем тарифы покупки
         kbc = KeyboardCollection()
         await callback.message.edit_text(
@@ -521,14 +656,14 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
             reply_markup=kbc.buy_tokens_tariffs(),
             parse_mode='Markdown'
         )
-        
+
         # Сохраняем данные для последующей покупки
         await state.update_data(
             buying_contacts_for_abs=True,
             target_worker_id=worker.id,
             target_abs_id=abs_id
         )
-        
+
     except Exception as e:
         logger.error(f"Error in buy_contacts_for_abs: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -541,33 +676,33 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
         # reject_contact_offer_{abs_id}
         parts = callback.data.split('_')
         abs_id = int(parts[3])
-        
+
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
-        
+
         if not worker:
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
-        
+
         # Получаем заказчика из объявления
         advertisement = await Abs.get_one(id=abs_id)
         if not advertisement:
             await callback.answer("❌ Объявление не найдено", show_alert=True)
             return
-        
+
         customer = await Customer.get_customer(id=advertisement.customer_id)
-        
+
         # Уведомляем заказчика об отказе
         await bot.send_message(
             chat_id=customer.tg_id,
             text=f"❌ **Исполнитель отказался от покупки контактов**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\nОтклик возвращен в обычный режим.",
             parse_mode='Markdown'
         )
-        
+
         # Удаляем запись ContactExchange
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
         if contact_exchange:
             await contact_exchange.delete()
-        
+
         # Обновляем сообщение исполнителя
         kbc = KeyboardCollection()
         await callback.message.edit_text(
@@ -575,12 +710,12 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
             reply_markup=kbc.menu_btn(),
             parse_mode='Markdown'
         )
-        
+
         # Устанавливаем правильное состояние
         await state.set_state(WorkStates.worker_menu)
-        
+
         await callback.answer("❌ Вы отказались от покупки контактов")
-        
+
     except Exception as e:
         logger.error(f"Error in reject_contact_offer: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -594,26 +729,32 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
         parts = callback.data.split('_')
         worker_id = int(parts[3])
         abs_id = int(parts[4])
-        
-        print(f"[CONTACT_SHARE] Customer {callback.from_user.id} declined contact share for worker {worker_id}, abs {abs_id}")
+
+        print(
+            f"[CONTACT_SHARE] Customer {callback.from_user.id} declined contact share for worker {worker_id}, abs {abs_id}")
         logger.info(f"[CONTACT_SHARE] Customer declined contact share")
-        
+
         customer = await Customer.get_customer(tg_id=callback.from_user.id)
         worker = await Worker.get_worker(id=worker_id)
-        
+
         if not customer or not worker:
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
-        
+
         # Проверяем, что запрос контакта все еще активен
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
         if not contact_exchange:
             await callback.answer("❌ Запрос контакта уже отменен исполнителем", show_alert=True)
             return
-        
+
+        # Сохраняем message_id перед удалением contact_exchange
+        message_id_to_delete = None
+        if contact_exchange.message_id:
+            message_id_to_delete = contact_exchange.message_id
+
         # Удаляем запись ContactExchange
         await contact_exchange.delete()
-        
+
         # Уведомляем исполнителя
         notification_text = (
             f"❌ **Заказчик отклонил передачу контактов**\n\n"
@@ -622,20 +763,30 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
             f"К сожалению, заказчик не готов поделиться контактами.\n"
             f"Вы можете запросить контакт позже."
         )
-        
+
         await bot.send_message(
             chat_id=worker.tg_id,
             text=notification_text,
             parse_mode='Markdown'
         )
-        
+
+        # Удаляем сообщение с предложением контактов, если оно есть
+        if message_id_to_delete:
+            try:
+                await bot.delete_message(chat_id=worker.tg_id, message_id=message_id_to_delete)
+                print(
+                    f"[MESSAGE_DELETE] Deleted contact offer message {message_id_to_delete} for worker {worker.tg_id}")
+            except Exception as e:
+                logger.error(f"Error deleting contact offer message: {e}")
+                print(f"[MESSAGE_DELETE] Failed to delete contact offer message {message_id_to_delete}: {e}")
+
         # Возвращаем заказчика к списку откликов
         kbc = KeyboardCollection()
-        
+
         # Получаем текст из сообщения (может быть text или caption)
         current_text = callback.message.text or callback.message.caption or ""
         new_text = current_text + "\n\n❌ **Передача контактов отклонена.**"
-        
+
         # Безопасное редактирование (может быть фото)
         try:
             if callback.message.text:
@@ -683,9 +834,9 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
                 ),
                 parse_mode='Markdown'
             )
-        
+
         await callback.answer("❌ Передача контактов отклонена")
-        
+
     except Exception as e:
         logger.error(f"Error in decline_contact_share: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -699,17 +850,18 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
         parts = callback.data.split('_')
         worker_id = int(parts[3])
         abs_id = int(parts[4])
-        
-        print(f"[CONTACT_OFFER] Customer {callback.from_user.id} offers contact share for worker {worker_id}, abs {abs_id}")
+
+        print(
+            f"[CONTACT_OFFER] Customer {callback.from_user.id} offers contact share for worker {worker_id}, abs {abs_id}")
         logger.info(f"[CONTACT_OFFER] Customer offers contact share")
-        
+
         customer = await Customer.get_customer(tg_id=callback.from_user.id)
         worker = await Worker.get_worker(id=worker_id)
-        
+
         if not customer or not worker:
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
-        
+
         # Создаем или обновляем запись о том, что заказчик предложил контакты
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
         if not contact_exchange:
@@ -721,13 +873,20 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
                 customer_id=customer_id,
                 abs_id=abs_id,
                 contacts_sent=True,  # Заказчик предложил
-                contacts_purchased=False
+                contacts_purchased=False,
+                message_id=None  # Будет обновлено после отправки сообщения
             )
             await contact_exchange.save()
         else:
+            # Проверяем, не было ли уже отправлено сообщение
+            if contact_exchange.contacts_sent and contact_exchange.message_id:
+                await callback.answer("⚠️ Контакты уже предложены исполнителю!", show_alert=True)
+                return
+
             # Обновляем существующую запись
             await contact_exchange.update(contacts_sent=True)
-        
+            # message_id будет обновлен после отправки сообщения
+
         # Уведомляем исполнителя с кнопками принятия/отклонения
         notification_text = (
             f"🔔 **Заказчик предлагает передать контакты!**\n\n"
@@ -735,27 +894,32 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
             f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
             f"Хотите получить контакты заказчика?"
         )
-        
+
         kbc = KeyboardCollection()
         builder = InlineKeyboardBuilder()
-        builder.add(kbc._inline(button_text="✅ Принять", 
+        builder.add(kbc._inline(button_text="✅ Принять",
                                 callback_data=f"accept_contact_offer_{worker_id}_{abs_id}"))
-        builder.add(kbc._inline(button_text="❌ Отклонить", 
+        builder.add(kbc._inline(button_text="❌ Отклонить",
                                 callback_data=f"reject_contact_offer_{worker_id}_{abs_id}"))
         builder.adjust(1)
-        
-        await bot.send_message(
+
+        message = await bot.send_message(
             chat_id=worker.tg_id,
             text=notification_text,
             reply_markup=builder.as_markup(),
             parse_mode='Markdown'
         )
-        
+
+        print(message.message_id)
+
+        # Сохраняем message_id в ContactExchange
+        await contact_exchange.update(message_id=message.message_id)
+
         # Обновляем кнопки заказчика
         # Получаем текст или caption (если было фото)
         current_text = callback.message.text or callback.message.caption or ""
         new_text = current_text + "\n\n✅ **Контакты предложены исполнителю!**"
-        
+
         # Безопасное редактирование
         try:
             if callback.message.text:
@@ -800,9 +964,9 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
                 ),
                 parse_mode='Markdown'
             )
-        
+
         await callback.answer("✅ Контакты предложены исполнителю!")
-        
+
     except Exception as e:
         logger.error(f"Error in offer_contact_share: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -816,41 +980,42 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
         parts = callback.data.split('_')
         worker_id = int(parts[3])
         abs_id = int(parts[4])
-        
+
         print(f"[CONTACT_ACCEPT] Worker {callback.from_user.id} accepts contact offer for abs {abs_id}")
         logger.info(f"[CONTACT_ACCEPT] Worker accepts contact offer")
-        
+
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
         if not worker or worker.id != worker_id:
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
-        
+
         customer = await Customer.get_customer(id=(await Abs.get_one(id=abs_id)).customer_id)
         if not customer:
             await callback.answer("❌ Заказчик не найден", show_alert=True)
             return
-        
+
         # Проверяем есть ли у исполнителя безлимит или купленные контакты
-        has_unlimited = worker.unlimited_contacts_until and datetime.now() < datetime.fromisoformat(worker.unlimited_contacts_until)
+        has_unlimited = worker.unlimited_contacts_until and datetime.now() < datetime.fromisoformat(
+            worker.unlimited_contacts_until)
         has_purchased = worker.purchased_contacts > 0
-        
+
         if has_unlimited or has_purchased:
             # Передаем контакты
             if has_purchased and not has_unlimited:
                 # Уменьшаем количество купленных контактов
                 new_count = worker.purchased_contacts - 1
                 await worker.update_purchased_contacts(purchased_contacts=new_count)
-            
+
             # Обновляем статус в БД
             contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
             if contact_exchange:
                 await contact_exchange.update(contacts_purchased=True)
-            
+
             # Закрываем чат - обновляем WorkersAndAbs
             response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
             if response:
                 await response.update(applyed=False)  # Закрываем чат
-            
+
             # Уведомляем заказчика о закрытии чата
             await bot.send_message(
                 chat_id=customer.tg_id,
@@ -860,7 +1025,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                      f"🔒 **Чат закрыт** - контакты переданы.",
                 parse_mode='Markdown'
             )
-            
+
             # Отправляем контакты исполнителю
             contacts_text = (
                 f"📞 **Контакты заказчика получены!**\n\n"
@@ -870,14 +1035,14 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                 f"🆔 ID: {customer.tg_id}\n\n"
                 f"🔒 **Чат закрыт** - теперь можете общаться напрямую."
             )
-            
+
             await callback.message.edit_text(
                 text=contacts_text,
                 parse_mode='Markdown'
             )
-            
+
             await callback.answer("✅ Контакты получены! Чат закрыт.")
-            
+
         else:
             # Показываем тарифы для покупки
             kbc = KeyboardCollection()
@@ -890,7 +1055,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                 parse_mode='Markdown'
             )
             await callback.answer("💰 Выберите тариф для покупки контактов")
-            
+
     except Exception as e:
         logger.error(f"Error in accept_contact_offer: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -904,17 +1069,17 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
         parts = callback.data.split('_')
         worker_id = int(parts[3])
         abs_id = int(parts[4])
-        
+
         print(f"[CONTACT_REJECT] Worker {callback.from_user.id} rejects contact offer for abs {abs_id}")
         logger.info(f"[CONTACT_REJECT] Worker rejects contact offer")
-        
+
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
         customer = await Customer.get_customer(id=(await Abs.get_one(id=abs_id)).customer_id)
-        
+
         if not worker or not customer:
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
-        
+
         # Уведомляем заказчика
         await bot.send_message(
             chat_id=customer.tg_id,
@@ -924,15 +1089,15 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
                  f"Исполнитель не готов получить контакты в данный момент.",
             parse_mode='Markdown'
         )
-        
+
         await callback.message.edit_text(
             text="❌ **Предложение контактов отклонено**\n\n"
                  "Вы отклонили получение контактов заказчика.",
             parse_mode='Markdown'
         )
-        
+
         await callback.answer("❌ Предложение отклонено")
-        
+
     except Exception as e:
         logger.error(f"Error in reject_contact_offer: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -946,7 +1111,7 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
     try:
         print(f"[WORKER_CHAT] Worker {message.from_user.id} sent message in chat")
         logger.info(f"[WORKER_CHAT] Worker sent message in chat")
-        
+
         # Проверяем на контакты
         is_valid, error_message = check_message_for_contacts(message.text)
         if not is_valid:
@@ -957,48 +1122,48 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
                 parse_mode='Markdown'
             )
             return
-        
+
         # Получаем данные чата
         data = await state.get_data()
         abs_id = data.get('current_chat_abs_id')
         customer_id = data.get('current_chat_customer_id')
-        
+
         if not abs_id or not customer_id:
             await message.answer("❌ Ошибка: данные чата не найдены")
             return
-        
+
         worker = await Worker.get_worker(tg_id=message.from_user.id)
         customer = await Customer.get_customer(id=customer_id)
-        
+
         if not worker or not customer:
             await message.answer("❌ Ошибка: пользователь не найден")
             return
-        
+
         # Получаем запись WorkersAndAbs
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             await message.answer("❌ Ошибка: отклик не найден")
             return
-        
+
         # Проверяем, не закрыт ли чат (только если контакты куплены)
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
         if contact_exchange and contact_exchange.contacts_purchased:
             await message.answer("🔒 **Чат закрыт** - контакты уже переданы.\nТеперь общайтесь напрямую.")
             return
-        
+
         # Добавляем сообщение исполнителя
         if response.worker_messages == ['Исполнитель не отправил сообщение']:
             new_worker_messages = [message.text]
         else:
             worker_messages_list = list(response.worker_messages) if response.worker_messages else []
             new_worker_messages = worker_messages_list + [message.text]
-        
+
         # Обновляем в БД
         await response.update(
             worker_messages=new_worker_messages,
             turn=False  # теперь очередь заказчика
         )
-        
+
         # Отправляем или обновляем сообщение заказчику
         await send_or_update_chat_message(
             user_id=customer.tg_id,
@@ -1009,9 +1174,9 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
             message_text=message.text,
             sender="worker"
         )
-        
+
         await message.answer("✅ Сообщение отправлено заказчику!")
-        
+
     except Exception as e:
         logger.error(f"Error in handle_worker_chat_message: {e}")
         await message.answer("❌ Произошла ошибка при отправке сообщения")
@@ -1023,7 +1188,7 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
     try:
         print(f"[CUSTOMER_CHAT] Customer {message.from_user.id} sent message in chat")
         logger.info(f"[CUSTOMER_CHAT] Customer sent message in chat")
-        
+
         # Проверяем на контакты
         is_valid, error_message = check_message_for_contacts(message.text)
         if not is_valid:
@@ -1034,45 +1199,45 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
                 parse_mode='Markdown'
             )
             return
-        
+
         # Получаем данные чата
         data = await state.get_data()
         abs_id = data.get('current_chat_abs_id')
         worker_id = data.get('current_chat_worker_id')
-        
+
         if not abs_id or not worker_id:
             await message.answer("❌ Ошибка: данные чата не найдены")
             return
-        
+
         customer = await Customer.get_customer(tg_id=message.from_user.id)
         worker = await Worker.get_worker(id=worker_id)
-        
+
         if not customer or not worker:
             await message.answer("❌ Ошибка: пользователь не найден")
             return
-        
+
         # Получаем запись WorkersAndAbs
         response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
         if not response:
             await message.answer("❌ Ошибка: отклик не найден")
             return
-        
+
         # Проверяем, не закрыт ли чат (только если контакты куплены)
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
         if contact_exchange and contact_exchange.contacts_purchased:
             await message.answer("🔒 **Чат закрыт** - контакты уже переданы.\nТеперь общайтесь напрямую.")
             return
-        
+
         # Добавляем сообщение заказчика
         customer_messages_list = list(response.customer_messages) if response.customer_messages else []
         new_customer_messages = customer_messages_list + [message.text]
-        
+
         # Обновляем в БД
         await response.update(
             customer_messages=new_customer_messages,
             turn=True  # теперь очередь исполнителя
         )
-        
+
         # Отправляем или обновляем сообщение исполнителю
         await send_or_update_chat_message(
             user_id=worker.tg_id,
@@ -1083,9 +1248,9 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
             message_text=message.text,
             sender="customer"
         )
-        
+
         await message.answer("✅ Сообщение отправлено исполнителю!")
-        
+
     except Exception as e:
         logger.error(f"Error in handle_customer_chat_message: {e}")
         await message.answer("❌ Произошла ошибка при отправке сообщения")
@@ -1098,36 +1263,36 @@ async def reply_in_worker_chat(callback: CallbackQuery, state: FSMContext):
         # reply_in_worker_chat_{abs_id}
         parts = callback.data.split('_')
         abs_id = int(parts[4])  # parts[0]=reply, parts[1]=in, parts[2]=worker, parts[3]=chat, parts[4]=abs_id
-        
+
         print(f"[WORKER_REPLY_CHAT] Worker {callback.from_user.id} wants to reply in chat for abs {abs_id}")
         logger.info(f"[WORKER_REPLY_CHAT] Worker wants to reply in chat")
-        
+
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
         if not worker:
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
-        
+
         # Получаем объявление и заказчика
         advertisement = await Abs.get_one(id=abs_id)
         if not advertisement:
             await callback.answer("❌ Объявление не найдено", show_alert=True)
             return
-        
+
         customer = await Customer.get_customer(id=advertisement.customer_id)
         if not customer:
             await callback.answer("❌ Заказчик не найден", show_alert=True)
             return
-        
+
         # Проверяем, не закрыт ли чат (только если контакты куплены)
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
         if contact_exchange and contact_exchange.contacts_purchased:
             await callback.answer("❌ Чат закрыт - контакты переданы", show_alert=True)
             return
-        
+
         # Переводим исполнителя в режим чата
         await state.update_data(current_chat_abs_id=abs_id, current_chat_customer_id=customer.id)
         await state.set_state(WorkStates.worker_anonymous_chat)
-        
+
         await callback.message.edit_text(
             text=f"💬 **Чат с заказчиком**\n\n"
                  f"📋 Объявление: #{abs_id}\n"
@@ -1135,9 +1300,9 @@ async def reply_in_worker_chat(callback: CallbackQuery, state: FSMContext):
                  f"Напишите сообщение заказчику:",
             parse_mode='Markdown'
         )
-        
+
         await callback.answer("💬 Напишите сообщение заказчику")
-        
+
     except Exception as e:
         logger.error(f"Error in reply_in_worker_chat: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -1150,19 +1315,19 @@ async def my_responses(callback: CallbackQuery, state: FSMContext):
     """Просмотр всех откликов исполнителя"""
     try:
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
-        
+
         if not worker:
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
-        
+
         # Получаем все отклики исполнителя
         responses = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
-        
+
         if not responses:
             kbc = KeyboardCollection()
             text = "📭 **У вас пока нет откликов**\n\n"
             text += "Откликайтесь на объявления, чтобы найти работу!"
-            
+
             # Безопасное редактирование
             try:
                 await callback.message.edit_text(
@@ -1180,10 +1345,10 @@ async def my_responses(callback: CallbackQuery, state: FSMContext):
                     reply_markup=kbc.menu_btn(),
                     parse_mode='Markdown'
                 )
-            
+
             await state.set_state(WorkStates.worker_menu)
             return
-        
+
         # Формируем список откликов
         responses_data = []
         for response in responses:
@@ -1191,18 +1356,18 @@ async def my_responses(callback: CallbackQuery, state: FSMContext):
             contact_exchange = await ContactExchange.get_by_worker_and_abs(
                 worker.id, response.abs_id
             )
-            
+
             active = not (contact_exchange and contact_exchange.contacts_purchased)
             responses_data.append({
                 'abs_id': response.abs_id,
                 'active': active
             })
-        
+
         kbc = KeyboardCollection()
         text = f"📋 **Ваши Отклики ({len(responses_data)})**\n\n"
         text += "💬 - активный чат\n"
         text += "✅ - контакты получены"
-        
+
         # Безопасное редактирование
         try:
             await callback.message.edit_text(
@@ -1220,9 +1385,9 @@ async def my_responses(callback: CallbackQuery, state: FSMContext):
                 reply_markup=kbc.my_responses_list_buttons(responses_data),
                 parse_mode='Markdown'
             )
-        
+
         await state.set_state(WorkStates.worker_my_responses)
-        
+
     except Exception as e:
         logger.error(f"Error in my_responses: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -1235,31 +1400,31 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
         abs_id = int(callback.data.split('_')[3])
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
         advertisement = await Abs.get_one(id=abs_id)
-        
+
         if not advertisement:
             await callback.answer("❌ Объявление не найдено", show_alert=True)
             return
-        
+
         # Получаем статус обмена контактами
         contact_exchange = await ContactExchange.get_by_worker_and_abs(
             worker.id, abs_id
         )
-        
+
         # Определяем статусы
         has_contacts = contact_exchange and contact_exchange.contacts_purchased
-        
+
         # Заказчик подтвердил передачу (contacts_sent=True), но исполнитель еще не купил
         customer_confirmed = contact_exchange and contact_exchange.contacts_sent and not contact_exchange.contacts_purchased
-        
+
         # Исполнитель запросил контакты (запись существует), но заказчик еще не подтвердил
         waiting_confirmation = contact_exchange and not contact_exchange.contacts_sent and not contact_exchange.contacts_purchased
-        
+
         # Формируем текст
         from app.untils import help_defs
         text = f"📋 **Объявление #{abs_id}**\n\n"
         text += help_defs.read_text_file(advertisement.text_path)
-        text += "\n\n" + "="*30 + "\n\n"
-        
+        text += "\n\n" + "=" * 30 + "\n\n"
+
         if has_contacts:
             # Контакты уже куплены
             customer = await Customer.get_customer(id=advertisement.customer_id)
@@ -1281,13 +1446,13 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
             # Можно запросить контакты
             text += "💬 **Чат активен**\n\n"
             text += "Вы можете написать сообщение заказчику или запросить контакт."
-        
+
         kbc = KeyboardCollection()
-        
+
         # Устанавливаем состояние анонимного чата
         await state.update_data(current_chat_abs_id=abs_id)
         await state.set_state(WorkStates.worker_anonymous_chat)
-        
+
         await callback.message.edit_text(
             text=text,
             reply_markup=kbc.anonymous_chat_worker_buttons(
@@ -1298,7 +1463,7 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
             ),
             parse_mode='Markdown'
         )
-        
+
     except Exception as e:
         logger.error(f"Error in view_my_response: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -1310,28 +1475,28 @@ async def cancel_worker_response_confirm(callback: CallbackQuery, state: FSMCont
     try:
         abs_id = int(callback.data.split('_')[3])
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
-        
+
         if not worker:
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
-        
+
         # Проверяем, что отклик существует
         from app.data.database.models import WorkersAndAbs
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             await callback.answer("❌ Отклик не найден", show_alert=True)
             return
-        
+
         # Проверяем, что контакты еще не куплены
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
         if contact_exchange and contact_exchange.contacts_purchased:
             await callback.answer("❌ Нельзя отменить отклик после покупки контактов", show_alert=True)
             return
-        
+
         # Показываем подтверждение с предупреждением
         current_activity = getattr(worker, 'activity_level', 100)
         new_activity = max(0, current_activity - 13)
-        
+
         # Определяем зону активности
         if new_activity >= 74:
             zone_emoji = "🟢"
@@ -1345,36 +1510,36 @@ async def cancel_worker_response_confirm(callback: CallbackQuery, state: FSMCont
         else:
             zone_emoji = "🔴"
             zone_name = "красной"
-        
+
         confirmation_text = f"⚠️ **Подтверждение отмены отклика**\n\n"
         confirmation_text += f"Вы действительно хотите отменить отклик на объявление #{abs_id}?\n\n"
         confirmation_text += f"**Последствия:**\n"
         confirmation_text += f"❌ Активность снизится: {current_activity} → {new_activity} (-13)\n"
         confirmation_text += f"{zone_emoji} Вы перейдете в {zone_name} зону активности\n\n"
-        
+
         if new_activity < 74:
             confirmation_text += f"⚠️ **Внимание!** При снижении активности могут быть ограничения на отклики.\n\n"
-        
+
         confirmation_text += f"Нажмите «Подтвердить», если согласны с последствиями."
-        
+
         # Создаем клавиатуру подтверждения
         from app.keyboards import KeyboardCollection
         from aiogram.utils.keyboard import InlineKeyboardBuilder
-        
+
         kbc = KeyboardCollection()
         builder = InlineKeyboardBuilder()
-        
+
         builder.add(kbc._inline("✅ Подтвердить", f"confirm_cancel_response_{abs_id}"))
         builder.add(kbc._inline("❌ Отмена", f"view_my_response_{abs_id}"))
         builder.adjust(1)
-        
+
         await callback.message.edit_text(
             text=confirmation_text,
             reply_markup=builder.as_markup(),
             parse_mode='Markdown'
         )
         await callback.answer()
-        
+
     except Exception as e:
         logger.error(f"Error in cancel_worker_response_confirm: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -1386,31 +1551,31 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
     try:
         abs_id = int(callback.data.split('_')[3])
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
-        
+
         if not worker:
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
-        
+
         # Проверяем, что отклик существует
         from app.data.database.models import WorkersAndAbs
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             await callback.answer("❌ Отклик не найден", show_alert=True)
             return
-        
+
         # Проверяем, что контакты еще не куплены
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
         if contact_exchange and contact_exchange.contacts_purchased:
             await callback.answer("❌ Нельзя отменить отклик после покупки контактов", show_alert=True)
             return
-        
+
         # Удаляем отклик
         await response.delete()
-        
+
         # Удаляем связанные записи
         if contact_exchange:
             await contact_exchange.delete()
-        
+
         # Записываем отмену в таблицу отслеживания
         from app.data.database.models import WorkerResponseCancellation
         cancellation = WorkerResponseCancellation(
@@ -1418,18 +1583,18 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
             abs_id=abs_id
         )
         await cancellation.save()
-        
+
         # Снижаем активность на -13
         if not hasattr(worker, 'activity_level') or worker.activity_level is None:
             worker.activity_level = 100
-        
+
         old_activity = worker.activity_level
         new_activity = max(0, min(100, worker.activity_level - 13))
-        
+
         # Обновляем активность с fallback
         from app.handlers.worker import update_worker_activity_fallback
         await update_worker_activity_fallback(worker, new_activity)
-        
+
         # Получаем информацию о зоне активности
         if new_activity >= 74:
             zone_emoji = "🟢"
@@ -1439,11 +1604,11 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
             zone_emoji = "🟠"
         else:
             zone_emoji = "🔴"
-        
+
         # Отправляем уведомление исполнителю
         from loaders import bot
         notification_text = f"Отмена отклика:\n\n—13 активность\n\n{zone_emoji} Текущая активность: {new_activity}"
-        
+
         try:
             await bot.send_message(
                 chat_id=worker.tg_id,
@@ -1451,7 +1616,7 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
             )
         except Exception as e:
             logger.error(f"Error sending cancellation notification to worker {worker.tg_id}: {e}")
-        
+
         # Отправляем уведомление заказчику
         from app.data.database.models import Abs, Customer
         advertisement = await Abs.get_one(id=abs_id)
@@ -1465,7 +1630,7 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
                     )
                 except Exception as e:
                     logger.error(f"Error sending cancellation notification to customer {customer.tg_id}: {e}")
-        
+
         # Возвращаемся к списку откликов
         kbc = KeyboardCollection()
         await callback.message.edit_text(
@@ -1473,7 +1638,7 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
             reply_markup=kbc.menu_btn()
         )
         await state.set_state(WorkStates.worker_menu)
-        
+
     except Exception as e:
         logger.error(f"Error in cancel_worker_response: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -1487,7 +1652,7 @@ async def worker_chat_message(message: Message, state: FSMContext):
     try:
         # Проверяем сообщение на контакты
         is_valid, error_message = check_message_for_contacts(message.text)
-        
+
         if not is_valid:
             kbc = KeyboardCollection()
             await message.answer(
@@ -1496,25 +1661,25 @@ async def worker_chat_message(message: Message, state: FSMContext):
                 parse_mode='Markdown'
             )
             return
-        
+
         # Проверка длины
         if len(message.text) > 500:
             await message.answer(
                 text="❌ Сообщение слишком длинное. Максимум 500 символов."
             )
             return
-        
+
         data = await state.get_data()
         abs_id = data.get('current_chat_abs_id')
-        
+
         if not abs_id:
             await message.answer("❌ Сессия чата истекла. Вернитесь к откликам.")
             return
-        
+
         worker = await Worker.get_worker(tg_id=message.from_user.id)
         advertisement = await Abs.get_one(id=abs_id)
         customer = await Customer.get_customer(id=advertisement.customer_id)
-        
+
         # Сохраняем сообщение в историю
         worker_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
         for response in worker_and_abs:
@@ -1524,37 +1689,37 @@ async def worker_chat_message(message: Message, state: FSMContext):
                     messages = response.worker_messages.split(" | ") if response.worker_messages else []
                 else:
                     messages = response.worker_messages or []
-                
+
                 messages.append(message.text)
                 await response.update(worker_messages=" | ".join(messages))
                 break
-        
+
         # Отправляем заказчику с полным профилем исполнителя
         notification_text = f"💬 **Новое сообщение от исполнителя**\n\n"
         notification_text += f"📋 Объявление: #{abs_id}\n\n"
-        
+
         # ID и имя
         worker_name = worker.profile_name or worker.tg_name
         notification_text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'} {worker_name}\n"
-        
+
         # Рейтинг
         if worker.count_ratings > 0:
             notification_text += f"⭐ **Рейтинг:** {worker.stars / worker.count_ratings:.1f}/5 ({worker.count_ratings} оценок)\n"
         else:
             notification_text += f"⭐ **Рейтинг:** Нет оценок\n"
-        
+
         # Статус верификации и регистрации (всегда показываем)
         status_string = await get_worker_status_string(worker.id)
         notification_text += f"📋 **Статус:** {status_string}\n"
-        
+
         # Выполнено заказов
         notification_text += f"📦 **Выполнено заказов:** {worker.order_count}\n"
-        
+
         # Дата регистрации
         notification_text += f"📅 **Зарегистрирован:** {worker.registration_data}\n\n"
-        
+
         notification_text += f"💬 **Сообщение:**\n{message.text}"
-        
+
         # Отправляем с фото или без
         if worker.profile_photo:
             try:
@@ -1578,9 +1743,9 @@ async def worker_chat_message(message: Message, state: FSMContext):
                 text=notification_text,
                 parse_mode='Markdown'
             )
-        
+
         await message.answer("✅ Сообщение отправлено заказчику")
-        
+
     except Exception as e:
         logger.error(f"Error in worker_chat_message: {e}")
         await message.answer("❌ Произошла ошибка при отправке сообщения")
@@ -1596,7 +1761,7 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
         advertisement = await Abs.get_one(id=abs_id)
         customer = await Customer.get_customer(id=advertisement.customer_id)
-        
+
         # Создаем или обновляем запись в ContactExchange
         # contacts_sent=False означает, что заказчик еще не подтвердил
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
@@ -1607,41 +1772,42 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
                 customer_id=customer.id,
                 abs_id=abs_id,
                 contacts_sent=False,  # Заказчик еще не подтвердил
-                contacts_purchased=False
+                contacts_purchased=False,
+                message_id=None
             )
             await contact_exchange.save()
         else:
             # Если запись уже есть, но заказчик отклонил - сбрасываем
             await contact_exchange.update(contacts_sent=False, contacts_purchased=False)
-        
+
         # Уведомляем заказчика с полным профилем исполнителя
         notification_text = f"📞 **Запрос контакта от исполнителя**\n\n"
         notification_text += f"📋 Объявление: #{abs_id}\n\n"
-        
+
         # ID и имя
         worker_name = worker.profile_name or worker.tg_name
         notification_text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'} {worker_name}\n"
-        
+
         # Рейтинг
         if worker.count_ratings > 0:
             notification_text += f"⭐ **Рейтинг:** {worker.stars / worker.count_ratings:.1f}/5 ({worker.count_ratings} оценок)\n"
         else:
             notification_text += f"⭐ **Рейтинг:** Нет оценок\n"
-        
+
         # Статус верификации и регистрации (всегда показываем)
         status_string = await get_worker_status_string(worker.id)
         notification_text += f"📋 **Статус:** {status_string}\n"
-        
+
         # Выполнено заказов
         notification_text += f"📦 **Выполнено заказов:** {worker.order_count}\n"
-        
+
         # Дата регистрации
         notification_text += f"📅 **Зарегистрирован:** {worker.registration_data}\n\n"
-        
+
         notification_text += "❓ **Подтвердить передачу контакта?**"
-        
+
         kbc = KeyboardCollection()
-        
+
         # Отправляем с фото или без
         if worker.profile_photo:
             try:
@@ -1686,7 +1852,7 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
                 ),
                 parse_mode='Markdown'
             )
-        
+
         await callback.message.edit_text(
             text="📞 **Запрос отправлен заказчику**\n\n"
                  "⏳ Ожидайте подтверждения.\n"
@@ -1697,7 +1863,7 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
             ),
             parse_mode='Markdown'
         )
-        
+
     except Exception as e:
         logger.error(f"Error in request_contact: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -1711,7 +1877,7 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
     """Выбор тарифа для покупки жетонов"""
     try:
         parts = callback.data.split('_')
-        
+
         # Парсим тариф
         if len(parts) >= 4:
             if parts[2] == 'unlimited':
@@ -1728,9 +1894,9 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
         else:
             await callback.answer("❌ Неверный формат тарифа", show_alert=True)
             return
-        
+
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
-        
+
         # Сохраняем выбор в state
         await state.update_data(
             purchase_tokens=tokens,
@@ -1738,7 +1904,7 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
             purchase_tariff=tariff_name
         )
         await state.set_state(WorkStates.worker_buy_tokens)
-        
+
         confirmation_text = f"""
 💰 **Подтверждение покупки**
 
@@ -1749,7 +1915,7 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
 
 Подтвердить покупку?
         """
-        
+
         kbc = KeyboardCollection()
         # Здесь должна быть интеграция с платежной системой
         # Пока заглушка
@@ -1765,13 +1931,13 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
             callback_data="cancel_token_purchase"
         ))
         keyboard_builder.adjust(1)
-        
+
         await callback.message.edit_text(
             text=confirmation_text,
             reply_markup=keyboard_builder.as_markup(),
             parse_mode='Markdown'
         )
-        
+
     except Exception as e:
         logger.error(f"Error in buy_tokens: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -1784,16 +1950,16 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
         parts = callback.data.split('_')
         tokens = int(parts[3])
         price = int(parts[4])
-        
+
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
-        
+
         # Проверяем, покупаем ли контакты для конкретного объявления
         data = await state.get_data()
         buying_for_abs = data.get('buying_contacts_for_abs', False)
-        
+
         # ВАЖНО: Здесь должна быть интеграция с платежной системой
         # Сейчас - заглушка для демонстрации атомарности
-        
+
         # Атомарное списание и обновление
         import aiosqlite
         conn = await aiosqlite.connect('app/data/database/database.db')
@@ -1803,7 +1969,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                 from datetime import datetime, timedelta
                 months = 1  # Извлекаем из данных
                 until_date = (datetime.now() + timedelta(days=30 * months)).strftime('%Y-%m-%d')
-                
+
                 await conn.execute(
                     'UPDATE workers SET unlimited_contacts_until = ? WHERE id = ?',
                     (until_date, worker.id)
@@ -1814,62 +1980,62 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                     'UPDATE workers SET purchased_contacts = purchased_contacts + ? WHERE id = ?',
                     (tokens, worker.id)
                 )
-            
+
             await conn.commit()
-            
+
             kbc = KeyboardCollection()
-            
+
             if buying_for_abs:
                 # Покупаем контакты для конкретного объявления
                 target_worker_id = data.get('target_worker_id')
                 target_abs_id = data.get('target_abs_id')
-                
+
                 # Получаем обновленные данные исполнителя
                 worker = await Worker.get_worker(id=target_worker_id)
-                
+
                 # Получаем заказчика из объявления
                 advertisement = await Abs.get_one(id=target_abs_id)
                 if not advertisement:
                     await callback.answer("❌ Объявление не найдено", show_alert=True)
                     return
-                
+
                 customer = await Customer.get_customer(id=advertisement.customer_id)
-                
+
                 if worker and customer:
                     # Списываем один контакт
                     if tokens != -1:
                         new_count = worker.purchased_contacts - 1
                         await worker.update_purchased_contacts(purchased_contacts=new_count)
-                    
+
                     # Обновляем ContactExchange
                     contact_exchange = await ContactExchange.get_by_worker_and_abs(target_worker_id, target_abs_id)
                     if contact_exchange:
                         await contact_exchange.update(contacts_purchased=True)
-                    
+
                     # Передаем контакты исполнителю
                     contacts_text = f"📞 **Контакты заказчика:**\n\n"
                     contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
                     contacts_text += f"📱 **Telegram:** @{customer.tg_name}\n"
                     contacts_text += f"🆔 **ID:** {customer.tg_id}"
-                    
+
                     await bot.send_message(
                         chat_id=worker.tg_id,
                         text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{target_abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n{contacts_text}",
                         parse_mode='Markdown'
                     )
-                    
+
                     # Уведомляем заказчика
                     await bot.send_message(
                         chat_id=customer.tg_id,
                         text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{target_abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
                         parse_mode='Markdown'
                     )
-                    
+
                     # Закрываем чат
                     response = await WorkersAndAbs.get_by_worker_and_abs(target_worker_id, target_abs_id)
                     if response:
                         await response.update(applyed=False)
-                    
+
                     await callback.message.edit_text(
                         text=f"✅ **Покупка успешна!**\n\nКонтакты заказчика переданы!",
                         reply_markup=kbc.menu_btn(),
@@ -1890,17 +2056,17 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                     reply_markup=kbc.menu_btn(),
                     parse_mode='Markdown'
                 )
-            
+
             # Устанавливаем правильное состояние вместо clear()
             await state.set_state(WorkStates.worker_menu)
-            
+
         except Exception as e:
             await conn.rollback()
             logger.error(f"Error in atomic purchase: {e}")
             await callback.answer("❌ Ошибка при обработке платежа", show_alert=True)
         finally:
             await conn.close()
-        
+
     except Exception as e:
         logger.error(f"Error in confirm_token_purchase: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -1925,23 +2091,23 @@ async def cancel_contact_request(callback: CallbackQuery):
     try:
         abs_id = int(callback.data.split('_')[3])
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
-        
+
         # Получаем объявление и заказчика
         advertisement = await Abs.get_one(id=abs_id)
         if not advertisement:
             await callback.answer("❌ Объявление не найдено", show_alert=True)
             return
-        
+
         customer = await Customer.get_customer(id=advertisement.customer_id)
-        
+
         # Удаляем запись ContactExchange
         contact_exchange = await ContactExchange.get_by_worker_and_abs(
             worker.id, abs_id
         )
-        
+
         if contact_exchange:
             await contact_exchange.delete()
-        
+
         # Уведомляем заказчика об отмене запроса
         notification_text = (
             f"ℹ️ **Исполнитель отменил запрос контакта**\n\n"
@@ -1949,13 +2115,13 @@ async def cancel_contact_request(callback: CallbackQuery):
             f"👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n"
             f"Запрос на передачу контакта отменен."
         )
-        
+
         await bot.send_message(
             chat_id=customer.tg_id,
             text=notification_text,
             parse_mode='Markdown'
         )
-        
+
         # Обновляем сообщение исполнителя
         kbc = KeyboardCollection()
         await callback.message.edit_text(
@@ -1963,9 +2129,9 @@ async def cancel_contact_request(callback: CallbackQuery):
             reply_markup=kbc.anonymous_chat_worker_buttons(abs_id=abs_id),
             parse_mode='Markdown'
         )
-        
+
         await callback.answer("❌ Запрос контакта отменен")
-        
+
     except Exception as e:
         logger.error(f"Error in cancel_contact_request: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -1976,4 +2142,3 @@ async def cancel_contact_request(callback: CallbackQuery):
 async def noop_handler(callback: CallbackQuery):
     """Обработчик для неактивных кнопок"""
     await callback.answer()
-

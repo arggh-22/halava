@@ -203,6 +203,7 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
         
         # Проверяем статус контактов и чата
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
+        contact_requested = contact_exchange is not None
         contacts_purchased = contact_exchange and contact_exchange.contacts_purchased
         contacts_sent = contact_exchange and contact_exchange.contacts_sent
         
@@ -255,7 +256,7 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
                         reply_markup=kbc.anonymous_chat_customer_buttons(
                             worker_id=worker_id,
                             abs_id=abs_id,
-                            contact_requested=contacts_sent,
+                            contact_requested=contact_requested,
                             contact_sent=contacts_sent,
                             contacts_purchased=contacts_purchased
                         ),
@@ -268,7 +269,7 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
                         reply_markup=kbc.anonymous_chat_customer_buttons(
                             worker_id=worker_id,
                             abs_id=abs_id,
-                            contact_requested=contacts_sent,
+                            contact_requested=contact_requested,
                             contact_sent=contacts_sent,
                             contacts_purchased=contacts_purchased
                         ),
@@ -410,8 +411,7 @@ async def confirm_reject_customer_response(callback: CallbackQuery, state: FSMCo
         
         # ВАЖНО: НЕ записываем в worker_response_cancellations
         # НЕ снижаем активность исполнителя
-        # Это отклонение заказчиком, не отмена исполнителем
-        
+        # Это отклонение заказчиком, не отмена исполнителем        
         # Отправляем уведомление исполнителю
         from loaders import bot
         try:

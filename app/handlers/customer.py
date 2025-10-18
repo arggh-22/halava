@@ -6,7 +6,8 @@ from pydantic_core import ValidationError
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import StateFilter
-from aiogram.types import CallbackQuery, Message, FSInputFile, LabeledPrice, PreCheckoutQuery, InputMediaPhoto
+from aiogram.types import CallbackQuery, Message, FSInputFile, LabeledPrice, PreCheckoutQuery, InputMediaPhoto, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 
 import config
@@ -872,138 +873,128 @@ async def close_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
 
     advertisement_now = advertisements[abs_list_id]
-
-    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=advertisement_now.id)
-    workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=advertisement_now.id)
-    if workers_and_bad_responses is not None:
-        [await workers_and_bad_response.delete() for workers_and_bad_response in workers_and_bad_responses]
-    workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=advertisement_now.id)
-    if workers_and_reports is not None:
-        [await workers_and_report.delete() for workers_and_report in workers_and_reports]
     
-    # Удаляем записи ContactExchange для этого объявления
-    from app.data.database.models import ContactExchange
-    contact_exchanges = await ContactExchange.get_by_abs(abs_id=advertisement_now.id)
-    if contact_exchanges:
-        [await contact_exchange.delete() for contact_exchange in contact_exchanges]
-        logger.info(f"Deleted {len(contact_exchanges)} ContactExchange records for abs_id {advertisement_now.id}")
-    
-    workers_for_assessments = []
-    if workers_and_abs:
-        workers_for_assessments = await close_task(
-            workers_and_abs=workers_and_abs,
-            workers_for_assessments=workers_for_assessments,
-            advertisement_now=advertisement_now,
-            customer=customer
-        )
-
-        if workers_for_assessments:
-            names = [
-                f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} '
-                for worker in
-                workers_for_assessments]
-            ids = [worker.id for worker in workers_for_assessments]
-            await state.clear()
-            await advertisement_now.delete(delite_photo=True)
-
-            await callback.message.answer(text='Выберите исполнителя для оценки',
-                                          reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement_now.id))
-
-            admins = await Admin.get_all()
-            for admin in admins:
-                await admin.update(done_abs=admin.done_abs + 1)
-            try:
-                await callback.message.delete()
-            except TelegramBadRequest:
-                pass
-            return
-
-    await advertisement_now.delete(delite_photo=True)
-
-    admins = await Admin.get_all()
-    for admin in admins:
-        await admin.update(deleted_abs=admin.deleted_abs + 1)
-
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-
-    if not advertisements:
-        try:
-            await callback.message.delete()
-        except TelegramBadRequest:
-            pass
-        await callback.message.answer(text='У вас пока нет объявлений', reply_markup=kbc.menu())
-        await state.set_state(CustomerStates.customer_menu)
-        return
-
-    if abs_list_id >= len(advertisements):
-        abs_list_id -= 1
-
-    if len(advertisements) - 1 > abs_list_id:
-        btn_next = True
-    else:
-        btn_next = False
-
-    if abs_list_id == 0:
-        btn_back = False
-    else:
-        btn_back = True
-
-    advertisement_now = advertisements[abs_list_id]
-
-    workers_applyed = False
-    btn_responses = False
-
-    if workers_and_abs:
-        btn_responses = True
-        for worker_and_abs in workers_and_abs:
-            if worker_and_abs.applyed:
-                workers_applyed = True
-                btn_responses = False
-                break
-
-    btn_close_name = 'Закрыть и оценить' if workers_applyed else 'Отменить и удалить'
-
-    text = f'Объявление{advertisement_now.id}\n\n' + help_defs.read_text_file(
-        advertisement_now.text_path) + f'\n\nПросмотров: {advertisement_now.views}'
-    logger.debug(f"text {text}")
-    if advertisement_now.photo_path:
-        try:
-            await callback.message.delete()
-        except TelegramBadRequest:
-            pass
-
-        await callback.message.answer_photo(
-            photo=FSInputFile(advertisement_now.photo_path['0']),
-            caption=text,
-            reply_markup=kbc.choose_obj_with_out_list(
-                id_now=abs_list_id,
-                btn_next=btn_next,
-                btn_back=btn_back,
-                btn_responses=btn_responses,
-                btn_close=True,
-                btn_close_name=btn_close_name,
-                abs_id=advertisement_now.id,
-                count_photo=advertisement_now.count_photo,
-                idk_photo=0
-            )
-        )
-        return
+    # Показываем подтверждение закрытия объявления
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
+    
     await callback.message.answer(
-        text=text,
-        reply_markup=kbc.choose_obj_with_out_list(
-            id_now=abs_list_id,
-            btn_next=btn_next,
-            btn_back=btn_back,
-            btn_close=True,
-            btn_close_name=btn_close_name,
-            btn_responses=btn_responses,
-            abs_id=advertisement_now.id
-        )
+        text=f'⚠️ Вы уверены, что хотите закрыть объявление #{advertisement_now.id}?\n\n'
+             f'После закрытия вы сможете оценить исполнителей, которые откликнулись и купили ваши контакты.',
+        reply_markup=kbc.confirm_close_advertisement(abs_id=advertisement_now.id)
     )
+
+
+@router.callback_query(lambda c: c.data.startswith('confirm-close_'))
+async def confirm_close_advertisement(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтверждение закрытия объявления с возможностью оценки исполнителей"""
+    logger.debug(f'confirm_close_advertisement...')
+    
+    kbc = KeyboardCollection()
+    abs_id = int(callback.data.split('_')[1])
+    
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    advertisement = await Abs.get_one(id=abs_id)
+    
+    if not advertisement:
+        await callback.answer("Объявление не найдено", show_alert=True)
+        return
+    
+    # Находим исполнителей для оценки (купили контакты)
+    # Логика: если исполнитель купил контакты, значит он откликнулся И передал контакты
+    workers_for_assessment = []
+    
+    from app.data.database.models import ContactExchange
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
+    
+    if contact_exchanges:
+        for contact_exchange in contact_exchanges:
+            if contact_exchange.contacts_purchased:  # Купил контакты
+                worker = await Worker.get_worker(id=contact_exchange.worker_id)
+                if worker:
+                    workers_for_assessment.append(worker)
+    
+    # Удаляем объявление сразу после подтверждения закрытия
+    await advertisement.delete(delite_photo=True)
+    
+    # Удаляем связанные записи
+    from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange
+    workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
+    if workers_and_bad_responses:
+        [await bad_response.delete() for bad_response in workers_and_bad_responses]
+    
+    workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
+    if workers_and_reports:
+        [await report.delete() for report in workers_and_reports]
+    
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
+    if contact_exchanges:
+        [await exchange.delete() for exchange in contact_exchanges]
+    
+    # Удаляем записи откликов
+    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
+    if workers_and_abs:
+        [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
+    
+    # Обновляем статистику админов
+    admins = await Admin.get_all()
+    for admin in admins:
+        await admin.update(done_abs=admin.done_abs + 1)
+    
+    # Если есть исполнители для оценки - показываем их
+    if workers_for_assessment:
+        names = [
+            f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
+            for worker in workers_for_assessment
+        ]
+        ids = [worker.id for worker in workers_for_assessment]
+        
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
+        
+        # Сохраняем abs_id в состоянии для последующего удаления
+        await state.update_data(pending_advertisement_id=abs_id)
+        
+        await callback.message.answer(
+            text='✅ Объявление закрыто!\n\nВыберите исполнителей для оценки:',
+            reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=abs_id)
+        )
+    else:
+        # Нет исполнителей для оценки - просто закрываем
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
+        
+        await callback.message.answer(
+            text='✅ Объявление закрыто!\n\nИсполнителей для оценки не найдено.',
+            reply_markup=kbc.menu()
+        )
+        await state.set_state(CustomerStates.customer_menu)
+
+
+@router.callback_query(lambda c: c.data.startswith('cancel-close_'))
+async def cancel_close_advertisement(callback: CallbackQuery, state: FSMContext) -> None:
+    """Отмена закрытия объявления"""
+    logger.debug(f'cancel_close_advertisement...')
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    # Возвращаемся к просмотру объявлений
+    await callback.message.answer(
+        text='❌ Закрытие объявления отменено.',
+        reply_markup=InlineKeyboardBuilder().add(
+            InlineKeyboardButton(text='В меню', callback_data='menu')
+        ).adjust(1).as_markup()
+    )
+    await state.set_state(CustomerStates.customer_menu)
 
 
 @router.callback_query(lambda c: c.data.startswith('close-by-end-time_'))
@@ -1081,10 +1072,32 @@ async def choose_worker_for_rating(callback: CallbackQuery) -> None:
     abs_id = int(parts[2])
 
     kbc = KeyboardCollection()
+    
+    # Получаем информацию об исполнителе
+    worker = await Worker.get_worker(id=worker_id)
+    if not worker:
+        await callback.answer("Исполнитель не найден", show_alert=True)
+        return
+    
+    # Формируем информацию об исполнителе
+    worker_name = worker.profile_name if worker.profile_name else "Исполнитель"
+    worker_rating = round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars
+    worker_orders = worker.count_ratings if worker.count_ratings else 0
+    
+    text = f'👤 **Информация об исполнителе:**\n\n'
+    text += f'• ID: {worker_id}\n'
+    text += f'• Имя: {worker_name}\n'
+    text += f'• Рейтинг: {worker_rating} ⭐\n'
+    text += f'• Выполнено заказов: {worker_orders}\n\n'
+    text += f'📝 **Оцените качество работы исполнителя:**'
+    
     try:
         await callback.message.delete()
-        await callback.message.answer(text=f'Оцените работу Исполнителя {worker_id}',
-                                      reply_markup=kbc.set_rating(worker_id=worker_id, abs_id=abs_id))
+        await callback.message.answer(
+            text=text,
+            reply_markup=kbc.set_rating(worker_id=worker_id, abs_id=abs_id),
+            parse_mode='Markdown'
+        )
     except Exception as e:
         logger.debug(e)
 
@@ -1096,8 +1109,14 @@ async def choose_worker_for_rating(callback: CallbackQuery) -> None:
 async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'skip_star_for_worker...')
     kbc = KeyboardCollection()
+    
+    # Объявление уже удалено в confirm_close_advertisement
+    
     await state.set_state(CustomerStates.customer_menu)
-    await callback.message.edit_text(text=f'Выставление оценки отменено', reply_markup=kbc.menu())
+    await callback.message.edit_text(
+        text='✅ Оценка завершена!\n\nОбъявление закрыто. Спасибо за использование сервиса!',
+        reply_markup=kbc.menu()
+    )
 
 
 @router.callback_query(lambda c: c.data.startswith('obj-id_'), CustomerStates.customer_create_abs_work_type)
@@ -1403,8 +1422,8 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     )
     await new_abs.save()
 
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-    advertisement = advertisements[-1]
+    # Используем ID из объекта, а не последнее объявление из списка
+    advertisement = new_abs
 
     # Отправляем уведомления исполнителям о новом объявлении
     await help_defs.send_targeted_notifications_to_workers(advertisement.id, customer.id)
@@ -1723,8 +1742,8 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     )
     await new_abs.save()
 
-    advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
-    advertisement = advertisements[-1]
+    # Используем ID из объекта, а не последнее объявление из списка
+    advertisement = new_abs
 
     # Отправляем уведомления исполнителям о новом объявлении
     await help_defs.send_targeted_notifications_to_workers(advertisement.id, customer.id)
@@ -2321,13 +2340,8 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Ошибка: заказчик не найден", show_alert=True)
         return
     
-    # Проверяем, что исполнитель купил контакт
-    from app.data.database.models import ContactExchange
-    contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
-    
-    if not contact_exchange or not contact_exchange.contacts_purchased:
-        await callback.answer("Оценить можно только исполнителей, которые купили ваш контакт", show_alert=True)
-        return
+    # Проверка на покупку контактов не нужна, так как исполнители попадают в список
+    # для оценки только если они уже купили контакты (проверка в confirm_close_advertisement)
     
     # Проверяем, что заказчик еще не оценивал этого исполнителя
     from app.data.database.models import WorkerRating
@@ -2337,21 +2351,12 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Вы уже оценили этого исполнителя", show_alert=True)
         return
     
-    # Проверяем, что объявление потеряло актуальность
-    from app.data.database.models import Advertisement
-    advertisement = await Advertisement.get_advertisement(id=abs_id)
-    
-    if not advertisement:
-        await callback.answer("Объявление не найдено", show_alert=True)
-        return
-    
-    from datetime import datetime
-    if advertisement.date_to_delite and datetime.strptime(advertisement.date_to_delite, "%Y-%m-%d") > datetime.now():
-        await callback.answer("Оценить исполнителя можно только после окончания срока объявления", show_alert=True)
-        return
+    # Убираем проверку объявления, так как оно может быть уже удалено
+    # но это не должно мешать оценке исполнителя
     
     # Создаем оценку
     worker_rating = WorkerRating(
+        id=None,  # ID будет автоматически присвоен при сохранении
         worker_id=worker_id,
         customer_id=customer.id,
         abs_id=abs_id,
@@ -2368,7 +2373,7 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
         
         total_stars = worker.stars + rating
         total_ratings = worker.count_ratings + 1
-        await worker.update(stars=total_stars, count_ratings=total_ratings)
+        await worker.update_stars(stars=total_stars, count_ratings=total_ratings)
         
         # УВЕЛИЧИВАЕМ СЧЕТЧИК ВЫПОЛНЕННЫХ ЗАКАЗОВ
         # Каждая оценка = выполненный заказ (защита от двойной оценки уже есть выше)
@@ -2427,10 +2432,15 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
     
     await callback.answer(f"Спасибо! Вы оценили исполнителя на {rating} звезд", show_alert=True)
     
-    # Возвращаемся в меню
+    # Объявление уже удалено в confirm_close_advertisement
+    
+    # Показываем сообщение об успешной оценке
     await callback.message.edit_text(
-        "✅ Оценка поставлена!\n\nСпасибо за обратную связь.",
-        reply_markup=kbc.menu()
+        f"✅ Оценка {rating} ⭐ поставлена исполнителю {worker.profile_name if worker.profile_name else 'ID ' + str(worker_id)}!\n\n"
+        f"Спасибо за обратную связь.",
+        reply_markup=InlineKeyboardBuilder().add(
+            InlineKeyboardButton(text='В меню', callback_data='menu')
+        ).adjust(1).as_markup()
     )
 
 
