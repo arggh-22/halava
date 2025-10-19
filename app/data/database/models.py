@@ -3924,6 +3924,13 @@ class WorkerWorkTypeChanges:
         """
         from datetime import datetime, timedelta
 
+        # ПРИОРИТЕТ: Если есть флаг pending_selection (после повышения ранга) - разрешаем выбор
+        if self.pending_selection:
+            return (
+                True,
+                "✅ Выберите направления после повышения ранга"
+            )
+
         # Если изменений еще не было
         if self.changes_count == 0:
             return (

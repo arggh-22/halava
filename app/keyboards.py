@@ -435,7 +435,7 @@ class KeyboardCollection:
 
     def choose_work_types_improved(self, all_work_types: list, selected_ids: list, 
                                  count_work_types: int, page: int = 0, btn_back: bool = False, 
-                                 name_btn_back: str = 'Назад') -> InlineKeyboardMarkup:
+                                 name_btn_back: str = 'Назад', removal_blocked: bool = False) -> InlineKeyboardMarkup:
         """Улучшенная клавиатура для выбора направлений работы с пагинацией"""
         builder = InlineKeyboardBuilder()
         
@@ -445,8 +445,12 @@ class KeyboardCollection:
                                      callback_data="selected_info"))
             builder.add(self._inline(button_text="📋 Показать выбранные",
                                      callback_data="show_selected"))
-            builder.add(self._inline(button_text="🗑 Очистить все",
-                                     callback_data="clear_all"))
+            
+            # Показываем кнопку "Очистить все" только если удаление не заблокировано
+            if not removal_blocked:
+                builder.add(self._inline(button_text="🗑 Очистить все",
+                                         callback_data="clear_all"))
+            
             builder.add(self._inline(button_text="─" * 20,
                                      callback_data="separator"))
         
@@ -461,8 +465,18 @@ class KeyboardCollection:
         for work_type in page_work_types:
             if str(work_type.id) in selected_ids:
                 # Уже выбранное направление
-                builder.add(self._inline(button_text=f"✅ {work_type.work_type}",
-                                         callback_data=f"remove_work_type_{work_type.id}"))
+                if removal_blocked and len(selected_ids) >= count_work_types:
+                    # Удаление заблокировано И достигнут лимит - показываем заблокированную кнопку
+                    builder.add(self._inline(button_text=f"🔒 {work_type.work_type}",
+                                             callback_data=f"removal_blocked_{work_type.id}"))
+                elif removal_blocked:
+                    # Удаление заблокировано, но есть место для выбора - показываем обычную кнопку
+                    builder.add(self._inline(button_text=f"✅ {work_type.work_type}",
+                                             callback_data=f"removal_blocked_{work_type.id}"))
+                else:
+                    # Удаление разрешено
+                    builder.add(self._inline(button_text=f"✅ {work_type.work_type}",
+                                             callback_data=f"remove_work_type_{work_type.id}"))
             else:
                 # Доступное для выбора направление
                 if len(selected_ids) < count_work_types:

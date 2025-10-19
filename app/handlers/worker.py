@@ -1999,6 +1999,17 @@ async def add_work_type(callback: CallbackQuery, state: FSMContext) -> None:
     if work_type_id not in current_ids:
         current_ids.append(work_type_id)
 
+    # Проверяем, достигнут ли максимальный лимит направлений
+    if work_types_limit is not None and len(current_ids) >= work_types_limit:
+        # Достигнут максимальный лимит - сбрасываем pending_selection
+        from app.data.database.models import WorkerWorkTypeChanges
+        work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+        
+        if work_type_changes.pending_selection:
+            work_type_changes.pending_selection = False
+            await work_type_changes.save()
+            logger.info(f'[WORK_TYPES] Worker {worker.id}: pending_selection flag cleared (reached max limit: {len(current_ids)}/{work_types_limit})')
+
     # Обновляем состояние
     await state.update_data(work_type_ids='|'.join(current_ids))
 
@@ -2018,6 +2029,37 @@ async def remove_work_type(callback: CallbackQuery, state: FSMContext) -> None:
     state_data = await state.get_data()
     work_type_ids = str(state_data.get('work_type_ids', ''))
 
+    # Получаем информацию о лимитах изменений
+    worker = await Worker.get_worker(tg_id=callback.from_user.id)
+    from app.data.database.models import WorkerWorkTypeChanges
+    work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+
+    # Получаем текущие выбранные направления
+    current_ids = work_type_ids.split('|') if work_type_ids else []
+    
+    # Получаем информацию о лимитах ранга
+    from app.data.database.models import WorkerRank
+    rank = await WorkerRank.get_or_create_rank(worker.id)
+    work_types_limit = rank.get_work_types_limit()
+    
+    # Проверяем, можно ли удалять направления
+    if work_type_changes.pending_selection and work_type_changes.changes_count >= 3:
+        # Если pending_selection=True И лимит изменений исчерпан - блокируем удаление
+        await callback.answer(
+            "❌ Нельзя снимать направления! Вы можете только добавлять новые направления до максимального лимита вашего ранга.",
+            show_alert=True
+        )
+        return
+    
+    # Дополнительная проверка: если достигнут максимальный лимит направлений по рангу
+    if work_types_limit is not None and len(current_ids) >= work_types_limit:
+        # Достигнут максимальный лимит - блокируем удаление
+        await callback.answer(
+            f"❌ Нельзя снимать направления! Вы достигли максимального лимита вашего ранга ({work_types_limit} направлений).",
+            show_alert=True
+        )
+        return
+
     # Удаляем направление
     current_ids = work_type_ids.split('|') if work_type_ids else []
     if work_type_id in current_ids:
@@ -2032,11 +2074,35 @@ async def remove_work_type(callback: CallbackQuery, state: FSMContext) -> None:
     await update_work_types_interface(callback, state, kbc, current_page)
 
 
+@router.callback_query(lambda c: c.data.startswith('removal_blocked_'), WorkStates.worker_choose_work_types)
+async def removal_blocked_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик для заблокированных кнопок удаления направлений"""
+    logger.debug(f'removal_blocked_handler...')
+    
+    await callback.answer(
+        "❌ Нельзя снимать направления! Вы можете только добавлять новые направления до максимального лимита вашего ранга.",
+        show_alert=True
+    )
+
+
 @router.callback_query(F.data == 'clear_all', WorkStates.worker_choose_work_types)
 async def clear_all_work_types(callback: CallbackQuery, state: FSMContext) -> None:
     """Очистить все выбранные направления"""
     logger.debug(f'clear_all_work_types...')
     kbc = KeyboardCollection()
+
+    # Проверяем, можно ли очищать направления
+    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    from app.data.database.models import WorkerWorkTypeChanges
+    work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+
+    if work_type_changes.pending_selection and work_type_changes.changes_count >= 3:
+        # Если pending_selection=True И лимит изменений исчерпан - блокируем очистку
+        await callback.answer(
+            "❌ Нельзя очищать направления! Вы можете только добавлять новые направления до максимального лимита вашего ранга.",
+            show_alert=True
+        )
+        return
 
     # Очищаем все выбранные направления
     await state.update_data(work_type_ids='')
@@ -2172,6 +2238,12 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
     elif selected_count == available_count:
         text += f"🎉 Выбрано максимальное количество направлений!"
 
+    # Определяем, заблокировано ли удаление направлений
+    removal_blocked = (
+        (work_type_changes.pending_selection and work_type_changes.changes_count >= 3) or
+        (work_types_limit is not None and selected_count >= work_types_limit)
+    )
+
     # Обновляем сообщение
     await callback.message.edit_text(
         text=text,
@@ -2180,7 +2252,9 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
             selected_ids=selected_ids,
             count_work_types=available_count,
             page=page,
-            btn_back=True
+            btn_back=True,
+            name_btn_back='Сохранить',
+            removal_blocked=removal_blocked
         ),
         parse_mode='Markdown'
     )
@@ -2355,22 +2429,16 @@ async def is_selection_not_change(original_ids: set, current_ids: set, pending_s
     Определяет, было ли это ВЫБОРОМ или ИЗМЕНЕНИЕМ направлений.
     
     ВЫБОР (не считается изменением, возвращает True):
-    - Если есть флаг pending_selection (после обнуления ранга)
     - Если было 0 направлений (первый выбор)
     - Если только добавлялись направления без удаления (все старые есть + новые)
     
     ИЗМЕНЕНИЕ (считается изменением, возвращает False):
-    - Если удалялись направления
+    - Если удалялись направления (даже одно)
     - Если заменялись направления
     - Если количество после < количества до
     """
     
-    # Проверяем флаг после обнуления ранга
-    if pending_selection:
-        logger.info(f'[WORK_TYPES] Selection detected: pending_selection flag is set')
-        return True  # ВЫБОР
-    
-    # Если было 0 - это выбор
+    # Если было 0 - это выбор (первый раз)
     if len(original_ids) == 0:
         logger.info(f'[WORK_TYPES] Selection detected: first time selection (was 0)')
         return True  # ВЫБОР
@@ -2425,14 +2493,33 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
         )
         
         if was_selection:
-            # Это был ВЫБОР - не регистрируем изменение, но сбрасываем флаг
+            # Это был ВЫБОР - не регистрируем изменение
             logger.info(f'[WORK_TYPES] Worker {worker.id}: SELECTION (not counted as change)')
             
             if work_type_changes.pending_selection:
-                # Сбрасываем флаг после первого выбора
-                work_type_changes.pending_selection = False
-                await work_type_changes.save()
-                logger.info(f'[WORK_TYPES] Worker {worker.id}: pending_selection flag cleared')
+                # Проверяем, выбрано ли максимальное количество направлений по рангу
+                from app.data.database.models import WorkerRank
+                rank = await WorkerRank.get_or_create_rank(worker.id)
+                work_types_limit = rank.get_work_types_limit()
+                
+                current_count = len(current_work_types)
+                
+                # Сбрасываем pending_selection только если выбрано максимальное количество направлений по рангу
+                should_reset = False
+                
+                if work_types_limit is None:
+                    # Платина - без ограничений, НЕ сбрасываем pending_selection
+                    should_reset = False
+                else:
+                    # Есть лимит - сбрасываем только если достигнут
+                    should_reset = current_count >= work_types_limit
+                
+                if should_reset:
+                    work_type_changes.pending_selection = False
+                    await work_type_changes.save()
+                    logger.info(f'[WORK_TYPES] Worker {worker.id}: pending_selection flag cleared (reached max limit: {current_count}/{work_types_limit})')
+                else:
+                    logger.info(f'[WORK_TYPES] Worker {worker.id}: pending_selection remains True (can select more: {current_count}/{work_types_limit})')
             
             await callback.answer(
                 f"✅ Направления успешно выбраны!",
@@ -2441,6 +2528,23 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
         else:
             # Это было ИЗМЕНЕНИЕ - регистрируем
             logger.info(f'[WORK_TYPES] Worker {worker.id}: CHANGE (counted as change)')
+            
+            # При изменении проверяем, нужно ли сбрасывать pending_selection
+            if work_type_changes.pending_selection:
+                # Проверяем, достигнут ли максимальный лимит направлений по рангу
+                from app.data.database.models import WorkerRank
+                rank = await WorkerRank.get_or_create_rank(worker.id)
+                work_types_limit = rank.get_work_types_limit()
+                
+                current_count = len(current_work_types)
+                
+                # Сбрасываем pending_selection только если достигнут максимальный лимит
+                if work_types_limit is not None and current_count >= work_types_limit:
+                    work_type_changes.pending_selection = False
+                    await work_type_changes.save()
+                    logger.info(f'[WORK_TYPES] Worker {worker.id}: pending_selection flag cleared (change + reached max limit: {current_count}/{work_types_limit})')
+                else:
+                    logger.info(f'[WORK_TYPES] Worker {worker.id}: pending_selection remains True (change but not reached max limit: {current_count}/{work_types_limit})')
             
             await work_type_changes.register_change()
             
@@ -2481,6 +2585,9 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
                 text += f"{i}. {wt.work_type}\n"
     else:
         text = "⚠️ Вы не выбрали ни одного направления.\nВы можете выбрать их позже в меню."
+
+    # pending_selection сбрасывается только при достижении максимального лимита направлений по рангу
+    # При ручном завершении (кнопка "Сохранить") флаг НЕ сбрасывается
 
     await callback.message.edit_text(text, reply_markup=kbc.menu())
     await state.set_state(WorkStates.worker_menu)

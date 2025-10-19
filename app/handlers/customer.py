@@ -605,7 +605,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     text = help_defs.read_text_file(abs_now['text_path'])
 
 
-    text = f'Объявление {abs_now['id']} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now['views']}'
+    text = f'Объявление {abs_now["id"]} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now["views"]}'
     logger.debug(f"text {text}")
 
     # Используем количество откликов из оптимизированного запроса (как в функции my_abs)
@@ -765,7 +765,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     text = help_defs.read_text_file(abs_now['text_path'])
 
 
-    text = f'Объявление {abs_now['id']} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now['views']}'
+    text = f'Объявление {abs_now["id"]} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now["views"]}'
     logger.debug(f"text {text}")
 
     # Используем количество откликов из оптимизированного запроса (как в функции my_abs)
@@ -2565,6 +2565,9 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
         
         # Отправляем уведомление об изменении активности
         await send_activity_notification(worker, old_activity, new_activity)
+        
+        # МГНОВЕННОЕ ОБНОВЛЕНИЕ РАНГА при оценке исполнителя
+        await update_worker_rank_instantly(worker)
     
     # Уведомляем исполнителя об оценке
     from loaders import bot
@@ -2803,6 +2806,105 @@ async def send_activity_notification(worker, old_activity: int, new_activity: in
             )
         except Exception as e:
             logger.error(f"Error sending activity notification to worker {worker.tg_id}: {e}")
+
+
+async def update_worker_rank_instantly(worker: Worker):
+    """
+    Мгновенное обновление ранга исполнителя при получении оценки.
+    Проверяет, изменился ли ранг, и отправляет уведомление при повышении.
+    """
+    try:
+        from app.data.database.models import WorkerRank, WorkerAndSubscription
+        from loaders import bot
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        
+        logger.info(f'update_worker_rank_instantly: Updating rank for worker {worker.id}')
+        
+        # Получаем старый ранг
+        old_rank = await WorkerRank.get_by_worker(worker.id)
+        old_rank_type = old_rank.rank_type if old_rank else None
+        old_work_types_limit = old_rank.get_work_types_limit() if old_rank else 1
+        
+        # Обновляем ранг (пересчитываем на основе заказов за последние 30 дней)
+        new_rank = await WorkerRank.get_or_create_rank(worker.id)
+        new_work_types_limit = new_rank.get_work_types_limit()
+        
+        # Проверяем, изменился ли ранг
+        if old_rank_type and old_rank_type != new_rank.rank_type:
+            rank_levels = {'bronze': 1, 'silver': 2, 'gold': 3, 'platinum': 4}
+            old_level = rank_levels.get(old_rank_type, 0)
+            new_level = rank_levels.get(new_rank.rank_type, 0)
+            
+            if new_level > old_level:
+                # ПОВЫШЕНИЕ РАНГА - отправляем уведомление мгновенно
+                logger.info(f'update_worker_rank_instantly: Worker {worker.id} upgraded from {old_rank_type} to {new_rank.rank_type}')
+                
+                # Проверяем, может ли исполнитель выбрать больше направлений
+                from app.data.database.models import WorkerAndSubscription, WorkerWorkTypeChanges
+                worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+                current_work_types_count = len(worker_sub.work_type_ids) if worker_sub and worker_sub.work_type_ids else 0
+                
+                # Если новый лимит больше текущего количества направлений - разрешаем выбор
+                if new_work_types_limit is None or current_work_types_count < new_work_types_limit:
+                    # Устанавливаем флаг pending_selection для разрешения выбора направлений
+                    work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
+                    work_type_changes.pending_selection = True
+                    await work_type_changes.save()
+                    
+                    logger.info(f'update_worker_rank_instantly: Set pending_selection=True for worker {worker.id} (can choose more work types)')
+                
+                try:
+                    old_rank_name = WorkerRank.RANK_TYPES[old_rank_type]['name']
+                    old_rank_emoji = WorkerRank.RANK_TYPES[old_rank_type]['emoji']
+                    new_rank_name = new_rank.get_rank_name()
+                    new_rank_emoji = new_rank.get_rank_emoji()
+                    
+                    notification_text = (
+                        f"🎉 **Повышение ранга!**\n\n"
+                        f"Ваш ранг изменился:\n"
+                        f"{old_rank_emoji} **{old_rank_name}** → {new_rank_emoji} **{new_rank_name}**\n\n"
+                        f"📊 **Новый лимит направлений:**\n"
+                        f"Было доступно: **{old_work_types_limit if old_work_types_limit else 'без ограничений'}**\n"
+                        f"Стало доступно: **{new_work_types_limit if new_work_types_limit else 'без ограничений'}**\n\n"
+                        f"🎯 **Что это дает:**\n"
+                    )
+                    
+                    # Добавляем информацию о преимуществах нового ранга
+                    if new_rank.rank_type == 'silver':
+                        notification_text += "• Доступно до 5 направлений работы\n• Приоритет в показе объявлений"
+                    elif new_rank.rank_type == 'gold':
+                        notification_text += "• Доступно до 10 направлений работы\n• Высокий приоритет в показе объявлений"
+                    elif new_rank.rank_type == 'platinum':
+                        notification_text += "• Доступны все направления без ограничений\n• Максимальный приоритет в показе объявлений"
+                    
+                    # Если можно выбрать больше направлений - добавляем информацию
+                    if new_work_types_limit is None or current_work_types_count < new_work_types_limit:
+                        notification_text += f"\n\n🎯 **Можете выбрать больше направлений!**\nПерейдите в 'Мои направления' для выбора новых направлений работы."
+                    
+                    notification_text += f"\n\n💡 Продолжайте выполнять качественные заказы для поддержания высокого ранга!"
+                    
+                    # Отправляем уведомление
+                    await bot.send_message(
+                        chat_id=worker.tg_id,
+                        text=notification_text,
+                        parse_mode='Markdown'
+                    )
+                    
+                    logger.info(f'update_worker_rank_instantly: Sent rank upgrade notification to worker {worker.id}')
+                    
+                except Exception as notify_error:
+                    logger.error(f'update_worker_rank_instantly: Failed to send upgrade notification to worker {worker.id} - {notify_error}')
+            
+            elif new_level < old_level:
+                # ПОНИЖЕНИЕ РАНГА - НЕ отправляем уведомление мгновенно
+                # Оставляем это для ежедневной проверки в 00:00
+                logger.info(f'update_worker_rank_instantly: Worker {worker.id} downgraded from {old_rank_type} to {new_rank.rank_type} - notification will be sent at 00:00')
+        
+        else:
+            logger.info(f'update_worker_rank_instantly: Worker {worker.id} rank unchanged ({new_rank.rank_type})')
+        
+    except Exception as e:
+        logger.error(f'update_worker_rank_instantly: Error updating rank for worker {worker.id} - {e}')
 
 
 #  _    _        _      _____              _
