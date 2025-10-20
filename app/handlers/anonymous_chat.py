@@ -312,11 +312,23 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                     # Безлимит активен - сразу передаем контакты
                     await contact_exchange.update(contacts_purchased=True)
 
-                    # Передаем контакты исполнителю
+                    # Передаем контакты исполнителю с учетом нового функционала
                     contacts_text = f"📞 **Контакты заказчика:**\n\n"
-                    contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
-                    contacts_text += f"📱 **Telegram:** @{customer.tg_name}\n"
-                    contacts_text += f"🆔 **ID:** {customer.tg_id}"
+                    
+                    # Формируем контакты в зависимости от настроек заказчика
+                    if customer.contact_type == "telegram_only":
+                        contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                        contacts_text += f"🆔 **ID:** {customer.tg_id}"
+                    elif customer.contact_type == "phone_only":
+                        contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+                    elif customer.contact_type == "both":
+                        contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                        contacts_text += f"🆔 **ID:** {customer.tg_id}\n"
+                        contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+                    else:
+                        # Fallback - показываем только Telegram если контакты не настроены
+                        contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                        contacts_text += f"🆔 **ID:** {customer.tg_id}"
 
                     await bot.send_message(
                         chat_id=worker.tg_id,
@@ -401,11 +413,24 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
             await worker.update_purchased_contacts(purchased_contacts=new_count)
             await contact_exchange.update(contacts_purchased=True)
 
-            # Передаем контакты исполнителю
+            # Передаем контакты исполнителю с учетом нового функционала
             contacts_text = f"📞 **Контакты заказчика:**\n\n"
             contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
-            contacts_text += f"📱 **Telegram:** @{customer.tg_name}\n"
-            contacts_text += f"🆔 **ID:** {customer.tg_id}"
+            
+            # Формируем контакты в зависимости от настроек заказчика
+            if customer.contact_type == "telegram_only":
+                contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                contacts_text += f"🆔 **ID:** {customer.tg_id}"
+            elif customer.contact_type == "phone_only":
+                contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+            elif customer.contact_type == "both":
+                contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                contacts_text += f"🆔 **ID:** {customer.tg_id}\n"
+                contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+            else:
+                # Fallback - показываем только Telegram если контакты не настроены
+                contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                contacts_text += f"🆔 **ID:** {customer.tg_id}"
 
             await bot.send_message(
                 chat_id=worker.tg_id,
@@ -611,11 +636,24 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
             # Обновляем ContactExchange
             await contact_exchange.update(contacts_purchased=True)
 
-            # Передаем контакты исполнителю
+            # Передаем контакты исполнителю с учетом нового функционала
             contacts_text = f"📞 **Контакты заказчика:**\n\n"
             contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
-            contacts_text += f"📱 **Telegram:** @{customer.tg_name}\n"
-            contacts_text += f"🆔 **ID:** {customer.tg_id}"
+            
+            # Формируем контакты в зависимости от настроек заказчика
+            if customer.contact_type == "telegram_only":
+                contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                contacts_text += f"🆔 **ID:** {customer.tg_id}"
+            elif customer.contact_type == "phone_only":
+                contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+            elif customer.contact_type == "both":
+                contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                contacts_text += f"🆔 **ID:** {customer.tg_id}\n"
+                contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+            else:
+                # Fallback - показываем только Telegram если контакты не настроены
+                contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                contacts_text += f"🆔 **ID:** {customer.tg_id}"
 
             await bot.send_message(
                 chat_id=worker.tg_id,
@@ -1026,15 +1064,27 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                 parse_mode='Markdown'
             )
 
-            # Отправляем контакты исполнителю
-            contacts_text = (
-                f"📞 **Контакты заказчика получены!**\n\n"
-                f"📋 Объявление: #{abs_id}\n"
-                f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
-                f"📞 Telegram: @{customer.tg_name}\n"
-                f"🆔 ID: {customer.tg_id}\n\n"
-                f"🔒 **Чат закрыт** - теперь можете общаться напрямую."
-            )
+            # Отправляем контакты исполнителю с учетом нового функционала
+            contacts_text = f"📞 **Контакты заказчика получены!**\n\n"
+            contacts_text += f"📋 Объявление: #{abs_id}\n"
+            contacts_text += f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+            
+            # Формируем контакты в зависимости от настроек заказчика
+            if customer.contact_type == "telegram_only":
+                contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                contacts_text += f"🆔 **ID:** {customer.tg_id}\n\n"
+            elif customer.contact_type == "phone_only":
+                contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})\n\n"
+            elif customer.contact_type == "both":
+                contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                contacts_text += f"🆔 **ID:** {customer.tg_id}\n"
+                contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})\n\n"
+            else:
+                # Fallback - показываем только Telegram если контакты не настроены
+                contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                contacts_text += f"🆔 **ID:** {customer.tg_id}\n\n"
+            
+            contacts_text += f"🔒 **Чат закрыт** - теперь можете общаться напрямую."
 
             await callback.message.edit_text(
                 text=contacts_text,
@@ -1054,6 +1104,14 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                 reply_markup=kbc.buy_tokens_tariffs(),
                 parse_mode='Markdown'
             )
+            
+            # Сохраняем данные для последующей покупки
+            await state.update_data(
+                buying_contacts_for_abs=True,
+                target_worker_id=worker.id,
+                target_abs_id=abs_id
+            )
+            
             await callback.answer("💰 Выберите тариф для покупки контактов")
 
     except Exception as e:
@@ -1429,8 +1487,22 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
             # Контакты уже куплены
             customer = await Customer.get_customer(id=advertisement.customer_id)
             text += "✅ **Контакты получены:**\n\n"
-            text += f"📞 Telegram: @{customer.tg_name}\n"
-            text += f"🆔 ID: {customer.tg_id}\n\n"
+            
+            # Формируем контакты в зависимости от настроек заказчика
+            if customer.contact_type == "telegram_only":
+                text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                text += f"🆔 **ID:** {customer.tg_id}\n\n"
+            elif customer.contact_type == "phone_only":
+                text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})\n\n"
+            elif customer.contact_type == "both":
+                text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                text += f"🆔 **ID:** {customer.tg_id}\n"
+                text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})\n\n"
+            else:
+                # Fallback - показываем только Telegram если контакты не настроены
+                text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                text += f"🆔 **ID:** {customer.tg_id}\n\n"
+            
             text += "🔒 Чат закрыт"
         elif customer_confirmed:
             # Заказчик подтвердил, исполнитель может покупать
@@ -2012,11 +2084,23 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                     if contact_exchange:
                         await contact_exchange.update(contacts_purchased=True)
 
-                    # Передаем контакты исполнителю
+                    # Передаем контакты исполнителю с учетом нового функционала
                     contacts_text = f"📞 **Контакты заказчика:**\n\n"
-                    contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
-                    contacts_text += f"📱 **Telegram:** @{customer.tg_name}\n"
-                    contacts_text += f"🆔 **ID:** {customer.tg_id}"
+                    
+                    # Формируем контакты в зависимости от настроек заказчика
+                    if customer.contact_type == "telegram_only":
+                        contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                        contacts_text += f"🆔 **ID:** {customer.tg_id}"
+                    elif customer.contact_type == "phone_only":
+                        contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+                    elif customer.contact_type == "both":
+                        contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                        contacts_text += f"🆔 **ID:** {customer.tg_id}\n"
+                        contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+                    else:
+                        # Fallback - показываем только Telegram если контакты не настроены
+                        contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                        contacts_text += f"🆔 **ID:** {customer.tg_id}"
 
                     await bot.send_message(
                         chat_id=worker.tg_id,

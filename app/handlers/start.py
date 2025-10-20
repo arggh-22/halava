@@ -333,7 +333,8 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
             text = ('Ваш профиль\n\n'
                     f'ID: {customer.id}\n'
                     f'Ваш город: {city.city}\n'
-                    f'Открыто объявлений: {len(user_abs) if user_abs else 0}')
+                    f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+                    f'Осталось объявлений на сегодня: {customer.abs_count}')
 
             await state.set_state(CustomerStates.customer_menu)
             await message.answer(text=text,
@@ -350,7 +351,8 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
         text = ('Ваш профиль\n\n'
                 f'ID: {customer.id}\n'
                 f'Ваш город: {city.city}\n'
-                f'Открыто объявлений: {len(user_abs) if user_abs else 0}')
+                f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+                f'Осталось объявлений на сегодня: {customer.abs_count}')
 
         await state.set_state(CustomerStates.customer_menu)
         await message.answer(

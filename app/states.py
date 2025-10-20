@@ -41,7 +41,7 @@ class WorkStates(StatesGroup):
 
 class CustomerStates(StatesGroup):
     customer_extend_abc = State()
-    # customer_buy_subscription = State()  # Убрано - размещение всегда бесплатно
+    customer_buy_subscription = State()
     registration_enter_city = State()
     # Верификация убрана согласно ТЗ
     customer_menu = State()
@@ -63,6 +63,9 @@ class CustomerStates(StatesGroup):
     customer_view_responses = State()  # Просмотр откликов
     customer_anonymous_chat = State()  # Анонимный чат
     customer_confirm_contact_share = State()  # Подтверждение передачи контакта
+    # Стейты для работы с контактами
+    customer_contacts = State()  # Меню контактов
+    customer_contacts_phone_input = State()  # Ввод номера телефона
 
 
 class AdminStates(StatesGroup):

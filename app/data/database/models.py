@@ -15,7 +15,8 @@ logger = logging.getLogger()
 
 class Customer:
     def __init__(self, id: int | None, tg_id: int, city_id: int, tg_name: str, abs_count: int = None,
-                 access_token: str = None, author_name: str = None, public_id: str = None):
+                 access_token: str = None, author_name: str = None, public_id: str = None,
+                 contact_type: str = None, phone_number: str = None):
         self.id = id
         self.tg_id = tg_id
         self.city_id = city_id
@@ -24,6 +25,8 @@ class Customer:
         self.access_token = access_token
         self.author_name = author_name
         self.public_id = public_id
+        self.contact_type = contact_type
+        self.phone_number = phone_number
 
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
@@ -78,7 +81,9 @@ class Customer:
             if record:
                 return cls(id=record[0], city_id=record[1], tg_id=record[2], tg_name=record[3], abs_count=record[4],
                            access_token=record[5], author_name=record[6],
-                           public_id=record[7] if len(record) > 7 else None)
+                           public_id=record[7] if len(record) > 7 else None,
+                           contact_type=record[8] if len(record) > 8 else None,
+                           phone_number=record[9] if len(record) > 9 else None)
             else:
                 return None
         finally:
@@ -106,7 +111,10 @@ class Customer:
             await cursor.close()
             if records:
                 return [cls(id=record[0], city_id=record[1], tg_id=record[2], tg_name=record[3], abs_count=record[4],
-                            access_token=record[5], author_name=record[6])
+                            access_token=record[5], author_name=record[6],
+                            public_id=record[7] if len(record) > 7 else None,
+                            contact_type=record[8] if len(record) > 8 else None,
+                            phone_number=record[9] if len(record) > 9 else None)
                         for record in records]
             else:
                 return None
@@ -121,10 +129,54 @@ class Customer:
             records = await cursor.fetchall()
             await cursor.close()
             return [cls(id=record[0], city_id=record[1], tg_id=record[2], tg_name=record[3], abs_count=record[4],
-                        access_token=record[5], author_name=record[6]) for
+                        access_token=record[5], author_name=record[6],
+                        public_id=record[7] if len(record) > 7 else None,
+                        contact_type=record[8] if len(record) > 8 else None,
+                        phone_number=record[9] if len(record) > 9 else None) for
                     record in records]
         finally:
             await conn.close()
+
+    async def update_contacts(self, contact_type: str = None, phone_number: str = None) -> None:
+        """Обновляет контакты заказчика"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            if self.id:
+                cursor = await conn.execute(
+                    'UPDATE customers SET contact_type = ?, phone_number = ? WHERE id = ?',
+                    [contact_type, phone_number, self.id]
+                )
+            else:
+                cursor = await conn.execute(
+                    'UPDATE customers SET contact_type = ?, phone_number = ? WHERE tg_id = ?',
+                    [contact_type, phone_number, self.tg_id]
+                )
+            await conn.commit()
+            await cursor.close()
+            
+            # Обновляем объект
+            self.contact_type = contact_type
+            self.phone_number = phone_number
+        finally:
+            await conn.close()
+
+    def get_contact_info(self) -> str:
+        """Возвращает информацию о контактах заказчика для отображения"""
+        if not self.contact_type:
+            return "Контакты не настроены"
+        
+        if self.contact_type == "telegram_only":
+            return f"📱 [Профиль Telegram](tg://user?id={self.tg_id}) (@{self.tg_name})"
+        elif self.contact_type == "phone_only":
+            return f"📞 [Номер телефона](tel:{self.phone_number}) - {self.phone_number}"
+        elif self.contact_type == "both":
+            return f"📱 [Профиль Telegram](tg://user?id={self.tg_id}) (@{self.tg_name})\n📞 [Номер телефона](tel:{self.phone_number}) - {self.phone_number}"
+        else:
+            return "Контакты не настроены"
+
+    def has_contacts(self) -> bool:
+        """Проверяет, настроены ли контакты заказчика"""
+        return self.contact_type is not None
 
     async def delete(self) -> None:
         if self.id or self.tg_id:
@@ -396,11 +448,11 @@ class Worker:
                     continue
 
                 # Проверяем тип работы (work_type_ids из таблицы worker_and_subscription)
-                # w.* дает 22 поля (0-21), ws.work_type_ids это поле 23
+                # w.* дает 24 поля (0-23), ws.work_type_ids это поле 24
                 logger.info(
-                    f'[DEBUG] Worker {worker_tg_id}: record length={len(record)}, record[23]={record[23] if len(record) > 23 else "N/A"}')
+                    f'[DEBUG] Worker {worker_tg_id}: record length={len(record)}, record[24]={record[24] if len(record) > 24 else "N/A"}')
                 try:
-                    work_type_ids = str(record[23]).split('|') if len(record) > 23 and record[23] is not None else []
+                    work_type_ids = str(record[24]).split('|') if len(record) > 24 and record[24] is not None else []
                 except (AttributeError, TypeError, IndexError):
                     work_type_ids = []
 

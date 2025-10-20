@@ -194,7 +194,8 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
     text = ('Ваш профиль\n\n'
             f'ID: {customer.id}\n'
             f'Ваш город: {city.city}\n'
-            f'Открыто объявлений: {len(user_abs) if user_abs else 0}')
+            f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+            f'Осталось объявлений на сегодня: {customer.abs_count}')
 
     try:
         await callback.message.delete()
@@ -240,18 +241,18 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
     text = ('Ваш профиль\n\n'
             f'ID: {customer.id}\n'
             f'Ваш город: {city.city}\n'
-            f'Открыто объявлений: {len(user_abs) if user_abs else 0}')
+            f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+            f'Осталось объявлений на сегодня: {customer.abs_count}')
 
     await state.set_state(CustomerStates.customer_menu)
     await callback.message.edit_text(
         text=text,
         reply_markup=kbc.menu_customer_keyboard()
-    )  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
+    )
 
 
-# Обработчик покупки объявлений убран - размещение всегда бесплатно
-# @router.callback_query(F.data == 'add_orders', CustomerStates.customer_menu)
-async def send_invoice_buy_subscription_removed(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data == 'add_orders', CustomerStates.customer_menu)
+async def send_invoice_buy_subscription(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'send_invoice_buy_subscription...')
 
     kbc = KeyboardCollection()
@@ -269,69 +270,95 @@ async def send_invoice_buy_subscription_removed(callback: CallbackQuery, state: 
 
     text = f"Количество размещений: 1"
 
-    # Состояние покупки подписки убрано - размещение всегда бесплатно
-    # await state.set_state(CustomerStates.customer_buy_subscription)
+    await state.set_state(CustomerStates.customer_buy_subscription)
 
+    # ВРЕМЕННОЕ РЕШЕНИЕ ДЛЯ РАЗРАБОТКИ - обходим платежную систему
+    # В продакшене замените на реальную платежную систему
     try:
-        await callback.message.answer_invoice(
-            title=f"Дополнительное размещение",
-            description=text,
-            provider_token=config.PAYMENTS,
-            currency="RUB",  # Валюта в верхнем регистре
-            prices=prices,
-            start_parameter="one-month-subscription",
-            payload="invoice-payload",
-            reply_markup=kbc.customer_buy_order(),
-            need_email=True,
-            send_email_to_provider=True
-        )
-        await state.update_data(customer_id=str(customer.id),
-                               order_price=admin.order_price)
-    except TelegramBadRequest as e:
-        logger.error(f"Payment provider error: {e}")
-        # Обрабатываем ошибку недоступности платежного метода
-        if "PAYMENT_PROVIDER_INVALID" in str(e):
-            error_text = "❌ Платежный метод недоступен\n\n"
-            error_text += "🚫 К сожалению, в вашей стране недоступны платежные методы Telegram.\n\n"
-            error_text += "💡 Возможные решения:\n"
-            error_text += "• Используйте VPN для смены региона\n"
-            error_text += "• Обратитесь к администратору для альтернативной оплаты\n"
-            error_text += "• Попробуйте позже\n\n"
-            error_text += "📞 Для получения помощи обратитесь в поддержку"
-            
-            await callback.message.answer(
-                text=error_text,
-                reply_markup=kbc.menu_customer_keyboard()
-            )
-        else:
-            # Другие ошибки платежа
-            error_text = "❌ Ошибка при создании платежа\n\n"
-            error_text += "🚫 Произошла ошибка при попытке создать платеж.\n\n"
-            error_text += "💡 Попробуйте:\n"
-            error_text += "• Проверить интернет-соединение\n"
-            error_text += "• Попробовать позже\n"
-            error_text += "• Обратиться в поддержку\n\n"
-            error_text += f"🔍 Код ошибки: {str(e)}"
-            
-            await callback.message.answer(
-                text=error_text,
-                reply_markup=kbc.menu_customer_keyboard()
-            )
+        # Симулируем успешную покупку
+        await customer.update_abs_count(abs_count=customer.abs_count + 1)
         
-        # Возвращаемся в меню заказчика
+        await callback.message.answer(
+            text=f"✅ **Разработка: Покупка успешна!**\n\n"
+                 f"💰 Стоимость: {admin.order_price}₽ (симуляция)\n"
+                 f"📊 Количество: 1 объявление\n"
+                 f"📈 Доступно размещений: {customer.abs_count}\n\n"
+                 f"⚠️ *Это временное решение для разработки*",
+            reply_markup=kbc.menu_customer_keyboard(),
+            parse_mode='Markdown'
+        )
+        await state.set_state(CustomerStates.customer_menu)
+        return
+        
+    except Exception as e:
+        logger.error(f"Ошибка при симуляции покупки: {e}")
+        await callback.message.answer(
+            text="❌ Ошибка при обработке покупки",
+            reply_markup=kbc.menu_customer_keyboard()
+        )
         await state.set_state(CustomerStates.customer_menu)
         return
 
+    # ОРИГИНАЛЬНЫЙ КОД ДЛЯ ПРОДАКШЕНА (закомментирован)
+    # try:
+    #     await callback.message.answer_invoice(
+    #         title=f"Дополнительное размещение",
+    #         description=text,
+    #         provider_token=config.PAYMENTS,
+    #         currency="RUB",  # Валюта в верхнем регистре
+    #         prices=prices,
+    #         start_parameter="one-month-subscription",
+    #         payload="invoice-payload",
+    #         reply_markup=kbc.customer_buy_order(),
+    #         need_email=True,
+    #         send_email_to_provider=True
+    #     )
+    #     await state.update_data(customer_id=str(customer.id),
+    #                            order_price=admin.order_price)
+    # except TelegramBadRequest as e:
+    #     logger.error(f"Payment provider error: {e}")
+    #     # Обрабатываем ошибку недоступности платежного метода
+    #     if "PAYMENT_PROVIDER_INVALID" in str(e):
+    #         error_text = "❌ Платежный метод недоступен\n\n"
+    #         error_text += "🚫 К сожалению, в вашей стране недоступны платежные методы Telegram.\n\n"
+    #         error_text += "💡 Возможные решения:\n"
+    #         error_text += "• Используйте VPN для смены региона\n"
+    #         error_text += "• Обратитесь к администратору для альтернативной оплаты\n"
+    #         error_text += "• Попробуйте позже\n\n"
+    #         error_text += "📞 Для получения помощи обратитесь в поддержку"
+    #         
+    #         await callback.message.answer(
+    #             text=error_text,
+    #             reply_markup=kbc.menu_customer_keyboard()
+    #         )
+    #     else:
+    #         # Другие ошибки платежа
+    #         error_text = "❌ Ошибка при создании платежа\n\n"
+    #         error_text += "🚫 Произошла ошибка при попытке создать платеж.\n\n"
+    #         error_text += "💡 Попробуйте:\n"
+    #         error_text += "• Проверить интернет-соединение\n"
+    #         error_text += "• Попробовать позже\n"
+    #         error_text += "• Обратиться в поддержку\n\n"
+    #         error_text += f"🔍 Код ошибки: {str(e)}"
+    #         
+    #         await callback.message.answer(
+    #             text=error_text,
+    #             reply_markup=kbc.menu_customer_keyboard()
+    #         )
+    #     
+    #     # Возвращаемся в меню заказчика
+    #     await state.set_state(CustomerStates.customer_menu)
+    #     return
 
-# Обработчики платежей убраны - размещение всегда бесплатно
-# @router.pre_checkout_query(lambda query: True, CustomerStates.customer_buy_subscription)
-async def pre_checkout_handler_removed(pre_checkout_query: PreCheckoutQuery) -> None:
+
+@router.pre_checkout_query(lambda query: True, CustomerStates.customer_buy_subscription)
+async def pre_checkout_handler(pre_checkout_query: PreCheckoutQuery) -> None:
     logger.debug(f'pre_checkout_handler...')
     await pre_checkout_query.answer(ok=True)
 
 
-# @router.message(F.successful_payment, CustomerStates.customer_buy_subscription)
-async def success_payment_handler_removed(message: Message, state: FSMContext):
+@router.message(F.successful_payment, CustomerStates.customer_buy_subscription)
+async def success_payment_handler(message: Message, state: FSMContext):
     logger.debug(f'success_payment_handler...')
     kbc = KeyboardCollection()
 
@@ -355,9 +382,17 @@ async def create_new_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     kbc = KeyboardCollection()
 
-    # customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
 
-    # Лимиты на размещение объявлений убраны согласно ТЗ - размещение всегда бесплатно
+    # Проверяем лимит объявлений
+    if customer.abs_count <= 0:
+        await callback.answer(
+            "❌ Лимит бесплатных объявлений исчерпан!\n\n"
+            "У вас осталось 0 объявлений на сегодня.\n"
+            "Для размещения дополнительного объявления необходимо его приобрести.",
+            show_alert=True
+        )
+        return
 
     await state.clear()
     await state.set_state(CustomerStates.customer_create_abs_work_type)
@@ -396,11 +431,12 @@ async def create_new_abs_back(callback: CallbackQuery, state: FSMContext) -> Non
     text = ('Ваш профиль\n\n'
             f'ID: {customer.id}\n'
             f'Ваш город: {city.city}\n'
-            f'Открыто объявлений: {len(user_abs) if user_abs else 0}')
+            f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+            f'Осталось объявлений на сегодня: {customer.abs_count}')
 
     await state.set_state(CustomerStates.customer_menu)
     await callback.message.edit_text(text=text,
-                                     reply_markup=kbc.menu_customer_keyboard())  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
+                                     reply_markup=kbc.menu_customer_keyboard())
 
 
 async def get_customer_ads_optimized(customer_id: int):
@@ -1532,10 +1568,11 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     city = await City.get_city(id=customer.city_id)
 
-    advertisements = await Abs.get_all()
+    # Проверяем только объявления текущего заказчика на дубликаты
+    customer_advertisements = await Abs.get_all_by_customer(customer.id)
 
-    if advertisements:
-        if await same_task(message=callback.message, advertisements=advertisements, text=text):
+    if customer_advertisements:
+        if await same_task(message=callback.message, advertisements=customer_advertisements, text=text):
             await state.set_state(CustomerStates.customer_menu)
             return
 
@@ -1571,8 +1608,6 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     # Используем ID из объекта, а не последнее объявление из списка
     advertisement = new_abs
 
-    # Отправляем уведомления исполнителям о новом объявлении
-    await help_defs.send_targeted_notifications_to_workers(advertisement.id, customer.id)
 
     text = f'Объявление загружено\n\nОбъявление {advertisement.id}\n\n' + text
 
@@ -1581,7 +1616,9 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     # Сразу отвечаем пользователю
     await callback.message.answer(text=text, reply_markup=kbc.menu())
     await state.set_state(CustomerStates.customer_menu)
-    # Счетчик объявлений больше не уменьшается - размещение всегда бесплатно
+    
+    # Уменьшаем счетчик объявлений
+    await customer.update_abs_count(abs_count=customer.abs_count - 1)
 
     # Подготавливаем текст для рассылки
     text_for_workers = (f'{work}\n\n'
@@ -1891,8 +1928,6 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     # Используем ID из объекта, а не последнее объявление из списка
     advertisement = new_abs
 
-    # Отправляем уведомления исполнителям о новом объявлении
-    await help_defs.send_targeted_notifications_to_workers(advertisement.id, customer.id)
 
     text = f'Объявление загружено\n\nОбъявление {advertisement.id}\n\n' + text
 
@@ -1901,7 +1936,9 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     # Сразу отвечаем пользователю
     await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
     await state.set_state(CustomerStates.customer_menu)
-    # Счетчик объявлений больше не уменьшается - размещение всегда бесплатно
+    
+    # Уменьшаем счетчик объявлений
+    await customer.update_abs_count(abs_count=customer.abs_count - 1)
 
     # Подготавливаем текст для рассылки
     text_for_workers = (f'{work}\n\n'
@@ -2228,6 +2265,12 @@ async def send_contacts_to_worker_from_request(callback: CallbackQuery, state: F
     worker_id = int(parts[1])
     abs_id = int(parts[2])
     
+    # Проверяем, настроены ли контакты у заказчика
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    if not customer.has_contacts():
+        await callback.answer("⚠️ Укажите контакты в разделе: «Мои контакты», чтобы их можно было отправить!", show_alert=True)
+        return
+    
     # Получаем данные
     worker = await Worker.get_worker(id=worker_id)
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
@@ -2267,7 +2310,16 @@ async def send_contacts_to_worker_from_request(callback: CallbackQuery, state: F
         return
     
     # У исполнителя есть купленные контакты - вычитаем контакт и отправляем
-    customer_contacts = f"Telegram: @{customer.tg_name}\nID: {customer.tg_id}"
+    # Формируем контакты в зависимости от настроек заказчика
+    customer_contacts = ""
+    if customer.contact_type == "telegram_only":
+        customer_contacts = f"📱 [Профиль заказчика](tg://user?id={customer.tg_id}) (@{customer.tg_name})"
+    elif customer.contact_type == "phone_only":
+        customer_contacts = f"📞 [Номер телефона](tel:{customer.phone_number}) - {customer.phone_number}"
+    elif customer.contact_type == "both":
+        customer_contacts = f"📱 [Профиль заказчика](tg://user?id={customer.tg_id}) (@{customer.tg_name})\n📞 [Номер телефона](tel:{customer.phone_number}) - {customer.phone_number}"
+    else:
+        customer_contacts = f"📱 [Профиль заказчика](tg://user?id={customer.tg_id}) (@{customer.tg_name})"  # Fallback
     
     # Вычитаем контакт из лимита (если не безлимитный)
     if worker.unlimited_contacts_until:
@@ -2288,7 +2340,8 @@ async def send_contacts_to_worker_from_request(callback: CallbackQuery, state: F
             await bot.send_message(
                 chat_id=worker.tg_id,
                 text=message_text,
-                reply_markup=kbc.menu()
+                reply_markup=kbc.menu(),
+                parse_mode='Markdown'
             )
         
             # Уведомляем заказчика
@@ -2359,6 +2412,12 @@ async def send_contacts_to_worker_new(callback: CallbackQuery, state: FSMContext
     worker_id = int(parts[1])
     abs_id = int(parts[2])
     
+    # Проверяем, настроены ли контакты у заказчика
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    if not customer.has_contacts():
+        await callback.answer("⚠️ Укажите контакты в разделе: «Мои контакты», чтобы их можно было отправить!", show_alert=True)
+        return
+    
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     if not customer:
         await callback.answer("Ошибка: заказчик не найден", show_alert=True)
@@ -2376,7 +2435,16 @@ async def send_contacts_to_worker_new(callback: CallbackQuery, state: FSMContext
         return
     
     # Отправляем контакты заказчика исполнителю
-    customer_contacts = f"Telegram: @{customer.tg_name}\nID: {customer.tg_id}"
+    # Формируем контакты в зависимости от настроек заказчика
+    customer_contacts = ""
+    if customer.contact_type == "telegram_only":
+        customer_contacts = f"📱 [Профиль заказчика](tg://user?id={customer.tg_id}) (@{customer.tg_name})"
+    elif customer.contact_type == "phone_only":
+        customer_contacts = f"📞 [Номер телефона](tel:{customer.phone_number}) - {customer.phone_number}"
+    elif customer.contact_type == "both":
+        customer_contacts = f"📱 [Профиль заказчика](tg://user?id={customer.tg_id}) (@{customer.tg_name})\n📞 [Номер телефона](tel:{customer.phone_number}) - {customer.phone_number}"
+    else:
+        customer_contacts = f"📱 [Профиль заказчика](tg://user?id={customer.tg_id}) (@{customer.tg_name})"  # Fallback
     
     try:
         # Используем унифицированную функцию для обработки обмена контактами
@@ -2415,6 +2483,12 @@ async def send_contacts_to_worker(callback: CallbackQuery, state: FSMContext) ->
     parts = callback.data.split('_')
     worker_id = int(parts[1])
     abs_id = int(parts[2])
+    
+    # Проверяем, настроены ли контакты у заказчика
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    if not customer.has_contacts():
+        await callback.answer("⚠️ Укажите контакты в разделе: «Мои контакты», чтобы их можно было отправить!", show_alert=True)
+        return
     
     # Получаем данные
     worker = await Worker.get_worker(id=worker_id)
@@ -2905,6 +2979,244 @@ async def update_worker_rank_instantly(worker: Worker):
         
     except Exception as e:
         logger.error(f'update_worker_rank_instantly: Error updating rank for worker {worker.id} - {e}')
+
+
+# ========== ОБРАБОТЧИКИ ДЛЯ КОНТАКТОВ ЗАКАЗЧИКА ==========
+
+@router.callback_query(F.data == 'customer_contacts', CustomerStates.customer_menu)
+async def customer_contacts_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    """Меню контактов заказчика"""
+    logger.debug(f'customer_contacts_menu...')
+    
+    kbc = KeyboardCollection()
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    if customer.has_contacts():
+        # Контакты уже настроены - показываем текущие контакты
+        contact_info = customer.get_contact_info()
+        text = f"Ваши контакты:\n\n{contact_info}"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_display_menu(),
+            parse_mode='Markdown'
+        )
+    else:
+        # Контакты не настроены - показываем меню выбора
+        text = "Здесь вы можете указать, какие контакты будут отправлены исполнителю:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_menu()
+        )
+    
+    await state.set_state(CustomerStates.customer_contacts)
+
+
+@router.callback_query(F.data == 'contact_telegram_only', CustomerStates.customer_contacts)
+async def set_telegram_only_contacts(callback: CallbackQuery, state: FSMContext) -> None:
+    """Установка только профиля Telegram"""
+    logger.debug(f'set_telegram_only_contacts...')
+    
+    kbc = KeyboardCollection()
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    await customer.update_contacts(contact_type="telegram_only")
+    
+    text = "✅ Ваши контакты сохранены! Исполнители будут получать только ваш профиль Telegram 📱"
+    
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.menu_customer_keyboard()
+    )
+    
+    await state.set_state(CustomerStates.customer_menu)
+
+
+@router.callback_query(F.data == 'contact_add_phone', CustomerStates.customer_contacts)
+async def request_phone_number(callback: CallbackQuery, state: FSMContext) -> None:
+    """Запрос номера телефона"""
+    logger.debug(f'request_phone_number...')
+    
+    kbc = KeyboardCollection()
+    
+    text = "Пожалуйста, введите номер телефона в формате +7XXXXXXXXXX"
+    
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.customer_contacts_back_menu()
+    )
+    
+    await state.update_data(contact_type="phone_only")
+    await state.set_state(CustomerStates.customer_contacts_phone_input)
+
+
+@router.callback_query(F.data == 'contact_both', CustomerStates.customer_contacts)
+async def request_phone_number_both(callback: CallbackQuery, state: FSMContext) -> None:
+    """Запрос номера телефона для обоих вариантов"""
+    logger.debug(f'request_phone_number_both...')
+    
+    kbc = KeyboardCollection()
+    
+    text = "Пожалуйста, введите номер телефона в формате +7XXXXXXXXXX"
+    
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.customer_contacts_back_menu()
+    )
+    
+    await state.update_data(contact_type="both")
+    await state.set_state(CustomerStates.customer_contacts_phone_input)
+
+
+@router.message(CustomerStates.customer_contacts_phone_input)
+async def process_phone_number(message: Message, state: FSMContext) -> None:
+    """Обработка введенного номера телефона"""
+    logger.debug(f'process_phone_number...')
+    
+    kbc = KeyboardCollection()
+    phone_number = message.text.strip()
+    
+    # Простая валидация номера телефона
+    import re
+    if not re.match(r'^\+7\d{10}$', phone_number):
+        await message.answer(
+            "❌ Неверный формат номера. Пожалуйста, введите номер в формате +7XXXXXXXXXX",
+            reply_markup=kbc.customer_contacts_back_menu()
+        )
+        return
+    
+    # Получаем тип контактов из состояния
+    data = await state.get_data()
+    contact_type = data.get('contact_type', 'phone_only')
+    
+    customer = await Customer.get_customer(tg_id=message.chat.id)
+    await customer.update_contacts(contact_type=contact_type, phone_number=phone_number)
+    
+    # Формируем сообщение в зависимости от типа контактов
+    if contact_type == "phone_only":
+        text = f"✅ Ваши контакты сохранены! Исполнители будут получать: номер (который вы указали) 📞"
+    else:  # both
+        text = f"✅ Ваши контакты сохранены! Исполнители будут получать: профиль Telegram и номер (который вы указали) 📱📞"
+    
+    await message.answer(
+        text=text,
+        reply_markup=kbc.menu_customer_keyboard()
+    )
+    
+    await state.set_state(CustomerStates.customer_menu)
+
+
+@router.callback_query(F.data == 'edit_contacts', CustomerStates.customer_contacts)
+async def edit_contacts_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    """Меню редактирования контактов"""
+    logger.debug(f'edit_contacts_menu...')
+    
+    kbc = KeyboardCollection()
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    text = "Выберите, что хотите изменить:"
+    
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.customer_contacts_edit_menu(customer.contact_type)
+    )
+
+
+@router.callback_query(F.data == 'edit_telegram_only', CustomerStates.customer_contacts)
+async def edit_to_telegram_only(callback: CallbackQuery, state: FSMContext) -> None:
+    """Изменение контактов на только Telegram"""
+    logger.debug(f'edit_to_telegram_only...')
+    
+    kbc = KeyboardCollection()
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    await customer.update_contacts(contact_type="telegram_only", phone_number=None)
+    
+    text = "✅ Контакты изменены! Теперь исполнители будут получать только ваш профиль Telegram 📱"
+    
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.customer_contacts_display_menu()
+    )
+
+
+@router.callback_query(F.data == 'edit_phone_only', CustomerStates.customer_contacts)
+async def edit_to_phone_only(callback: CallbackQuery, state: FSMContext) -> None:
+    """Изменение контактов на только номер телефона"""
+    logger.debug(f'edit_to_phone_only...')
+    
+    kbc = KeyboardCollection()
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    # Если у заказчика уже есть номер, используем его, иначе запрашиваем новый
+    if customer.phone_number:
+        await customer.update_contacts(contact_type="phone_only")
+        text = "✅ Контакты изменены! Теперь исполнители будут получать только номер телефона 📞"
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_display_menu()
+        )
+    else:
+        text = "Введите новый номер телефона в формате +7XXXXXXXXXX"
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_back_menu()
+        )
+        await state.update_data(contact_type="phone_only")
+        await state.set_state(CustomerStates.customer_contacts_phone_input)
+
+
+@router.callback_query(F.data == 'edit_both', CustomerStates.customer_contacts)
+async def edit_to_both(callback: CallbackQuery, state: FSMContext) -> None:
+    """Изменение контактов на Telegram и номер"""
+    logger.debug(f'edit_to_both...')
+    
+    kbc = KeyboardCollection()
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    # Если у заказчика уже есть номер, используем его, иначе запрашиваем новый
+    if customer.phone_number:
+        await customer.update_contacts(contact_type="both")
+        text = "✅ Контакты изменены! Теперь исполнители будут получать: профиль Telegram и номер 📱📞"
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_display_menu()
+        )
+    else:
+        text = "Введите новый номер телефона в формате +7XXXXXXXXXX"
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_back_menu()
+        )
+        await state.update_data(contact_type="both")
+        await state.set_state(CustomerStates.customer_contacts_phone_input)
+
+
+@router.callback_query(F.data == 'confirm_delete_phone', CustomerStates.customer_contacts)
+async def confirm_delete_phone(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтверждение удаления номера телефона"""
+    logger.debug(f'confirm_delete_phone...')
+    
+    kbc = KeyboardCollection()
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    await customer.update_contacts(contact_type="telegram_only", phone_number=None)
+    
+    text = "✅ Номер удален успешно! Теперь исполнители будут получать только ваш профиль Telegram! 📱"
+    
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.customer_contacts_back_menu()
+    )
+
+
+# ========== ПРОВЕРКА КОНТАКТОВ ПРИ ОТПРАВКЕ ИСПОЛНИТЕЛЮ ==========
+
+async def check_customer_contacts(customer_id: int) -> bool:
+    """Проверяет, настроены ли контакты у заказчика"""
+    customer = await Customer.get_customer(id=customer_id)
+    return customer.has_contacts() if customer else False
 
 
 #  _    _        _      _____              _

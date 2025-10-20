@@ -221,9 +221,8 @@ class KeyboardCollection:
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text="Разместить объявление", callback_data="create_new_abs"))
         builder.add(self._inline(button_text="Мои объявления", callback_data="my_abs"))
-        # Кнопка оплаты размещения убрана - размещение всегда бесплатно
-        # if btn_bue:
-        #     builder.add(self._inline(button_text="Оплатить размещение", callback_data="add_orders"))
+        builder.add(self._inline(button_text="Мои контакты", callback_data="customer_contacts"))
+        builder.add(self._inline(button_text="Купить объявления", callback_data="add_orders"))
         builder.add(self._inline(button_text="Сменить город", callback_data="customer_change_city"))
         builder.adjust(1)
         return builder.as_markup()
@@ -1046,6 +1045,67 @@ class KeyboardCollection:
         else:
             builder.add(self._inline(button_text="⬅️ Назад к объявлениям", 
                                      callback_data="worker_menu"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    # ========== КЛАВИАТУРЫ ДЛЯ КОНТАКТОВ ЗАКАЗЧИКА ==========
+    
+    def customer_contacts_menu(self) -> InlineKeyboardMarkup:
+        """Меню выбора типа контактов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="📱 Профиль Telegram", callback_data="contact_telegram_only"))
+        builder.add(self._inline(button_text="📞 Добавить номер", callback_data="contact_add_phone"))
+        builder.add(self._inline(button_text="📱📞 Профиль Telegram и номер", callback_data="contact_both"))
+        builder.add(self._inline(button_text="◀️ Назад", callback_data="customer_menu"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def customer_contacts_edit_menu(self, contact_type: str) -> InlineKeyboardMarkup:
+        """Меню редактирования контактов в зависимости от текущего типа"""
+        builder = InlineKeyboardBuilder()
+        
+        if contact_type == "telegram_only":
+            builder.add(self._inline(button_text="📞 Добавить номер (убрав профиль telegram)", 
+                                     callback_data="edit_phone_only"))
+            builder.add(self._inline(button_text="📞 Добавить номер (оставив профиль telegram)", 
+                                     callback_data="edit_both"))
+        elif contact_type == "phone_only":
+            builder.add(self._inline(button_text="📱 Изменить номер (добавив профиль telegram)", 
+                                     callback_data="edit_both"))
+            builder.add(self._inline(button_text="📱 Удалить номер (оставив профиль telegram)", 
+                                     callback_data="edit_telegram_only"))
+        elif contact_type == "both":
+            builder.add(self._inline(button_text="📞 Изменить номер (оставив профиль telegram)", 
+                                     callback_data="edit_both"))
+            builder.add(self._inline(button_text="📞 Изменить номер (убрав профиль telegram)", 
+                                     callback_data="edit_phone_only"))
+            builder.add(self._inline(button_text="📱 Удалить номер (оставив профиль telegram)", 
+                                     callback_data="edit_telegram_only"))
+        
+        builder.add(self._inline(button_text="◀️ Назад", callback_data="customer_contacts"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def customer_contacts_display_menu(self) -> InlineKeyboardMarkup:
+        """Меню отображения текущих контактов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✏️ Редактировать", callback_data="edit_contacts"))
+        builder.add(self._inline(button_text="◀️ Назад", callback_data="customer_menu"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def customer_contacts_back_menu(self) -> InlineKeyboardMarkup:
+        """Кнопка назад в меню контактов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="◀️ Назад", callback_data="customer_contacts"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def customer_contacts_confirm_delete(self) -> InlineKeyboardMarkup:
+        """Подтверждение удаления номера"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Да", callback_data="confirm_delete_phone"))
+        builder.add(self._inline(button_text="❌ Отмена", callback_data="customer_contacts"))
         builder.adjust(1)
         return builder.as_markup()
 
