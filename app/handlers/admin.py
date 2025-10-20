@@ -23,7 +23,19 @@ router.message.filter(F.from_user.id != F.bot.id)
 logger = logging.getLogger()
 
 # Simple in-memory cache for admin summary
-_admin_summary_cache = {"data": None, "ts": 0.0, "ttl": 10.0}
+_admin_summary_cache = {"data": None, "ts": 0.0, "ttl": 60.0}  # Кеш на 30 секунд
+
+def clear_admin_cache():
+    """Очищает кеш админской аналитики"""
+    global _admin_summary_cache
+    _admin_summary_cache = {"data": None, "ts": 0.0, "ttl": 60.0}
+
+def is_cache_valid():
+    """Проверяет валидность кеша"""
+    import time
+    current_time = time.time()
+    return (_admin_summary_cache["data"] is not None and 
+            current_time - _admin_summary_cache["ts"] < _admin_summary_cache["ttl"])
 
 
 @router.callback_query(F.data == 'menu', StateFilter(AdminStates.menu, UserStates.menu, AdminStates.edit_stop_words, AdminStates.unblock_user, AdminStates.block_user, AdminStates.check_subscription, AdminStates.edit_subscription, AdminStates.get_customer, AdminStates.get_worker, AdminStates.check_abs, AdminStates.check_banned_abs, AdminStates.get_user, AdminStates.send_to_user))
@@ -31,32 +43,131 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug('admin_menu...')
     kbc = KeyboardCollection()
 
-    customers = await Customer.get_all()
-    workers = await Worker.get_all()
-    banned_users = await Banned.get_all()
-    admin = await Admin.get_by_tg_id(callback.message.chat.id)
-    users = []
+    # Проверяем кеш
+    if is_cache_valid():
+        # Используем данные из кеша
+        cached_data = _admin_summary_cache["data"]
+        len_users = cached_data.get("len_users", 0)
+        len_customer = cached_data.get("len_customer", 0)
+        len_worker = cached_data.get("len_worker", 0)
+        len_banned_users = cached_data.get("len_banned_users", 0)
+        len_advertisement = cached_data.get("len_advertisement", 0)
+        len_banned_advertisement = cached_data.get("len_banned_advertisement", 0)
+        
+        # Проверяем наличие admin в кеше, если нет - загружаем заново
+        if "admin" in cached_data:
+            admin = cached_data["admin"]
+        else:
+            admin = await Admin.get_by_tg_id(callback.message.chat.id)
+        
+        logger.debug('Using cached admin summary data')
+    else:
+        # Загружаем свежие данные
+        logger.debug('Loading fresh admin summary data')
+        try:
+            # Получаем админа
+            admin = await Admin.get_by_tg_id(callback.message.chat.id)
+            logger.debug(f"Admin loaded: {admin.id if admin else 'None'}")
+            
+            # Используем оптимизированные COUNT запросы вместо загрузки всех данных
+            import aiosqlite
+            
+            async with aiosqlite.connect(database='app/data/database/database.db') as conn:
+                logger.debug("Connected to database")
+                
+                # Подсчет заказчиков (проверяем существование таблицы)
+                try:
+                    cursor = await conn.execute('SELECT COUNT(*) FROM customers')
+                    len_customer = (await cursor.fetchone())[0]
+                    logger.debug(f"Customers count: {len_customer}")
+                except Exception as e:
+                    logger.warning(f"Таблица customers не найдена: {e}")
+                    len_customer = 0
+                
+                # Подсчет исполнителей (проверяем существование таблицы)
+                try:
+                    cursor = await conn.execute('SELECT COUNT(*) FROM workers')
+                    len_worker = (await cursor.fetchone())[0]
+                    logger.debug(f"Workers count: {len_worker}")
+                except Exception as e:
+                    logger.warning(f"Таблица workers не найдена: {e}")
+                    len_worker = 0
+                
+                # Подсчет уникальных пользователей (заказчики, которые не являются исполнителями)
+                try:
+                    cursor = await conn.execute('''
+                        SELECT COUNT(*) FROM customers c 
+                        WHERE c.tg_id NOT IN (SELECT w.tg_id FROM workers w WHERE w.tg_id IS NOT NULL)
+                    ''')
+                    unique_customers = (await cursor.fetchone())[0]
+                    len_users = len_worker + unique_customers
+                    logger.debug(f"Unique customers: {unique_customers}, Total users: {len_users}")
+                except Exception as e:
+                    logger.warning(f"Ошибка при подсчете уникальных пользователей: {e}")
+                    len_users = len_worker + len_customer
+                
+                # Подсчет заблокированных пользователей (проверяем существование таблицы)
+                try:
+                    cursor = await conn.execute('''
+                        SELECT COUNT(*) FROM banned 
+                        WHERE ban_now = 1 OR forever = 1
+                    ''')
+                    len_banned_users = (await cursor.fetchone())[0]
+                    logger.debug(f"Banned users count: {len_banned_users}")
+                except Exception as e:
+                    logger.warning(f"Таблица banned не найдена: {e}")
+                    len_banned_users = 0
+                
+                # Подсчет объявлений (проверяем существование таблицы)
+                try:
+                    cursor = await conn.execute('SELECT COUNT(*) FROM abs')
+                    len_advertisement = (await cursor.fetchone())[0]
+                    logger.debug(f"Ads count: {len_advertisement}")
+                except Exception as e:
+                    logger.warning(f"Таблица abs не найдена: {e}")
+                    len_advertisement = 0
+                
+                # Подсчет заблокированных объявлений (проверяем существование таблицы)
+                try:
+                    cursor = await conn.execute('SELECT COUNT(*) FROM banned_abs')
+                    len_banned_advertisement = (await cursor.fetchone())[0]
+                    logger.debug(f"Banned ads count: {len_banned_advertisement}")
+                except Exception as e:
+                    logger.warning(f"Таблица banned_abs не найдена: {e}")
+                    len_banned_advertisement = 0
+                
+                await cursor.close()
+                logger.debug("Database connection closed")
 
-    users += workers
-    for customer in customers:
-        if await Worker.get_worker(tg_id=customer.tg_id) is None:
-            users.append(customer)
-
-    banned_now = []
-    len_banned_users = 0
-    if banned_users:
-        for banned in banned_users:
-            if banned.ban_now or banned.forever:
-                banned_now.append(banned)
-        len_banned_users = len(banned_now)
-
-    len_worker = len(workers) if workers else 0
-    len_customer = len(customers) if customers else 0
-    advertisement = await Abs.get_all()
-    banned_advertisement = await BannedAbs.get_all()
-    len_banned_advertisement = len(banned_advertisement) if banned_advertisement else 0
-    len_advertisement = len(advertisement) if advertisement else 0
-    len_users = len(users) if users else 0
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке аналитики: {e}")
+            logger.error(f"Тип ошибки: {type(e).__name__}")
+            logger.error(f"Детали ошибки: {str(e)}")
+            
+            # В случае ошибки, не используем кеш и загружаем данные заново
+            clear_admin_cache()
+            
+            # Fallback к простым значениям в случае ошибки
+            len_users = 0
+            len_customer = 0
+            len_worker = 0
+            len_banned_users = 0
+            len_advertisement = 0
+            len_banned_advertisement = 0
+            admin = await Admin.get_by_tg_id(callback.message.chat.id)
+        
+        # Сохраняем в кеш
+        import time
+        _admin_summary_cache["data"] = {
+            "len_users": len_users,
+            "len_customer": len_customer,
+            "len_worker": len_worker,
+            "len_banned_users": len_banned_users,
+            "len_advertisement": len_advertisement,
+            "len_banned_advertisement": len_banned_advertisement,
+            "admin": admin
+        }
+        _admin_summary_cache["ts"] = time.time()
 
     text = (f'Меню\n\n'
             f'Всего пользователей: {len_users}\n'
@@ -71,6 +182,87 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminStates.menu)
     await callback.message.delete()
     await callback.message.answer(text=text, reply_markup=kbc.menu_admin_keyboard())
+
+
+@router.callback_query(F.data == 'refresh_admin_stats', StateFilter(AdminStates.menu))
+async def refresh_admin_stats(callback: CallbackQuery, state: FSMContext) -> None:
+    """Принудительное обновление статистики админа"""
+    logger.debug('refresh_admin_stats...')
+    
+    # Очищаем кеш
+    clear_admin_cache()
+    
+    # Показываем сообщение об обновлении
+    await callback.answer("🔄 Статистика обновлена!", show_alert=True)
+    
+    # Вызываем admin_menu для перезагрузки данных
+    await admin_menu(callback, state)
+
+
+@router.callback_query(F.data == 'edit_order_price', StateFilter(AdminStates.menu))
+async def edit_order_price(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик для изменения цены объявлений"""
+    logger.debug('edit_order_price...')
+    kbc = KeyboardCollection()
+    
+    admin = await Admin.get_by_tg_id(callback.message.chat.id)
+    
+    text = f'💰 **Управление ценой объявлений**\n\n'
+    text += f'Текущая цена: {admin.order_price}₽\n\n'
+    text += f'Введите новую цену в рублях:'
+    
+    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'), parse_mode='Markdown')
+    await state.set_state(AdminStates.edit_order_price)
+    await state.update_data(msg_id=msg.message_id)
+
+
+@router.message(F.text, StateFilter(AdminStates.edit_order_price))
+async def process_order_price(message: Message, state: FSMContext) -> None:
+    """Обработка введенной цены объявлений"""
+    logger.debug('process_order_price...')
+    kbc = KeyboardCollection()
+    
+    state_data = await state.get_data()
+    msg_id = state_data.get('msg_id')
+    
+    try:
+        new_price = int(message.text)
+        if new_price <= 0:
+            raise ValueError("Цена должна быть положительным числом")
+        
+        # Получаем админа и обновляем цену
+        admin = await Admin.get_by_tg_id(message.chat.id)
+        await admin.update(order_price=new_price)
+        
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        await message.answer(
+            text=f'✅ **Цена объявлений успешно изменена!**\n\n'
+                 f'💰 Новая цена: {new_price}₽',
+            reply_markup=kbc.admin_back_btn('menu'),
+            parse_mode='Markdown'
+        )
+        await state.set_state(AdminStates.menu)
+        
+    except ValueError as e:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        await message.answer(
+            text=f'❌ **Ошибка!**\n\n'
+                 f'Пожалуйста, введите корректную цену (положительное число).\n'
+                 f'Например: 50, 100, 150',
+            reply_markup=kbc.admin_back_btn('menu'),
+            parse_mode='Markdown'
+        )
+        await state.set_state(AdminStates.edit_order_price)
+    except Exception as e:
+        logger.error(f"Ошибка при изменении цены объявлений: {e}")
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        await message.answer(
+            text='❌ **Произошла ошибка!**\n\n'
+                 'Попробуйте еще раз или обратитесь к разработчику.',
+            reply_markup=kbc.admin_back_btn('menu'),
+            parse_mode='Markdown'
+        )
+        await state.set_state(AdminStates.menu)
 
 
 @router.callback_query(F.data == 'edit_subscription', StateFilter(AdminStates.menu))

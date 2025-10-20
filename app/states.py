@@ -141,6 +141,7 @@ class AdminStates(StatesGroup):
     msg_to_worker_photo_ref = State()
     edit_subscription_price = State()
     edit_subscription_order = State()
+    edit_order_price = State()  # Состояние для изменения цены объявлений
     check_abs = State()
     check_banned_abs = State()
     add_comment_to_lock = State()

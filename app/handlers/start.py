@@ -226,55 +226,24 @@ async def apply_user_agreement(callback: CallbackQuery, state: FSMContext) -> No
 
 @router.message(Command("admin"))
 async def admin_cmd(message: Message, state: FSMContext) -> None:
-    logger.debug('admin_menu...')
-    kbc = KeyboardCollection()
-
-    admins = await Admin.get_all()
-
-    admins_tg_ids = [admin.tg_id for admin in admins]
-    if message.chat.id not in admins_tg_ids:
+    logger.debug('admin_cmd...')
+    
+    # Проверяем права администратора
+    admin = await Admin.get_by_tg_id(message.chat.id)
+    if not admin:
         await message.answer('У вас недостаточно прав для этой команды')
         return
 
-    customers = await Customer.get_all()
-    workers = await Worker.get_all()
-    banned_users = await Banned.get_all()
-    admin = await Admin.get_by_tg_id(message.chat.id)
-    users = []
-
-    users += workers
-    for customer in customers:
-        if await Worker.get_worker(tg_id=customer.tg_id) is None:
-            users.append(customer)
-
-    banned_now = []
-    len_banned_users = 0
-    if banned_users:
-        for banned in banned_users:
-            if banned.ban_now or banned.forever:
-                banned_now.append(banned)
-        len_banned_users = len(banned_now)
-
-    len_worker = len(workers) if workers else 0
-    len_customer = len(customers) if customers else 0
-    advertisement = await Abs.get_all()
-    banned_advertisement = await BannedAbs.get_all()
-    len_banned_advertisement = len(banned_advertisement) if banned_advertisement else 0
-    len_advertisement = len(advertisement) if advertisement else 0
-    len_users = len(users) if users else 0
-
-    text = (f'Меню\n\n'
-            f'Всего пользователей: {len_users}\n'
-            f'Заказчиков: {len_customer}\n'
-            f'Исполнителей: {len_worker}\n'
-            f'Заблокировано: {len_banned_users}\n'
-            f'Размещено объявлений: {len_advertisement}\n'
-            f'Заблокировано объявлений: {len_banned_advertisement}\n'
-            f'Удалено объявлений: {admin.deleted_abs}\n'
-            f'Выполнено объявлений: {admin.done_abs}')
-
-    await state.set_state(AdminStates.menu)
-    await message.answer(text=text, reply_markup=kbc.menu_admin_keyboard())
+    # Используем оптимизированный код - создаем fake callback для вызова admin_menu
+    class FakeCallback:
+        def __init__(self, message):
+            self.message = message
+    
+    fake_callback = FakeCallback(message)
+    
+    # Импортируем и вызываем оптимизированную функцию admin_menu
+    from app.handlers.admin import admin_menu
+    await admin_menu(fake_callback, state)
 
 
 @router.callback_query(F.data == 'apply_and_continue',

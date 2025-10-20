@@ -105,6 +105,8 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Редактировать списки стоп слов", callback_data="menu_admin_stop_words"))
         builder.add(self._inline(button_text="Работа с пользователями", callback_data="edit_user"))
         builder.add(self._inline(button_text="Редактировать подписки", callback_data="edit_subscription"))
+        builder.add(self._inline(button_text="Изменить цену объявлений", callback_data="edit_order_price"))
+        builder.add(self._inline(button_text="🔄 Обновить статистику", callback_data="refresh_admin_stats"))
         builder.adjust(1)
         return builder.as_markup()
 
