@@ -1631,7 +1631,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     text_for_workers = f'Объявление {advertisement.id}\n\n' + text_for_workers
 
     # Отправляем в лог-канал
-    text2 = f'ID пользователя: #{customer.tg_id}\n\nОбъявление {advertisement.id}\n\n' + text_for_workers
+    text2 = f'ID пользователя: #{customer.tg_id}\n\n' + text_for_workers
     await bot.send_message(chat_id=config.ADVERTISEMENT_LOG,
                            text=text2,
                            protect_content=False,
@@ -1643,7 +1643,9 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
             advertisement_id=advertisement.id,
             city_id=customer.city_id,
             work_type_id=int(work_type_id),
-            text=text_for_workers
+            text=text_for_workers,
+            photo_path=None,
+            photos_len=0
         )
     )
 
@@ -1951,7 +1953,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     text_for_workers = f'Объявление {advertisement.id}\n\n' + text_for_workers
 
     # Отправляем в лог-канал
-    text2 = f'ID пользователя: #{customer.tg_id}\n\nОбъявление {advertisement.id}\n\n' + text_for_workers
+    text2 = f'ID пользователя: #{customer.tg_id}\n\n' + text_for_workers
     await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG, caption=text2, photo=FSInputFile(photos['0']), protect_content=False,
                            reply_markup=kbc.block_abs_log(advertisement.id, photo_num=0, photo_len=photos_len))
 
@@ -2178,7 +2180,11 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
     try:
         kbc = KeyboardCollection()
         
-        if photo_path and photos_len > 0:
+        logger.info(f'[DEBUG] send_single_message_to_worker: worker_id={worker.tg_id}, advertisement_id={advertisement_id}')
+        logger.info(f'[DEBUG] Photo check: photo_path={photo_path}, photos_len={photos_len}, has_key_0={"0" in photo_path if photo_path else False}')
+        
+        if photo_path and photos_len > 0 and '0' in photo_path:
+            logger.info(f'[DEBUG] Sending photo to worker {worker.tg_id}')
             await bot.send_photo(
                 chat_id=worker.tg_id,
                 photo=FSInputFile(photo_path['0']),
@@ -2186,6 +2192,7 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
                 reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_id)
             )
         else:
+            logger.info(f'[DEBUG] Sending text message to worker {worker.tg_id}')
             await bot.send_message(
                 chat_id=worker.tg_id,
                 text=text,
@@ -2218,6 +2225,7 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
     try:
         # Записываем в файл логов
         logger.info(f'[DEBUG] Starting send_to_workers_background: city_id={city_id}, work_type_id={work_type_id}, advertisement_id={advertisement_id}')
+        logger.info(f'[DEBUG] Photo params: photo_path={photo_path}, photos_len={photos_len}')
         
         # Используем оптимизированный метод для получения исполнителей
         workers = await Worker.get_active_workers_for_advertisement(city_id, work_type_id)
@@ -3217,6 +3225,181 @@ async def check_customer_contacts(customer_id: int) -> bool:
     """Проверяет, настроены ли контакты у заказчика"""
     customer = await Customer.get_customer(id=customer_id)
     return customer.has_contacts() if customer else False
+
+
+# ========== ПРОСМОТР ПОРТФОЛИО ИСПОЛНИТЕЛЯ ЗАКАЗЧИКОМ ==========
+
+@router.callback_query(lambda c: c.data.startswith('worker-portfolio_'))
+async def customer_view_worker_portfolio(callback: CallbackQuery, state: FSMContext):
+    """Заказчик просматривает портфолио исполнителя"""
+    try:
+        # worker-portfolio_{worker_id}_{abs_id}
+        parts = callback.data.split('_')
+        logger.info(f"[CUSTOMER_PORTFOLIO] Callback data: {callback.data}, parts: {parts}")
+        
+        if len(parts) < 3:
+            logger.error(f"[CUSTOMER_PORTFOLIO] Invalid callback data format: {callback.data}")
+            await callback.answer("❌ Неверный формат данных", show_alert=True)
+            return
+            
+        worker_id = int(parts[1])
+        abs_id = int(parts[2])
+        
+        logger.info(f"[CUSTOMER_PORTFOLIO] Customer {callback.from_user.id} viewing portfolio: worker_id={worker_id}, abs_id={abs_id}")
+        
+        customer = await Customer.get_customer(tg_id=callback.from_user.id)
+        if not customer:
+            await callback.answer("❌ Заказчик не найден", show_alert=True)
+            return
+        
+        worker = await Worker.get_worker(id=worker_id)
+        if not worker:
+            await callback.answer("❌ Исполнитель не найден", show_alert=True)
+            return
+        
+        # Проверяем, что заказчик имеет доступ к этому объявлению
+        advertisement = await Abs.get_one(id=abs_id)
+        if not advertisement or advertisement.customer_id != customer.id:
+            await callback.answer("❌ Доступ запрещен", show_alert=True)
+            return
+        
+        # Проверяем наличие портфолио
+        if not worker.portfolio_photo or len(worker.portfolio_photo) == 0:
+            await callback.answer("❌ У исполнителя нет портфолио", show_alert=True)
+            return
+        
+        # Показываем первое фото из портфолио
+        from aiogram.types import FSInputFile
+        kbc = KeyboardCollection()
+        
+        photo_len = len(worker.portfolio_photo)
+        first_photo_path = worker.portfolio_photo['0']
+        
+        text = f"📸 **Портфолио исполнителя**\n\n"
+        text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'}\n"
+        text += f"📋 **Имя:** {worker.profile_name or worker.tg_name}\n"
+        text += f"🖼️ **Фото в портфолио:** {photo_len}\n\n"
+        text += f"Фото 1 из {photo_len}"
+        
+        try:
+            # Всегда отправляем новое сообщение с фото портфолио
+            await callback.message.answer_photo(
+                photo=FSInputFile(first_photo_path),
+                caption=text,
+                reply_markup=kbc.worker_portfolio_1(
+                    worker_id=worker_id,
+                    abs_id=abs_id,
+                    photo_num=0,
+                    photo_len=photo_len
+                ),
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logger.error(f"Error sending portfolio photo: {e}")
+            await callback.answer("❌ Ошибка при загрузке фото", show_alert=True)
+        
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error in customer_view_worker_portfolio: {e}")
+        await callback.answer("❌ Произошла ошибка при просмотре портфолио", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith('go-to-portfolio_') and len(c.data.split('_')) == 4)
+async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSMContext):
+    """Навигация по портфолио исполнителя заказчиком"""
+    try:
+        # go-to-portfolio_{photo_num}_{worker_id}_{abs_id}
+        parts = callback.data.split('_')
+        logger.info(f"[CUSTOMER_PORTFOLIO_NAV] Callback data: {callback.data}, parts: {parts}")
+        
+        if len(parts) < 4:
+            logger.error(f"[CUSTOMER_PORTFOLIO_NAV] Invalid callback data format: {callback.data}")
+            await callback.answer("❌ Неверный формат данных", show_alert=True)
+            return
+            
+        photo_num = int(parts[1])
+        worker_id = int(parts[2])
+        abs_id = int(parts[3])
+        
+        logger.info(f"[CUSTOMER_PORTFOLIO_NAV] Customer {callback.from_user.id} navigating portfolio: worker_id={worker_id}, abs_id={abs_id}, photo_num={photo_num}")
+        
+        customer = await Customer.get_customer(tg_id=callback.from_user.id)
+        if not customer:
+            await callback.answer("❌ Заказчик не найден", show_alert=True)
+            return
+        
+        worker = await Worker.get_worker(id=worker_id)
+        if not worker:
+            await callback.answer("❌ Исполнитель не найден", show_alert=True)
+            return
+        
+        # Проверяем, что заказчик имеет доступ к этому объявлению
+        advertisement = await Abs.get_one(id=abs_id)
+        if not advertisement or advertisement.customer_id != customer.id:
+            await callback.answer("❌ Доступ запрещен", show_alert=True)
+            return
+        
+        # Проверяем наличие портфолио
+        if not worker.portfolio_photo or len(worker.portfolio_photo) == 0:
+            await callback.answer("❌ У исполнителя нет портфолио", show_alert=True)
+            return
+        
+        photo_len = len(worker.portfolio_photo)
+        
+        # Обработка циклической навигации
+        if photo_num < 0:
+            photo_num = photo_len - 1
+        elif photo_num >= photo_len:
+            photo_num = 0
+        
+        # Показываем фото
+        from aiogram.types import FSInputFile
+        kbc = KeyboardCollection()
+        
+        photo_path = worker.portfolio_photo[str(photo_num)]
+        
+        text = f"📸 **Портфолио исполнителя**\n\n"
+        text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'}\n"
+        text += f"📋 **Имя:** {worker.profile_name or worker.tg_name}\n"
+        text += f"🖼️ **Фото в портфолио:** {photo_len}\n\n"
+        text += f"Фото {photo_num + 1} из {photo_len}"
+        
+        try:
+            await callback.message.edit_media(
+                media=InputMediaPhoto(
+                    media=FSInputFile(photo_path),
+                    caption=text,
+                    parse_mode='Markdown'
+                ),
+                reply_markup=kbc.worker_portfolio_1(
+                    worker_id=worker_id,
+                    abs_id=abs_id,
+                    photo_num=photo_num,
+                    photo_len=photo_len
+                )
+            )
+        except Exception as e:
+            logger.error(f"Error updating portfolio photo: {e}")
+            # Fallback - отправляем новое сообщение
+            await callback.message.delete()
+            await callback.message.answer_photo(
+                photo=FSInputFile(photo_path),
+                caption=text,
+                reply_markup=kbc.worker_portfolio_1(
+                    worker_id=worker_id,
+                    abs_id=abs_id,
+                    photo_num=photo_num,
+                    photo_len=photo_len
+                ),
+                parse_mode='Markdown'
+            )
+        
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error in customer_navigate_worker_portfolio: {e}")
+        await callback.answer("❌ Произошла ошибка при навигации по портфолио", show_alert=True)
 
 
 #  _    _        _      _____              _

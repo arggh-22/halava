@@ -655,7 +655,7 @@ class KeyboardCollection:
             builder.add(self._inline(button_text=f'>',
                                      callback_data=f'go-to-portfolio_{photo_num + 1}_{worker_id}_{abs_id}'))
 
-        builder.add(self._inline(button_text=f'Назад', callback_data=f'customer-response_{worker_id}_{abs_id}'))
+        builder.add(self._inline(button_text=f'Назад', callback_data=f'view_responses_{abs_id}'))
 
         if photo_len > 1:
             builder.adjust(3, 1)
@@ -1204,7 +1204,8 @@ class KeyboardCollection:
     def anonymous_chat_customer_buttons(self, worker_id: int, abs_id: int, 
                                        contact_requested: bool = False,
                                        contact_sent: bool = False,
-                                       contacts_purchased: bool = False) -> InlineKeyboardMarkup:
+                                       contacts_purchased: bool = False,
+                                       has_portfolio: bool = False) -> InlineKeyboardMarkup:
         """Кнопки для анонимного чата заказчика - показывает кнопки в зависимости от состояния контактов"""
         builder = InlineKeyboardBuilder()
         
@@ -1223,6 +1224,11 @@ class KeyboardCollection:
             # Можно предложить контакты
             builder.add(self._inline(button_text="📞 Предложить контакты", 
                                      callback_data=f"offer_contact_share_{worker_id}_{abs_id}"))
+        
+        # Кнопка просмотра портфолио (показываем только если есть портфолио)
+        if has_portfolio:
+            builder.add(self._inline(button_text="📸 Портфолио исполнителя", 
+                                     callback_data=f"worker-portfolio_{worker_id}_{abs_id}"))
         
         # Кнопка отклонения передачи контактов (показываем только если есть что отклонять)
         if contact_requested or contact_sent:

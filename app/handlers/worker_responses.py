@@ -33,11 +33,20 @@ print(f"[WORKER_RESPONSES] Router object: {router}")
 async def safe_edit_or_send(callback: CallbackQuery, text: str, reply_markup=None, parse_mode: str = 'Markdown'):
     """Пытается отредактировать сообщение, если не получается - удаляет и отправляет новое"""
     try:
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode
-        )
+        if callback.message.photo:
+            # Если сообщение содержит фото, редактируем подпись
+            await callback.message.edit_caption(
+                caption=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+        else:
+            # Если сообщение текстовое, редактируем текст
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
     except Exception:
         # Если не получилось (было фото или другая ошибка), удаляем старое и отправляем новое
         try:
@@ -208,10 +217,13 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
         contacts_purchased = contact_exchange and contact_exchange.contacts_purchased
         contacts_sent = contact_exchange and contact_exchange.contacts_sent
         
+        # Проверяем наличие портфолио у исполнителя
+        has_portfolio = worker.portfolio_photo is not None and len(worker.portfolio_photo) > 0
+        
         # Если контакты переданы (куплены), показываем что чат закрыт
         if contacts_purchased:
             text += "\n\n🔒 **Чат закрыт** - контакты переданы.\n\n"
-            text += "ℹ️ Вы сможете оценить исполнителя после завершения срока объявления."
+            text += "ℹ️ Вы сможете оценить исполнителя после закрытия заказа (вручную или по истечении срока актуальности объявления)."
             kbc = KeyboardCollection()
             builder = InlineKeyboardBuilder()
             builder.add(kbc._inline(button_text="◀️ К откликам", 
@@ -259,7 +271,8 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
                             abs_id=abs_id,
                             contact_requested=contact_requested,
                             contact_sent=contacts_sent,
-                            contacts_purchased=contacts_purchased
+                            contacts_purchased=contacts_purchased,
+                            has_portfolio=has_portfolio
                         ),
                         parse_mode='Markdown'
                     )
@@ -272,7 +285,8 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
                             abs_id=abs_id,
                             contact_requested=contact_requested,
                             contact_sent=contacts_sent,
-                            contacts_purchased=contacts_purchased
+                            contacts_purchased=contacts_purchased,
+                            has_portfolio=has_portfolio
                         ),
                         parse_mode='Markdown'
                     )
@@ -284,7 +298,8 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
                         abs_id=abs_id,
                         contact_requested=contacts_sent,
                         contact_sent=contacts_sent,
-                        contacts_purchased=contacts_purchased
+                        contacts_purchased=contacts_purchased,
+                        has_portfolio=has_portfolio
                     ),
                     parse_mode='Markdown'
                 )
@@ -524,10 +539,10 @@ async def initiate_response(callback: CallbackQuery, state: FSMContext):
         await state.update_data(pending_response_abs_id=abs_id)
         await state.set_state(WorkStates.worker_response_chat_rules)
         
-        await callback.message.edit_text(
+        await safe_edit_message(
+            callback=callback,
             text=CHAT_RULES_TEXT,
-            reply_markup=kbc.chat_rules_confirmation(),
-            parse_mode='Markdown'
+            reply_markup=kbc.chat_rules_confirmation()
         )
         
     except Exception as e:
@@ -543,12 +558,12 @@ async def confirm_rules(callback: CallbackQuery, state: FSMContext):
         abs_id = data.get('pending_response_abs_id')
         
         kbc = KeyboardCollection()
-        await callback.message.edit_text(
+        await safe_edit_message(
+            callback=callback,
             text="📝 **Выберите тип отклика:**\n\n"
                  "• Напишите сообщение, чтобы представиться\n"
                  "• Или откликнитесь без сообщения",
-            reply_markup=kbc.response_type_choice(abs_id=abs_id),
-            parse_mode='Markdown'
+            reply_markup=kbc.response_type_choice(abs_id=abs_id)
         )
         
     except Exception as e:
@@ -561,7 +576,8 @@ async def cancel_response(callback: CallbackQuery, state: FSMContext):
     """Отмена отклика"""
     kbc = KeyboardCollection()
     await state.set_state(WorkStates.worker_menu)
-    await callback.message.edit_text(
+    await safe_edit_message(
+        callback=callback,
         text="❌ Отклик отменен",
         reply_markup=kbc.menu()
     )
@@ -644,7 +660,8 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
                 error_text = f"{zone_emoji} {zone_message}\n\nИспользовано откликов сегодня: {responses_today}/{limit}"
             
             await state.set_state(WorkStates.worker_menu)
-            await callback.message.edit_text(
+            await safe_edit_message(
+                callback=callback,
                 text=error_text,
                 reply_markup=kbc.menu()
             )
@@ -694,6 +711,9 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
         
         notification_text += "💬 Исполнитель откликнулся без сообщения."
         
+        # Проверяем наличие портфолио у исполнителя
+        has_portfolio = worker.portfolio_photo is not None and len(worker.portfolio_photo) > 0
+        
         # Отправляем уведомление заказчику с кнопками для взаимодействия
         kbc = KeyboardCollection()
         await send_with_worker_photo(
@@ -705,7 +725,8 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
                 abs_id=abs_id,
                 contact_requested=False,
                 contact_sent=False,
-                contacts_purchased=False
+                contacts_purchased=False,
+                has_portfolio=has_portfolio
             ),
             parse_mode='Markdown'
         )
@@ -713,12 +734,12 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
         # Подтверждение исполнителю
         kbc = KeyboardCollection()
         await state.set_state(WorkStates.worker_menu)
-        await callback.message.edit_text(
+        await safe_edit_message(
+            callback=callback,
             text="✅ **Ваш отклик отправлен!**\n\n"
                  "Заказчик получил уведомление о вашем отклике.\n"
                  "Когда он ответит, вы получите уведомление.",
-            reply_markup=kbc.menu(),
-            parse_mode='Markdown'
+            reply_markup=kbc.menu()
         )
         
     except Exception as e:
@@ -737,11 +758,11 @@ async def response_with_text_prompt(callback: CallbackQuery, state: FSMContext):
         await state.update_data(response_abs_id=abs_id)
         await state.set_state(WorkStates.worker_response_write_text)
         
-        await callback.message.edit_text(
+        await safe_edit_message(
+            callback=callback,
             text="✍️ **Напишите ваше сообщение заказчику:**\n\n"
                  "⚠️ Помните о правилах чата!\n"
-                 "🚫 Нельзя передавать контакты напрямую",
-            parse_mode='Markdown'
+                 "🚫 Нельзя передавать контакты напрямую"
         )
         
     except Exception as e:
@@ -899,6 +920,9 @@ async def process_response_text(message: Message, state: FSMContext):
         
         notification_text += f"💬 **Сообщение:**\n{message.text}"
         
+        # Проверяем наличие портфолио у исполнителя
+        has_portfolio = worker.portfolio_photo is not None and len(worker.portfolio_photo) > 0
+        
         # Отправляем уведомление заказчику с кнопками для взаимодействия
         kbc = KeyboardCollection()
         await send_with_worker_photo(
@@ -910,7 +934,8 @@ async def process_response_text(message: Message, state: FSMContext):
                 abs_id=abs_id,
                 contact_requested=False,
                 contact_sent=False,
-                contacts_purchased=False
+                contacts_purchased=False,
+                has_portfolio=has_portfolio
             ),
             parse_mode='Markdown'
         )

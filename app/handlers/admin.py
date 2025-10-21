@@ -60,6 +60,10 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
         else:
             admin = await Admin.get_by_tg_id(callback.message.chat.id)
         
+        # Получаем данные админа из кеша или загружаем заново
+        deleted_abs = cached_data.get("deleted_abs", admin.deleted_abs if admin else 0)
+        done_abs = cached_data.get("done_abs", admin.done_abs if admin else 0)
+        
         logger.debug('Using cached admin summary data')
     else:
         # Загружаем свежие данные
@@ -165,7 +169,9 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
             "len_banned_users": len_banned_users,
             "len_advertisement": len_advertisement,
             "len_banned_advertisement": len_banned_advertisement,
-            "admin": admin
+            "admin": admin,
+            "deleted_abs": admin.deleted_abs if admin else 0,
+            "done_abs": admin.done_abs if admin else 0
         }
         _admin_summary_cache["ts"] = time.time()
 
@@ -652,8 +658,9 @@ async def send_to_user(message: Message, state: FSMContext) -> None:
         return
 
     await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-    await message.answer('Сообщение пользователю отправлено', reply_markup=kbc.admin_back_btn('get_user'))
+    await message.answer('Сообщение пользователю отправлено', reply_markup=kbc.admin_back_btn('menu'))
     await bot.send_message(chat_id=user_id, text=f'Сообщение от администрации бота: "{msg_to_send}"')
+    await state.set_state(AdminStates.menu)
 
 
 @router.message(F.text, StateFilter(AdminStates.block_user))
@@ -1224,20 +1231,21 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
             "len_users": len_users,
             "deleted_abs": admin.deleted_abs if admin else 0,
             "done_abs": admin.done_abs if admin else 0,
+            "admin": admin
         }
 
         _admin_summary_cache["data"] = summary
         _admin_summary_cache["ts"] = now_ts
 
     text = (f'Меню\n\n'
-            f'Всего пользователей: {summary["len_users"]}\n'
-            f'Заказчиков: {summary["len_customer"]}\n'
-            f'Исполнителей: {summary["len_worker"]}\n'
-            f'Заблокировано: {summary["len_banned_users"]}\n'
-            f'Размещено объявлений: {summary["len_advertisement"]}\n'
-            f'Заблокировано объявлений: {summary["len_banned_advertisement"]}\n'
-            f'Удалено объявлений: {summary["deleted_abs"]}\n'
-            f'Выполнено объявлений: {summary["done_abs"]}\n')
+            f'Всего пользователей: {summary.get("len_users", 0)}\n'
+            f'Заказчиков: {summary.get("len_customer", 0)}\n'
+            f'Исполнителей: {summary.get("len_worker", 0)}\n'
+            f'Заблокировано: {summary.get("len_banned_users", 0)}\n'
+            f'Размещено объявлений: {summary.get("len_advertisement", 0)}\n'
+            f'Заблокировано объявлений: {summary.get("len_banned_advertisement", 0)}\n'
+            f'Удалено объявлений: {summary.get("deleted_abs", 0)}\n'
+            f'Выполнено объявлений: {summary.get("done_abs", 0)}\n')
 
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=text, reply_markup=kbc.menu_admin_keyboard())

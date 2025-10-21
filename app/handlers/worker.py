@@ -1842,52 +1842,8 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
     subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
 
-    # Получаем запись об изменениях направлений
-    from app.data.database.models import WorkerWorkTypeChanges
-    
-    # Создаем таблицу если её нет
-    await WorkerWorkTypeChanges.create_table_if_not_exists()
-    
-    # Получаем или создаем запись для исполнителя
-    work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
-    
-    # Проверяем, может ли исполнитель изменить направления
-    can_change, message = work_type_changes.can_change_work_types()
-    
-    if not can_change:
-        # Показываем сообщение об ограничении с текущими направлениями
-        # Получаем текущие направления
-        selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
-        
-        limit_text = message + "\n\n"
-        
-        if selected_ids:
-            # Показываем текущие направления
-            limit_text += "✅ **Текущие направления:**\n"
-            selected_work_types = await get_worker_selected_work_types(worker_sub)
-            for i, wt in enumerate(selected_work_types, 1):
-                limit_text += f"{i}. {wt.work_type}\n"
-            limit_text += "\n"
-        
-        limit_text += "💡 Вы сможете изменить направления после истечения периода ожидания."
-        
-        try:
-            await callback.message.edit_text(
-                text=limit_text,
-                reply_markup=kbc.menu_btn(),
-                parse_mode='Markdown'
-            )
-        except Exception:
-            try:
-                await callback.message.delete()
-            except Exception:
-                pass
-            await callback.message.answer(
-                text=limit_text,
-                reply_markup=kbc.menu_btn(),
-                parse_mode='Markdown'
-            )
-        return
+    # ИЗМЕНЕНО: Убраны лимиты на изменения направлений
+    # Исполнители могут менять направления без ограничений
 
     # Получаем ранг исполнителя
     from app.data.database.models import WorkerRank
@@ -1916,16 +1872,8 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     text += f"🏆 **Ваш ранг:** {rank.current_rank} {rank.get_rank_name()}\n"
     text += f"📊 Выбрано: {selected_count}/{available_count} {limit_text}\n"
     
-    # Показываем информацию о лимите изменений (всегда)
-    remaining = 3 - work_type_changes.changes_count
-    if work_type_changes.changes_count == 0:
-        text += f"🔄 **Изменений использовано:** 0/3\n"
-        text += f"💡 *Вы можете изменить направления 3 раза*\n"
-    elif remaining > 0:
-        text += f"🔄 **Изменений использовано:** {work_type_changes.changes_count}/3 (осталось: {remaining})\n"
-    else:
-        text += f"❌ **Изменений использовано:** {work_type_changes.changes_count}/3 (лимит исчерпан)\n"
-        text += f"⏰ *Следующее изменение будет доступно через 30 дней*\n"
+    # ИЗМЕНЕНО: Убрана информация о лимитах изменений
+    # Исполнители могут менять направления без ограничений
 
     if selected_count > 0:
         selected_work_types = await get_worker_selected_work_types(worker_sub)
@@ -2042,23 +1990,11 @@ async def remove_work_type(callback: CallbackQuery, state: FSMContext) -> None:
     rank = await WorkerRank.get_or_create_rank(worker.id)
     work_types_limit = rank.get_work_types_limit()
     
-    # Проверяем, можно ли удалять направления
-    if work_type_changes.pending_selection and work_type_changes.changes_count >= 3:
-        # Если pending_selection=True И лимит изменений исчерпан - блокируем удаление
-        await callback.answer(
-            "❌ Нельзя снимать направления! Вы можете только добавлять новые направления до максимального лимита вашего ранга.",
-            show_alert=True
-        )
-        return
+    # ИЗМЕНЕНО: Убрана проверка лимитов изменений
+    # Исполнители могут удалять направления без ограничений
     
-    # Дополнительная проверка: если достигнут максимальный лимит направлений по рангу
-    if work_types_limit is not None and len(current_ids) >= work_types_limit:
-        # Достигнут максимальный лимит - блокируем удаление
-        await callback.answer(
-            f"❌ Нельзя снимать направления! Вы достигли максимального лимита вашего ранга ({work_types_limit} направлений).",
-            show_alert=True
-        )
-        return
+    # ИЗМЕНЕНО: Убрана проверка лимита ранга при удалении направлений
+    # Исполнители могут удалять направления без ограничений
 
     # Удаляем направление
     current_ids = work_type_ids.split('|') if work_type_ids else []
@@ -2091,18 +2027,8 @@ async def clear_all_work_types(callback: CallbackQuery, state: FSMContext) -> No
     logger.debug(f'clear_all_work_types...')
     kbc = KeyboardCollection()
 
-    # Проверяем, можно ли очищать направления
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-    from app.data.database.models import WorkerWorkTypeChanges
-    work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
-
-    if work_type_changes.pending_selection and work_type_changes.changes_count >= 3:
-        # Если pending_selection=True И лимит изменений исчерпан - блокируем очистку
-        await callback.answer(
-            "❌ Нельзя очищать направления! Вы можете только добавлять новые направления до максимального лимита вашего ранга.",
-            show_alert=True
-        )
-        return
+    # ИЗМЕНЕНО: Убрана проверка лимитов изменений
+    # Исполнители могут очищать направления без ограничений
 
     # Очищаем все выбранные направления
     await state.update_data(work_type_ids='')
@@ -2213,16 +2139,8 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
     text += f"🏆 **Ваш ранг:** {rank.current_rank} {rank.get_rank_name()}\n"
     text += f"📊 Выбрано: {selected_count}/{available_count} {limit_text}\n"
     
-    # Показываем информацию о лимите изменений (всегда)
-    remaining = 3 - work_type_changes.changes_count
-    if work_type_changes.changes_count == 0:
-        text += f"🔄 **Изменений использовано:** 0/3\n"
-        text += f"💡 *Вы можете изменить направления 3 раза*\n"
-    elif remaining > 0:
-        text += f"🔄 **Изменений использовано:** {work_type_changes.changes_count}/3 (осталось: {remaining})\n"
-    else:
-        text += f"❌ **Изменений использовано:** {work_type_changes.changes_count}/3 (лимит исчерпан)\n"
-        text += f"⏰ *Следующее изменение будет доступно через 30 дней*\n"
+    # ИЗМЕНЕНО: Убрана информация о лимитах изменений
+    # Исполнители могут менять направления без ограничений
 
     if selected_count > 0:
         selected_work_types = [wt for wt in work_types if str(wt.id) in selected_ids]
@@ -2238,11 +2156,9 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
     elif selected_count == available_count:
         text += f"🎉 Выбрано максимальное количество направлений!"
 
-    # Определяем, заблокировано ли удаление направлений
-    removal_blocked = (
-        (work_type_changes.pending_selection and work_type_changes.changes_count >= 3) or
-        (work_types_limit is not None and selected_count >= work_types_limit)
-    )
+    # ИЗМЕНЕНО: Убрана проверка лимитов изменений и блокировка удаления
+    # Исполнители могут удалять направления без ограничений
+    removal_blocked = False
 
     # Обновляем сообщение
     await callback.message.edit_text(
@@ -2546,26 +2462,15 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
                 else:
                     logger.info(f'[WORK_TYPES] Worker {worker.id}: pending_selection remains True (change but not reached max limit: {current_count}/{work_types_limit})')
             
-            await work_type_changes.register_change()
+            # ИЗМЕНЕНО: Убрана регистрация изменений и уведомления о лимитах
+            # Исполнители могут менять направления без ограничений
             
-            logger.info(f'[WORK_TYPES] Worker {worker.id} registered change. Total changes: {work_type_changes.changes_count}/3')
+            logger.info(f'[WORK_TYPES] Worker {worker.id} work types updated successfully')
             
-            # Если достигли лимита - покажем уведомление
-            if work_type_changes.changes_count >= 3:
-                from datetime import datetime
-                if work_type_changes.reset_date:
-                    reset_date = datetime.strptime(work_type_changes.reset_date, '%Y-%m-%d %H:%M:%S')
-                    days_left = (reset_date - datetime.now()).days + 1
-                    await callback.answer(
-                        f"⚠️ Вы использовали все 3 изменения направлений.\nСледующее изменение будет доступно через {days_left} дней.",
-                        show_alert=True
-                    )
-            else:
-                remaining = 3 - work_type_changes.changes_count
-                await callback.answer(
-                    f"✅ Изменения сохранены!\nОсталось изменений: {remaining}/3",
-                    show_alert=False
-                )
+            await callback.answer(
+                "✅ Изменения сохранены!",
+                show_alert=False
+            )
     else:
         logger.info(f'[WORK_TYPES] Worker {worker.id} exited without changes')
 
