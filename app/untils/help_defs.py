@@ -208,6 +208,67 @@ async def save_photo_var(id: int, path: str = 'app//data//photo//', n: int = 0):
     return path, n
 
 
+async def save_portfolio_photo(user_id: int, photo_key: int):
+    """
+    Сохраняет фото портфолио в правильную структуру папок:
+    app/data/photo/{user_id}/portfolio/{photo_key}.jpg
+    """
+    # Создаем путь для портфолио пользователя
+    portfolio_dir = f'app/data/photo/{user_id}/portfolio'
+    
+    # Создаем папку если не существует
+    if not os.path.exists(portfolio_dir):
+        os.makedirs(portfolio_dir)
+    
+    # Возвращаем путь к папке и имя файла
+    return portfolio_dir, f'{photo_key}.jpg'
+
+
+def migrate_portfolio_to_user_folder(portfolio_dict: dict, user_id: int):
+    """
+    Мигрирует существующие фото портфолио в папку пользователя.
+    Перемещает файлы из общей папки в app/data/photo/{user_id}/portfolio/
+    
+    Args:
+        portfolio_dict: Словарь с путями к фото портфолио
+        user_id: ID пользователя
+        
+    Returns:
+        dict: Обновленный словарь с новыми путями
+    """
+    if not portfolio_dict:
+        return portfolio_dict
+    
+    # Создаем папку для портфолио пользователя
+    portfolio_dir = f'app/data/photo/{user_id}/portfolio'
+    if not os.path.exists(portfolio_dir):
+        os.makedirs(portfolio_dir)
+    
+    new_portfolio = {}
+    
+    for key, old_path in portfolio_dict.items():
+        if os.path.exists(old_path):
+            # Создаем новое имя файла
+            new_filename = f'{key}.jpg'
+            new_path = os.path.join(portfolio_dir, new_filename)
+            
+            try:
+                # Перемещаем файл
+                import shutil
+                shutil.move(old_path, new_path)
+                new_portfolio[key] = new_path
+                logger.info(f"[PORTFOLIO_MIGRATION] Файл перемещен: {old_path} -> {new_path}")
+            except Exception as e:
+                logger.error(f"[PORTFOLIO_MIGRATION] Ошибка перемещения файла {old_path}: {e}")
+                # Если не удалось переместить, оставляем старый путь
+                new_portfolio[key] = old_path
+        else:
+            logger.warning(f"[PORTFOLIO_MIGRATION] Файл не найден: {old_path}")
+            # Если файл не существует, не добавляем его в новый словарь
+    
+    return new_portfolio
+
+
 def delete_file(file_path):
     """
     Безопасно удаляет файл с диска с логированием.
@@ -1074,6 +1135,27 @@ def reorder_dict(d, removed_key):
             continue  # Пропускаем удаляемый ключ
         new_dict[str(index)] = d[key]
         index += 1  # Увеличиваем индекс
+
+    return new_dict, removed_file_path
+
+
+def remove_portfolio_photo(d, removed_key):
+    """
+    Удаляет фото из портфолио без перенумерации ключей.
+    
+    Args:
+        d: Словарь портфолио
+        removed_key: Ключ для удаления
+        
+    Returns:
+        tuple: (новый_словарь, путь_к_удаленному_файлу) или (новый_словарь, None)
+    """
+    if removed_key not in d:
+        return d, None  # Если ключа нет, возвращаем словарь без изменений
+
+    # Создаем копию словаря и удаляем нужный ключ
+    new_dict = d.copy()
+    removed_file_path = new_dict.pop(removed_key, None)
 
     return new_dict, removed_file_path
 

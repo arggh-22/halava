@@ -3273,7 +3273,9 @@ async def customer_view_worker_portfolio(callback: CallbackQuery, state: FSMCont
         kbc = KeyboardCollection()
         
         photo_len = len(worker.portfolio_photo)
-        first_photo_path = worker.portfolio_photo['0']
+        # Получаем первый доступный ключ из словаря портфолио
+        first_photo_key = min(worker.portfolio_photo.keys(), key=int)
+        first_photo_path = worker.portfolio_photo[first_photo_key]
         
         text = f"📸 **Портфолио исполнителя**\n\n"
         text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'}\n"
@@ -3347,17 +3349,23 @@ async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSM
         
         photo_len = len(worker.portfolio_photo)
         
+        # Получаем отсортированные ключи из словаря портфолио
+        sorted_keys = sorted(worker.portfolio_photo.keys(), key=int)
+        
         # Обработка циклической навигации
         if photo_num < 0:
-            photo_num = photo_len - 1
-        elif photo_num >= photo_len:
+            photo_num = len(sorted_keys) - 1
+        elif photo_num >= len(sorted_keys):
             photo_num = 0
+        
+        # Получаем реальный ключ по индексу
+        real_key = sorted_keys[photo_num]
         
         # Показываем фото
         from aiogram.types import FSInputFile
         kbc = KeyboardCollection()
         
-        photo_path = worker.portfolio_photo[str(photo_num)]
+        photo_path = worker.portfolio_photo[real_key]
         
         text = f"📸 **Портфолио исполнителя**\n\n"
         text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'}\n"

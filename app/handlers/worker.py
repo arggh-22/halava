@@ -1,4 +1,5 @@
 import datetime
+import os
 from datetime import timedelta, datetime
 import logging
 from functools import lru_cache
@@ -704,12 +705,23 @@ async def my_portfolio(callback: CallbackQuery, state: FSMContext) -> None:
         pass
 
     if worker.portfolio_photo:
+        # Мигрируем существующие фото в правильную структуру папок
+        logger.info(f"[PORTFOLIO_VIEW] Проверка миграции портфолио...")
+        worker.portfolio_photo = help_defs.migrate_portfolio_to_user_folder(
+            worker.portfolio_photo, 
+            callback.message.chat.id
+        )
+        # Обновляем портфолио в базе данных после миграции
+        await worker.update_portfolio_photo(portfolio_photo=worker.portfolio_photo)
 
         photo_len = len(worker.portfolio_photo)
         logger.debug(f'my_portfolio...{photo_len}')
 
+        # Получаем первый доступный ключ из словаря портфолио
+        first_photo_key = min(worker.portfolio_photo.keys(), key=int)
+        
         await callback.message.answer_photo(
-            photo=FSInputFile(worker.portfolio_photo['0']),
+            photo=FSInputFile(worker.portfolio_photo[first_photo_key]),
             reply_markup=kbc.my_portfolio(
                 photo_len=photo_len,
                 new_photo=True if photo_len < 10 else False
@@ -734,15 +746,22 @@ async def my_portfolio(callback: CallbackQuery) -> None:
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
     photo_len = len(worker.portfolio_photo)
-
+    
+    # Получаем отсортированные ключи из словаря портфолио
+    sorted_keys = sorted(worker.portfolio_photo.keys(), key=int)
+    
+    # Корректируем photo_id для работы с реальными ключами
     if photo_id <= -1:
-        photo_id = photo_len - 1
-    elif photo_id > (photo_len - 1):
+        photo_id = len(sorted_keys) - 1
+    elif photo_id >= len(sorted_keys):
         photo_id = 0
+    
+    # Получаем реальный ключ по индексу
+    real_key = sorted_keys[photo_id]
 
     await callback.message.edit_media(
         media=InputMediaPhoto(
-            media=FSInputFile(worker.portfolio_photo[str(photo_id)])),
+            media=FSInputFile(worker.portfolio_photo[real_key])),
         reply_markup=kbc.my_portfolio(
             photo_num=photo_id,
             photo_len=photo_len,
@@ -759,8 +778,17 @@ async def my_portfolio(callback: CallbackQuery) -> None:
     photo_id = int(callback.data.split('_')[1])
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
+    # Получаем отсортированные ключи из словаря портфолио
+    sorted_keys = sorted(worker.portfolio_photo.keys(), key=int)
+    
+    # Получаем реальный ключ по индексу
+    real_key = sorted_keys[photo_id]
+    
+    logger.info(f"[PORTFOLIO_DELETE] Удаляем фото: индекс={photo_id}, ключ={real_key}")
+    logger.info(f"[PORTFOLIO_DELETE] Портфолио до удаления: {worker.portfolio_photo}")
+    
     # Удаляем фото из словаря и получаем путь к файлу для удаления
-    new_portfolio, removed_file_path = help_defs.reorder_dict(d=worker.portfolio_photo, removed_key=str(photo_id))
+    new_portfolio, removed_file_path = help_defs.remove_portfolio_photo(d=worker.portfolio_photo, removed_key=real_key)
     
     # Удаляем физический файл с диска
     if removed_file_path:
@@ -773,6 +801,9 @@ async def my_portfolio(callback: CallbackQuery) -> None:
     # Обновляем портфолио в базе данных
     await worker.update_portfolio_photo(new_portfolio)
     photo_len = len(new_portfolio)
+    
+    logger.info(f"[PORTFOLIO_DELETE] Портфолио после удаления: {new_portfolio}")
+    logger.info(f"[PORTFOLIO_DELETE] Количество фото после удаления: {photo_len}")
 
     if photo_len == 0:
         await callback.message.answer(
@@ -781,16 +812,22 @@ async def my_portfolio(callback: CallbackQuery) -> None:
         )
         return
 
+    # Получаем отсортированные ключи из обновленного портфолио
+    sorted_keys = sorted(new_portfolio.keys(), key=int)
+    
     # Корректируем photo_id для отображения
     if photo_id <= -1:
-        photo_id = photo_len - 1
-    elif photo_id > (photo_len - 1):
+        photo_id = len(sorted_keys) - 1
+    elif photo_id >= len(sorted_keys):
         photo_id = 0
+    
+    # Получаем реальный ключ по индексу
+    real_key = sorted_keys[photo_id]
 
     # Обновляем интерфейс
     await callback.message.edit_media(
         media=InputMediaPhoto(
-            media=FSInputFile(new_portfolio[str(photo_id)])),
+            media=FSInputFile(new_portfolio[real_key])),
         reply_markup=kbc.my_portfolio(
             photo_num=photo_id,
             photo_len=photo_len,
@@ -887,14 +924,39 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     if worker.portfolio_photo:
         portfolio_len = len(worker.portfolio_photo)
 
+    # Мигрируем существующие фото в правильную структуру папок
+    if worker.portfolio_photo:
+        logger.info(f"[PORTFOLIO_UPLOAD] Миграция существующего портфолио...")
+        worker.portfolio_photo = help_defs.migrate_portfolio_to_user_folder(
+            worker.portfolio_photo, 
+            callback.message.chat.id
+        )
+        # Обновляем портфолио в базе данных после миграции
+        await worker.update_portfolio_photo(portfolio_photo=worker.portfolio_photo)
+        logger.info(f"[PORTFOLIO_UPLOAD] Миграция завершена: {worker.portfolio_photo}")
+    
+    # Получаем максимальный ключ из существующего портфолио
+    max_key = 0
+    if worker.portfolio_photo:
+        max_key = max(int(k) for k in worker.portfolio_photo.keys())
+        logger.info(f"[PORTFOLIO_UPLOAD] Существующее портфолио: {worker.portfolio_photo}")
+        logger.info(f"[PORTFOLIO_UPLOAD] Максимальный ключ: {max_key}")
+    
     for i, obj in enumerate(album):
         if obj.photo:
             file_id = obj.photo[-1].file_id
         else:
             file_id = obj[obj.content_type].file_id
 
-        file_path, _ = await help_defs.save_photo_var(id=callback.message.chat.id, n=portfolio_len + i)
-        file_path_photo = f'{file_path}{portfolio_len + i}.jpg'
+        # Используем последовательную нумерацию начиная с max_key + 1
+        new_key = max_key + i + 1
+        
+        # Создаем правильную структуру папок для портфолио
+        portfolio_dir, filename = await help_defs.save_portfolio_photo(
+            user_id=callback.message.chat.id, 
+            photo_key=new_key
+        )
+        file_path_photo = os.path.join(portfolio_dir, filename)
         await bot.download(file=file_id, destination=file_path_photo)
         text_photo = yandex_ocr.analyze_file(file_path_photo)
 
@@ -909,20 +971,32 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         print(file_path_photo)
 
         help_defs.add_watermark(file_path_photo)
-        photos[str(portfolio_len + i)] = file_path_photo
+        photos[str(new_key)] = file_path_photo
+        logger.info(f"[PORTFOLIO_UPLOAD] Добавлено фото: ключ={new_key}, путь={file_path_photo}")
 
+    # Объединяем портфолио правильно
     if worker.portfolio_photo:
-        worker.portfolio_photo = worker.portfolio_photo | photos
+        worker.portfolio_photo.update(photos)
         photo_len = len(worker.portfolio_photo)
     else:
         worker.portfolio_photo = photos
+        photo_len = len(worker.portfolio_photo)
+    
+    logger.info(f"[PORTFOLIO_UPLOAD] Итоговое портфолио: {worker.portfolio_photo}")
+    logger.info(f"[PORTFOLIO_UPLOAD] Количество фото: {photo_len}")
 
     await worker.update_portfolio_photo(portfolio_photo=worker.portfolio_photo)
 
     await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
 
+    # Очищаем состояние после успешной загрузки
+    await state.clear()
+
+    # Получаем первый доступный ключ из словаря портфолио
+    first_photo_key = min(worker.portfolio_photo.keys(), key=int)
+    
     await callback.message.answer_photo(
-        photo=FSInputFile(worker.portfolio_photo['0']),
+        photo=FSInputFile(worker.portfolio_photo[first_photo_key]),
         reply_markup=kbc.my_portfolio(
             photo_len=photo_len,
             new_photo=True if photo_len < 10 else False
