@@ -118,24 +118,8 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
         return
 
     else:
-        # Новый пользователь - показываем приветствие
-        text = '''Размещаются запросы только на услуги:
-
- — анонимно;
- — без ссылок;
- — номера телефона;
-
-После успешной публикации, заказчику поступают в личку отклики от исполнителей с рейтингом и количеством выполненных заказов.
-
-Заказчику остается только выбрать подходящего и связаться лично.
-
-После завершения работы - заказчик закрывает заказ и оставляет отзыв.
-
-Исполнителям поступают запросы в личку по направлениям, которые они выбрали и совершают отклики.
-
-<b>Запросы на услуги размещаются бесплатно без ограничений.</b>
-
-<b>За попытку предложений не по теме предусмотрена блокировка.</b>
+        # Новый пользователь - показываем выбор роли
+        text = '''<b>Выберите вашу роль:</b>
 '''
 
         # Обрабатываем параметры команды /start
@@ -178,14 +162,13 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
                 # Параметр не является числом, игнорируем
                 pass
 
-        # Показываем приветственное сообщение новому пользователю
-        await message.answer_photo(
-            photo=FSInputFile('app/data/database/WhatsApp.jpg'),
-            caption=text,
-            reply_markup=kbc.apply_user_agreement(),
+        # Показываем выбор роли новому пользователю
+        await message.answer(
+            text=text,
+            reply_markup=kbc.registration(),
             parse_mode='HTML'
         )
-        await state.set_state(UserStates.registration_enter_city)
+        await state.set_state(UserStates.registration_end)
         await state.update_data(username=str(message.from_user.username))
 
 
@@ -227,7 +210,7 @@ async def apply_user_agreement(callback: CallbackQuery, state: FSMContext) -> No
 @router.message(Command("admin"))
 async def admin_cmd(message: Message, state: FSMContext) -> None:
     logger.debug('admin_cmd...')
-    
+
     # Проверяем права администратора
     admin = await Admin.get_by_tg_id(message.chat.id)
     if not admin:
@@ -238,9 +221,9 @@ async def admin_cmd(message: Message, state: FSMContext) -> None:
     class FakeCallback:
         def __init__(self, message):
             self.message = message
-    
+
     fake_callback = FakeCallback(message)
-    
+
     # Импортируем и вызываем оптимизированную функцию admin_menu
     from app.handlers.admin import admin_menu
     await admin_menu(fake_callback, state)

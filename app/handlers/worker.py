@@ -1,6 +1,5 @@
-import datetime
 import os
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, date
 import logging
 from functools import lru_cache
 from typing import List, Optional
@@ -146,30 +145,64 @@ def clear_work_types_cache():
     logger.debug("Work types cache cleared")
 
 
-@router.callback_query(F.data == "registration_worker", WorkStates.worker_choose_work_types)
-async def registration_new_worker(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'registration_new_worker...')
+# Старый обработчик удален - регистрация теперь происходит в enter_worker_name
+
+
+@router.callback_query(F.data == "registration_worker", UserStates.registration_end)
+async def registration_worker_from_start(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик для регистрации исполнителя из стартового меню"""
+    logger.debug(f'registration_worker_from_start...')
     kbc = KeyboardCollection()
+    
+    # Переходим к выбору города для исполнителя
+    await state.set_state(WorkStates.registration_enter_city)
+    await choose_city_callback(callback, state)
+
+@router.callback_query(F.data == "registration_worker")
+async def registration_worker_from_customer(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик для регистрации исполнителя когда пользователь уже заказчик"""
+    logger.debug(f'registration_worker_from_customer...')
+    kbc = KeyboardCollection()
+    
+    # Проверяем, есть ли уже данные заказчика
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    if customer:
+        # Используем данные заказчика
+        await state.set_state(WorkStates.registration_enter_city)
+        await state.update_data(city_id=str(customer.city_id), username=str(customer.tg_name))
+        await choose_city_callback(callback, state)
+    else:
+        # Если нет данных заказчика, переходим к обычной регистрации
+        await state.set_state(WorkStates.registration_enter_city)
+        await choose_city_callback(callback, state)
+
+async def choose_city_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    """Начало выбора города для исполнителя через callback"""
+    logger.debug(f'choose_city_callback...')
+    kbc = KeyboardCollection()
+    
     state_data = await state.get_data()
-    city_id = int(state_data.get('city_id'))
     username = str(state_data.get('username'))
+    await state.update_data(username=str(username))
 
-    registration_date = datetime.date.today().strftime("%d.%m.%Y")
+    cities = await City.get_all()
+    city_names = [city.city for city in cities]
+    city_ids = [city.id for city in cities]
+    count_cities = len(city_names)
+    id_now = 0
 
-    new_worker = Worker(tg_id=callback.message.chat.id,
-                        city_id=[str(city_id)],
-                        tg_name=username,
-                        registration_data=registration_date,
-                        confirmed=True)  # Убираем верификацию - сразу подтверждаем
-    await new_worker.save()
-    new_worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-    new_worker_and_subscription = WorkerAndSubscription(worker_id=new_worker.id)
-    await new_worker_and_subscription.save()
-    await callback.message.edit_text('Вы успешно зарегистрированы!')
-    await callback.message.answer(text='Добро пожаловать! Выберите направления работ.',
-                                  reply_markup=kbc.menu())
-    await state.set_state(WorkStates.worker_choose_work_types)
+    btn_next = True if len(city_names) > 5 else False
 
+    city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
+                                                                 id_now=id_now)
+
+    msg = await callback.message.edit_text(
+        text=f'Выберите город или напишите его текстом\n\n'
+             f'Показано {id_now + len(city_names)} из {count_cities} городов',
+        reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
+                                    btn_next=btn_next, btn_back=False)
+    )
+    await state.update_data(msg_id=msg.message_id)
 
 @router.callback_query(F.data == "registration_worker", UserStates.registration_enter_city)
 async def choose_city_main(callback: CallbackQuery, state: FSMContext) -> None:
@@ -272,30 +305,82 @@ async def choose_city_end(callback: CallbackQuery, state: FSMContext) -> None:
 
     kbc = KeyboardCollection()
 
-    state_data = await state.get_data()
-    username = str(state_data.get('username'))
-
     city_id = int(callback.data.split('_')[1])
+    
+    # Сохраняем выбранный город и переходим к вводу имени
+    await state.update_data(city_id=city_id)
+    await state.set_state(WorkStates.registration_enter_name)
+    
+    await callback.message.edit_text(
+        text='Укажите ваше имя:'
+    )
 
-    registration_date = datetime.date.today().strftime("%d.%m.%Y")
+@router.message(F.text, WorkStates.registration_enter_name)
+async def enter_worker_name(message: Message, state: FSMContext) -> None:
+    """Обработка ввода имени исполнителя"""
+    logger.debug(f'enter_worker_name...')
+    
+    kbc = KeyboardCollection()
+    worker_name = message.text.strip()
+    
+    # Сохраняем имя и завершаем регистрацию
+    await state.update_data(username=worker_name)
+    
+    state_data = await state.get_data()
+    city_id = int(state_data.get('city_id'))
+    
+    registration_date = date.today().strftime("%d.%m.%Y")
 
-    new_worker = Worker(tg_id=callback.message.chat.id,
+    new_worker = Worker(tg_id=message.chat.id,
                         city_id=[city_id],
-                        tg_name=username,
+                        tg_name=worker_name,
+                        profile_name=worker_name,  # Добавляем profile_name
                         registration_data=registration_date,
                         stars=5)
 
     await new_worker.save()
-    new_worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    new_worker = await Worker.get_worker(tg_id=message.chat.id)
 
     new_worker_and_subscription = WorkerAndSubscription(worker_id=new_worker.id)
-
     await new_worker_and_subscription.save()
-    await callback.message.edit_text('Вы успешно зарегистрированы!')
-    await callback.message.answer(text='Добро пожаловать! Выберите направления работ.',
-                                  reply_markup=kbc.menu())
+    
+    # Показываем всплывающее окно с подтверждением
+    await message.answer('✅ Вы успешно зарегистрированы!', show_alert=True)
+    
+    # Создаем специальную клавиатуру с кнопкой "Выбрать"
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    choose_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Выбрать", callback_data="choose_work_types")]
+    ])
+    
+    await message.answer(
+        text='Выберите направления работ.',
+        reply_markup=choose_keyboard
+    )
     await state.set_state(WorkStates.worker_choose_work_types)
 
+@router.callback_query(F.data == "choose_work_types", WorkStates.worker_choose_work_types)
+async def choose_work_types_start(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик кнопки 'Выбрать' для перехода к выбору направлений"""
+    logger.debug(f'choose_work_types_start...')
+    
+    kbc = KeyboardCollection()
+    
+    # Переходим к выбору направлений работ
+    # Получаем все типы работ для отображения
+    from app.data.database.models import WorkType
+    work_types = await WorkType.get_all()
+    
+    await callback.message.edit_text(
+        text='🎯 Выберите направления работы',
+        reply_markup=kbc.choose_work_types_improved(
+            all_work_types=work_types,
+            selected_ids=[],
+            count_work_types=len(work_types),
+            page=0,
+            btn_back=False
+        )
+    )
 
 # Верификация убрана согласно ТЗ
 
@@ -619,18 +704,25 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await user_worker.update_active(active=True)
 
     if not user_worker.profile_name:
-        text = f'Перед продолжением работы, укажите ваше имя'
-        await state.set_state(WorkStates.create_name_profile)
-        try:
-            await callback.message.delete()
-        except TelegramBadRequest:
-            pass
+        logger.debug(f'profile_name is empty: {user_worker.profile_name}')
+        logger.debug(f'tg_name: {user_worker.tg_name}')
+        # Если profile_name пустое, но tg_name есть, используем tg_name
+        if user_worker.tg_name:
+            await user_worker.update_profile_name(user_worker.tg_name)
+            logger.debug(f'Updated profile_name to: {user_worker.tg_name}')
+        else:
+            text = f'Перед продолжением работы, укажите ваше имя'
+            await state.set_state(WorkStates.create_name_profile)
+            try:
+                await callback.message.delete()
+            except TelegramBadRequest:
+                pass
 
-        msg = await callback.message.answer(
-            text=text
-        )
-        await state.update_data(msg_id=msg.message_id)
-        return
+            msg = await callback.message.answer(
+                text=text
+            )
+            await state.update_data(msg_id=msg.message_id)
+            return
 
     # Используем общую функцию для отображения меню
     await show_worker_menu(callback, state, user_worker)
@@ -674,18 +766,25 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await user_worker.update_active(active=True)
 
     if not user_worker.profile_name:
-        text = f'Перед продолжением работы, укажите ваше имя'
-        await state.set_state(WorkStates.create_name_profile)
-        try:
-            await callback.message.delete()
-        except TelegramBadRequest:
-            pass
+        logger.debug(f'profile_name is empty: {user_worker.profile_name}')
+        logger.debug(f'tg_name: {user_worker.tg_name}')
+        # Если profile_name пустое, но tg_name есть, используем tg_name
+        if user_worker.tg_name:
+            await user_worker.update_profile_name(user_worker.tg_name)
+            logger.debug(f'Updated profile_name to: {user_worker.tg_name}')
+        else:
+            text = f'Перед продолжением работы, укажите ваше имя'
+            await state.set_state(WorkStates.create_name_profile)
+            try:
+                await callback.message.delete()
+            except TelegramBadRequest:
+                pass
 
-        msg = await callback.message.answer(
-            text=text
-        )
-        await state.update_data(msg_id=msg.message_id)
-        return
+            msg = await callback.message.answer(
+                text=text
+            )
+            await state.update_data(msg_id=msg.message_id)
+            return
 
     # Используем общую функцию для отображения меню
     await show_worker_menu(callback, state, user_worker)

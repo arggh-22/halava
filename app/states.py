@@ -18,6 +18,7 @@ class WorkStates(StatesGroup):
     confirm_ooo_status = State()
     confirm_sz_status = State()
     registration_enter_city = State()
+    registration_enter_name = State()
     # Верификация убрана согласно ТЗ
     worker_menu = State()
     worker_check_subscription = State()

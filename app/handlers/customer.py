@@ -26,24 +26,42 @@ logger = logging.getLogger()
 
 
 @router.callback_query(F.data == "registration_customer", UserStates.registration_end)
-async def registration_new_customer(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'registration_new_customer...')
+async def registration_customer_from_start(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик для регистрации заказчика из стартового меню"""
+    logger.debug(f'registration_customer_from_start...')
     kbc = KeyboardCollection()
-    state_data = await state.get_data()
-    city_id = int(state_data.get('city_id'))
-    username = str(state_data.get('username'))
+    
+    # Переходим к выбору города для заказчика
+    await state.set_state(CustomerStates.registration_enter_city)
+    await choose_city_start(callback, state)
 
-    new_customer = Customer(
-        id=None,
-        tg_id=callback.message.chat.id,
-        city_id=city_id,
-        tg_name=username)
-    await new_customer.save()
-    await callback.message.edit_text(
-        text='''Вы успешно зарегистрированы''',
-        reply_markup=kbc.menu_btn()
+async def choose_city_start(callback: CallbackQuery, state: FSMContext) -> None:
+    """Начало выбора города для заказчика"""
+    logger.debug(f'choose_city_start...')
+    kbc = KeyboardCollection()
+    
+    state_data = await state.get_data()
+    username = str(state_data.get('username'))
+    await state.update_data(username=str(username))
+
+    cities = await City.get_all()
+    city_names = [city.city for city in cities]
+    city_ids = [city.id for city in cities]
+    count_cities = len(city_names)
+    id_now = 0
+
+    btn_next = True if len(city_names) > 5 else False
+
+    city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
+                                                                 id_now=id_now)
+
+    msg = await callback.message.edit_text(
+        text=f'Выберите город или напишите его текстом\n\n'
+             f'Показано {id_now + len(city_names)} из {count_cities} городов',
+        reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
+                                    btn_next=btn_next, btn_back=False)
     )
-    await state.set_state(CustomerStates.customer_menu)
+    await state.update_data(msg_id=msg.message_id)
 
 
 @router.callback_query(F.data == "registration_customer", UserStates.registration_enter_city)
@@ -718,52 +736,37 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
             # Локальное фото - проверяем существование файла и отправляем
             import os
             if os.path.exists(photo_path) and os.path.isfile(photo_path):
+                # Файл существует - отправляем фото с подписью
+                await callback.message.answer_photo(
+                    photo=FSInputFile(photo_path),
+                    caption=text,
+                    reply_markup=kbc.choose_obj_with_out_list(
+                        id_now=abs_list_id,
+                        btn_next=btn_next,
+                        btn_back=btn_back,
+                        btn_responses=btn_responses,
+                        btn_close=True,
+                        btn_close_name=btn_close_name,
+                        abs_id=abs_now['id'],
+                        count_photo=abs_now['count_photo'],
+                        idk_photo=0
+                    )
+                )
+            else:
+                # Файл не существует - отправляем только текст
                 await callback.message.answer(
                     text=text,
-                reply_markup=kbc.choose_obj_with_out_list(
-                    id_now=abs_list_id,
-                    btn_next=btn_next,
-                    btn_back=btn_back,
-                    btn_responses=btn_responses,
-                    btn_close=True,
-                    btn_close_name=btn_close_name,
-                    abs_id=abs_now['id']
+                    reply_markup=kbc.choose_obj_with_out_list(
+                        id_now=abs_list_id,
+                        btn_next=btn_next,
+                        btn_back=btn_back,
+                        btn_responses=btn_responses,
+                        btn_close=True,
+                        btn_close_name=btn_close_name,
+                        abs_id=abs_now['id']
+                    )
                 )
-            )
             return
-
-        await callback.message.answer_photo(
-            photo=FSInputFile(photo_path),
-            caption=text,
-            reply_markup=kbc.choose_obj_with_out_list(
-                id_now=abs_list_id,
-                btn_next=btn_next,
-                btn_back=btn_back,
-                btn_responses=btn_responses,
-                btn_close=True,
-                btn_close_name=btn_close_name,
-                abs_id=abs_now['id'],
-                count_photo=abs_now['count_photo'],
-                idk_photo=0
-            )
-        )
-        return
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-    await callback.message.answer(
-        text=text,
-        reply_markup=kbc.choose_obj_with_out_list(
-            id_now=abs_list_id,
-            btn_next=btn_next,
-            btn_back=btn_back,
-            btn_responses=btn_responses,
-            btn_close=True,
-            btn_close_name=btn_close_name,
-            abs_id=abs_now['id']
-        )
-    )
 
 
 @router.callback_query(lambda c: c.data.startswith('abs_'))
