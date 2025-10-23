@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import os
 from datetime import datetime, timedelta
 
 from aiogram import Router, F
@@ -8,11 +10,13 @@ from aiogram.types import CallbackQuery, FSInputFile, Message, InputMediaPhoto
 
 # Импорт вспомогательных модулей и компонентов из приложения
 from app.data.database.models import Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, \
-    SubscriptionType, UserAndSupportQueue
+    SubscriptionType, UserAndSupportQueue, WorkType
 from app.keyboards import KeyboardCollection
 from app.states import AdminStates
 from app.untils import help_defs
+from app.handlers.customer import send_to_workers_background
 from loaders import bot
+import config
 
 router = Router()
 router.message.filter(F.from_user.id != F.bot.id)
@@ -29,24 +33,67 @@ async def unblock_advertisement(callback: CallbackQuery) -> None:
     customer = await Customer.get_customer(id=banned_abs.customer_id)
     banned = await Banned.get_banned(tg_id=customer.tg_id)
 
-    if banned.ban_counter == 1:
-        await banned.delete()
-    else:
-        if banned.forever:
-            await banned.update(ban_counter=banned.ban_counter - 1,
-                                ban_now=False,
-                                ban_end=None,
-                                forever=False)
+    # Проверяем, найден ли пользователь в таблице заблокированных
+    if banned:
+        if banned.ban_counter == 1:
+            await banned.delete()
         else:
-            await banned.update(ban_counter=banned.ban_counter - 1,
-                                ban_now=False,
-                                ban_end=None)
+            if banned.forever:
+                await banned.update(ban_counter=banned.ban_counter - 1,
+                                    ban_now=False,
+                                    ban_end=None,
+                                    forever=False)
+            else:
+                await banned.update(ban_counter=banned.ban_counter - 1,
+                                    ban_now=False,
+                                    ban_end=None)
+    else:
+        # Если пользователь не найден в таблице заблокированных, 
+        # это означает, что он уже был разблокирован ранее
+        logger.info(f"User {customer.tg_id} not found in banned table, proceeding with unblock")
 
     if banned_abs.photo_path:
-        photo_path = help_defs.copy_file(banned_abs.photo_path, f'app/data/photo/{customer.tg_id}/')
-        help_defs.add_watermark(photo_path)
+        # banned_abs.photo_path - это словарь, копируем ВСЕ фото
+        logger.info(f"[UNBLOCK] banned_abs.photo_path: {banned_abs.photo_path}")
+        
+        # Создаем папку для объявления с timestamp (как при обычном размещении)
+        new_photo_dir, _ = await help_defs.save_photo_var(id=customer.tg_id, n=0)
+        logger.info(f"[UNBLOCK] Created new photo directory: {new_photo_dir}")
+        
+        copied_photos = {}
+        if isinstance(banned_abs.photo_path, dict):
+            # Копируем все фото из словаря
+            for photo_key, old_photo_path in banned_abs.photo_path.items():
+                if old_photo_path:
+                    # copy_file ожидает папку, а не полный путь к файлу
+                    success = help_defs.copy_file(old_photo_path, new_photo_dir)
+                    if success and isinstance(success, str):
+                        # Переименовываем файл в правильное имя
+                        new_photo_path = f'{new_photo_dir}{photo_key}.jpg'
+                        if success != new_photo_path:
+                            os.rename(success, new_photo_path)
+                            success = new_photo_path
+                        copied_photos[photo_key] = success
+                        logger.info(f"[UNBLOCK] Copied photo {photo_key}: {success}")
+                    else:
+                        logger.error(f"[UNBLOCK] Failed to copy photo {photo_key}: {old_photo_path}")
+        else:
+            # Если это не словарь, копируем как одно фото
+            success = help_defs.copy_file(banned_abs.photo_path, new_photo_dir)
+            if success and isinstance(success, str):
+                # Переименовываем в 0.jpg
+                new_photo_path = f'{new_photo_dir}0.jpg'
+                if success != new_photo_path:
+                    os.rename(success, new_photo_path)
+                    success = new_photo_path
+                copied_photos['0'] = success
+                logger.info(f"[UNBLOCK] Copied single photo: {success}")
+        
+        photo_path = copied_photos if copied_photos else None
+        logger.info(f"[UNBLOCK] Final copied_photos: {photo_path}")
     else:
         photo_path = None
+        logger.info(f"[UNBLOCK] No photo_path in banned_abs")
 
     text_path = help_defs.copy_file(banned_abs.text_path, f'app/data/text/{customer.tg_id}/')
 
@@ -58,69 +105,87 @@ async def unblock_advertisement(callback: CallbackQuery) -> None:
                                text='Вы были разблокированы, приносим извинения за предоставленные неудобства.\nВызовите команду /menu чтобы продолжить работу')
         return
 
+    # Логируем данные перед созданием объявления
+    logger.info(f"[UNBLOCK] Creating abs with photo_path: {photo_path}")
+    logger.info(f"[UNBLOCK] photo_path type: {type(photo_path)}")
+    
     new_abs = Abs(
         id=None,
         customer_id=customer.id,
         work_type_id=banned_abs.work_type_id,
         city_id=customer.city_id,
-        photo_path=photo_path,
+        photo_path=photo_path,  # photo_path уже является словарем со всеми фото
         text_path=text_path,
         date_to_delite=datetime.today() + timedelta(days=30),
         count_photo=banned_abs.photos_len
     )
     await new_abs.save()
+    
+    logger.info(f"[UNBLOCK] Abs created with ID: {new_abs.id}")
 
     advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
     advertisement = advertisements[-1]
 
     text = help_defs.read_text_file(text_path)
 
+    # Подготавливаем текст для рассылки (новый функционал)
+    work_type = await WorkType.get_work_type(id=advertisement.work_type_id)
+    work = work_type.work_type.capitalize()
+    
+    text_for_workers = (f'{work}\n\n'
+                       f'Задача: {text}\n'
+                       f'\n'
+                       f'Дата публикации {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
 
-    text = f'Объявление{advertisement.id}\n\n' + text
+    text_for_workers = help_defs.escape_markdown(text=text_for_workers)
+    text_for_workers = f'Объявление {advertisement.id}\n\n' + text_for_workers
 
-    workers = await Worker.get_all_in_city(city_id=customer.city_id)
+    # Отправляем в лог-канал
+    text2 = f'ID пользователя: #{customer.tg_id}\n\n' + text_for_workers
+    if photo_path and isinstance(photo_path, dict) and '0' in photo_path:
+        # Используем первое фото для лог-канала
+        first_photo = photo_path['0']
+        photos_count = len(photo_path)
+        await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG, caption=text2, photo=FSInputFile(first_photo), protect_content=False,
+                               reply_markup=kbc.block_abs_log(advertisement.id, photo_num=0, photo_len=photos_count))
+    else:
+        await bot.send_message(chat_id=config.ADVERTISEMENT_LOG, text=text2, protect_content=False,
+                               reply_markup=kbc.block_abs_log(advertisement.id, photo_num=0, photo_len=0))
 
-    if workers:
-        for worker in workers:
-            if worker.tg_id == customer.tg_id:
-                continue
-            if not worker.active:
-                continue
-            worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-            try:
-                if worker_sub.work_type_ids:
-                    if (advertisement.work_type_id in worker_sub.work_type_ids) or worker_sub.unlimited_work_types:
-                        if photo_path:
-                            await bot.send_photo(chat_id=worker.tg_id,
-                                                 photo=FSInputFile(photo_path),
-                                                 caption=text,
-                                                 reply_markup=kbc.apply_btn(advertisement.id)
-                                                 )
-                        else:
-                            await bot.send_message(chat_id=worker.tg_id,
-                                                   text=text,
-                                                   reply_markup=kbc.apply_btn(advertisement.id)
-                                                   )
-                elif worker_sub.unlimited_work_types:
-                    if photo_path:
-                        await bot.send_photo(chat_id=worker.tg_id,
-                                             photo=FSInputFile(photo_path),
-                                             caption=text,
-                                             reply_markup=kbc.apply_btn(advertisement.id)
-                                             )
-                    else:
-                        await bot.send_message(chat_id=worker.tg_id,
-                                               text=text,
-                                               reply_markup=kbc.apply_btn(advertisement.id)
-                                               )
-            except TelegramForbiddenError:
-                pass
+    # Запускаем фоновую рассылку исполнителям (новый функционал)
+    photos_len = len(photo_path) if photo_path and isinstance(photo_path, dict) else 0
+    asyncio.create_task(
+        send_to_workers_background(
+            advertisement_id=advertisement.id,
+            city_id=customer.city_id,
+            work_type_id=advertisement.work_type_id,
+            text=text_for_workers,
+            photo_path=photo_path,  # photo_path уже является словарем со всеми фото
+            photos_len=photos_len
+        )
+    )
 
+    # Уменьшаем счетчик объявлений (как при обычном размещении)
+    await customer.update_abs_count(abs_count=customer.abs_count - 1)
+    
     await callback.message.delete_reply_markup()
     await banned_abs.delete(delite_photo=False)
     await callback.message.answer('Пользователь разблокирован')
-    await bot.send_message(chat_id=customer.tg_id,
-                           text='Вы были разблокированы, приносим извинения за предоставленные неудобства. Объявление было опубликовано\nВызовите команду /menu чтобы продолжить работу')
+    
+    # Отправляем уведомление заказчику с информацией об оставшихся объявлениях
+    remaining_ads = customer.abs_count - 1  # -1 потому что мы только что уменьшили счетчик
+    if remaining_ads > 0:
+        notification_text = (f'Вы были разблокированы, приносим извинения за предоставленные неудобства.\n'
+                           f'Объявление было опубликовано\n\n'
+                           f'Осталось объявлений сегодня: {remaining_ads}\n'
+                           f'Вызовите команду /menu чтобы продолжить работу')
+    else:
+        notification_text = (f'Вы были разблокированы, приносим извинения за предоставленные неудобства.\n'
+                           f'Объявление было опубликовано\n\n'
+                           f'У вас закончились объявления на сегодня\n'
+                           f'Вызовите команду /menu чтобы продолжить работу')
+    
+    await bot.send_message(chat_id=customer.tg_id, text=notification_text)
 
 
 @router.callback_query(lambda c: c.data.startswith('unban-user_'))

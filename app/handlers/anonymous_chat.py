@@ -415,7 +415,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
 
             # Передаем контакты исполнителю с учетом нового функционала
             contacts_text = f"📞 **Контакты заказчика:**\n\n"
-            contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
+            contacts_text += f"👤 **Имя:** {customer.tg_name}\n"
             
             # Формируем контакты в зависимости от настроек заказчика
             if customer.contact_type == "telegram_only":
@@ -638,7 +638,7 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
 
             # Передаем контакты исполнителю с учетом нового функционала
             contacts_text = f"📞 **Контакты заказчика:**\n\n"
-            contacts_text += f"👤 **Имя:** {customer.author_name or customer.tg_name}\n"
+            contacts_text += f"👤 **Имя:** {customer.tg_name}\n"
             
             # Формируем контакты в зависимости от настроек заказчика
             if customer.contact_type == "telegram_only":
@@ -1234,6 +1234,18 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         )
 
         await message.answer("✅ Сообщение отправлено заказчику!")
+        
+        # Возвращаем исполнителя в меню
+        from app.handlers.worker import menu_worker
+        from aiogram.types import CallbackQuery
+        fake_callback = CallbackQuery(
+            id="fake_callback_id",
+            message=message,
+            from_user=message.from_user,
+            data="menu",
+            chat_instance=""
+        )
+        await menu_worker(fake_callback, state)
 
     except Exception as e:
         logger.error(f"Error in handle_worker_chat_message: {e}")
@@ -1351,7 +1363,10 @@ async def reply_in_worker_chat(callback: CallbackQuery, state: FSMContext):
         await state.update_data(current_chat_abs_id=abs_id, current_chat_customer_id=customer.id)
         await state.set_state(WorkStates.worker_anonymous_chat)
 
-        await callback.message.edit_text(
+        # Безопасное редактирование сообщения
+        from app.untils.message_utils import safe_edit_message
+        await safe_edit_message(
+            callback=callback,
             text=f"💬 **Чат с заказчиком**\n\n"
                  f"📋 Объявление: #{abs_id}\n"
                  f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
@@ -1477,6 +1492,14 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
         # Исполнитель запросил контакты (запись существует), но заказчик еще не подтвердил
         waiting_confirmation = contact_exchange and not contact_exchange.contacts_sent and not contact_exchange.contacts_purchased
 
+        # Парсим фотографии объявления
+        import json
+        try:
+            photo_dict = json.loads(advertisement.photo_path) if isinstance(advertisement.photo_path, str) else advertisement.photo_path
+            count_photo = len(photo_dict) if isinstance(photo_dict, dict) else 0
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            count_photo = 0
+        
         # Формируем текст
         from app.untils import help_defs
         text = f"📋 **Объявление #{abs_id}**\n\n"
@@ -1525,16 +1548,69 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
         await state.update_data(current_chat_abs_id=abs_id)
         await state.set_state(WorkStates.worker_anonymous_chat)
 
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=kbc.anonymous_chat_worker_buttons(
-                abs_id=abs_id,
-                has_contacts=has_contacts,
-                contacts_requested=customer_confirmed,
-                contacts_sent=waiting_confirmation
-            ),
-            parse_mode='Markdown'
-        )
+        # Показываем с фото если есть
+        if count_photo > 0:
+            try:
+                from aiogram.types import FSInputFile, InputMediaPhoto
+                photo_path = advertisement.photo_path['0']
+                
+                if 'https' in photo_path:
+                    await callback.message.delete()
+                    await callback.message.answer_photo(
+                        photo=photo_path,
+                        caption=text,
+                        reply_markup=kbc.anonymous_chat_worker_buttons(
+                            abs_id=abs_id,
+                            has_contacts=has_contacts,
+                            contacts_requested=customer_confirmed,
+                            contacts_sent=waiting_confirmation,
+                            count_photo=count_photo,
+                            photo_num=0
+                        ),
+                        parse_mode='Markdown'
+                    )
+                else:
+                    await callback.message.delete()
+                    await callback.message.answer_photo(
+                        photo=FSInputFile(photo_path),
+                        caption=text,
+                        reply_markup=kbc.anonymous_chat_worker_buttons(
+                            abs_id=abs_id,
+                            has_contacts=has_contacts,
+                            contacts_requested=customer_confirmed,
+                            contacts_sent=waiting_confirmation,
+                            count_photo=count_photo,
+                            photo_num=0
+                        ),
+                        parse_mode='Markdown'
+                    )
+            except Exception:
+                # Если фото не загрузилось, показываем текстом
+                await callback.message.edit_text(
+                    text=text,
+                    reply_markup=kbc.anonymous_chat_worker_buttons(
+                        abs_id=abs_id,
+                        has_contacts=has_contacts,
+                        contacts_requested=customer_confirmed,
+                        contacts_sent=waiting_confirmation,
+                        count_photo=count_photo,
+                        photo_num=0
+                    ),
+                    parse_mode='Markdown'
+                )
+        else:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=kbc.anonymous_chat_worker_buttons(
+                    abs_id=abs_id,
+                    has_contacts=has_contacts,
+                    contacts_requested=customer_confirmed,
+                    contacts_sent=waiting_confirmation,
+                    count_photo=count_photo,
+                    photo_num=0
+                ),
+                parse_mode='Markdown'
+            )
 
     except Exception as e:
         logger.error(f"Error in view_my_response: {e}")
@@ -1605,7 +1681,10 @@ async def cancel_worker_response_confirm(callback: CallbackQuery, state: FSMCont
         builder.add(kbc._inline("❌ Отмена", f"view_my_response_{abs_id}"))
         builder.adjust(1)
 
-        await callback.message.edit_text(
+        # Безопасное редактирование сообщения
+        from app.untils.message_utils import safe_edit_message
+        await safe_edit_message(
+            callback=callback,
             text=confirmation_text,
             reply_markup=builder.as_markup(),
             parse_mode='Markdown'
@@ -1705,7 +1784,10 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
 
         # Возвращаемся к списку откликов
         kbc = KeyboardCollection()
-        await callback.message.edit_text(
+        # Безопасное редактирование сообщения
+        from app.untils.message_utils import safe_edit_message
+        await safe_edit_message(
+            callback=callback,
             text="✅ Отклик отменен\n\nВы вернулись к списку откликов",
             reply_markup=kbc.menu_btn()
         )
@@ -1817,6 +1899,18 @@ async def worker_chat_message(message: Message, state: FSMContext):
             )
 
         await message.answer("✅ Сообщение отправлено заказчику")
+        
+        # Возвращаем исполнителя в меню
+        from app.handlers.worker import menu_worker
+        from aiogram.types import CallbackQuery
+        fake_callback = CallbackQuery(
+            id="fake_callback_id",
+            message=message,
+            from_user=message.from_user,
+            data="menu",
+            chat_instance=""
+        )
+        await menu_worker(fake_callback, state)
 
     except Exception as e:
         logger.error(f"Error in worker_chat_message: {e}")
@@ -1925,7 +2019,10 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
                 parse_mode='Markdown'
             )
 
-        await callback.message.edit_text(
+        # Безопасное редактирование сообщения
+        from app.untils.message_utils import safe_edit_message
+        await safe_edit_message(
+            callback=callback,
             text="📞 **Запрос отправлен заказчику**\n\n"
                  "⏳ Ожидайте подтверждения.\n"
                  "Вы получите уведомление, когда заказчик ответит.",
@@ -2208,7 +2305,10 @@ async def cancel_contact_request(callback: CallbackQuery):
 
         # Обновляем сообщение исполнителя
         kbc = KeyboardCollection()
-        await callback.message.edit_text(
+        # Безопасное редактирование сообщения
+        from app.untils.message_utils import safe_edit_message
+        await safe_edit_message(
+            callback=callback,
             text="❌ **Запрос контакта отменен**\n\nВы можете запросить контакт позже.",
             reply_markup=kbc.anonymous_chat_worker_buttons(abs_id=abs_id),
             parse_mode='Markdown'
@@ -2226,3 +2326,130 @@ async def cancel_contact_request(callback: CallbackQuery):
 async def noop_handler(callback: CallbackQuery):
     """Обработчик для неактивных кнопок"""
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith('go-to-photo-worker-response_'))
+async def navigate_photo_worker_response(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик листания фотографий в откликах для исполнителей"""
+    logger.debug(f'navigate_photo_worker_response...')
+    kbc = KeyboardCollection()
+    
+    # Парсим данные: go-to-photo-worker-response_{photo_num}_{abs_id}
+    parts = callback.data.split('_')
+    photo_num = int(parts[1])
+    abs_id = int(parts[2])
+    
+    # Получаем объявление
+    advertisement = await Abs.get_one(id=abs_id)
+    if not advertisement:
+        await callback.answer("Объявление не найдено", show_alert=True)
+        return
+    
+    # Парсим JSON строку photo_path для получения количества фото
+    import json
+    try:
+        photo_dict = json.loads(advertisement.photo_path) if isinstance(advertisement.photo_path, str) else advertisement.photo_path
+        count_photo = len(photo_dict) if isinstance(photo_dict, dict) else 0
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        count_photo = 1
+    
+    # Циклическая навигация
+    if photo_num <= -1:
+        photo_num = count_photo - 1
+    elif photo_num >= count_photo:
+        photo_num = 0
+    
+    # Получаем путь к фото
+    photo_path = advertisement.photo_path[str(photo_num)]
+    
+    # Получаем данные для кнопок
+    worker = await Worker.get_worker(tg_id=callback.from_user.id)
+    if not worker:
+        await callback.answer("Ошибка получения данных", show_alert=True)
+        return
+    
+    # Получаем статус обмена контактами
+    contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
+    
+    # Определяем статусы
+    has_contacts = contact_exchange and contact_exchange.contacts_purchased
+    customer_confirmed = contact_exchange and contact_exchange.contacts_sent and not contact_exchange.contacts_purchased
+    waiting_confirmation = contact_exchange and not contact_exchange.contacts_sent and not contact_exchange.contacts_purchased
+    
+    # Формируем текст (используем тот же текст что и в view_my_response)
+    from app.untils import help_defs
+    text = f"📋 **Объявление #{abs_id}**\n\n"
+    text += help_defs.read_text_file(advertisement.text_path)
+    text += "\n\n" + "=" * 30 + "\n\n"
+    
+    if has_contacts:
+        # Контакты уже куплены
+        customer = await Customer.get_customer(id=advertisement.customer_id)
+        text += "✅ **Контакты получены:**\n\n"
+        
+        # Формируем контакты в зависимости от настроек заказчика
+        if customer.contact_type == "telegram_only":
+            text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+            text += f"🆔 **ID:** {customer.tg_id}\n\n"
+        elif customer.contact_type == "phone_only":
+            text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})\n\n"
+        elif customer.contact_type == "both":
+            text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+            text += f"🆔 **ID:** {customer.tg_id}\n"
+            text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})\n\n"
+        else:
+            # Fallback - показываем только Telegram если контакты не настроены
+            text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+            text += f"🆔 **ID:** {customer.tg_id}\n\n"
+        
+        text += "🔒 Чат закрыт"
+    elif customer_confirmed:
+        # Заказчик подтвердил, исполнитель может покупать
+        text += "💰 **Заказчик подтвердил передачу контактов**\n\n"
+        text += "Для получения контактов необходимо их купить."
+    elif waiting_confirmation:
+        # Ожидаем подтверждения от заказчика
+        text += "⏳ **Статус:** Ожидание подтверждения заказчика\n\n"
+        text += "Вы запросили контакт заказчика.\n"
+        text += "Заказчик должен подтвердить передачу контакта.\n"
+        text += "После подтверждения вам будет предложено приобрести контакт."
+    else:
+        # Можно запросить контакты
+        text += "💬 **Чат активен**\n\n"
+        text += "Вы можете написать сообщение заказчику или запросить контакт."
+    
+    # Обновляем медиа
+    try:
+        from aiogram.types import FSInputFile, InputMediaPhoto
+        
+        if 'https' in photo_path:
+            await callback.message.edit_media(
+                media=InputMediaPhoto(
+                    media=photo_path,
+                    caption=text),
+                reply_markup=kbc.anonymous_chat_worker_buttons(
+                    abs_id=abs_id,
+                    has_contacts=has_contacts,
+                    contacts_requested=customer_confirmed,
+                    contacts_sent=waiting_confirmation,
+                    count_photo=count_photo,
+                    photo_num=photo_num
+                )
+            )
+        else:
+            await callback.message.edit_media(
+                media=InputMediaPhoto(
+                    media=FSInputFile(photo_path),
+                    caption=text),
+                reply_markup=kbc.anonymous_chat_worker_buttons(
+                    abs_id=abs_id,
+                    has_contacts=has_contacts,
+                    contacts_requested=customer_confirmed,
+                    contacts_sent=waiting_confirmation,
+                    count_photo=count_photo,
+                    photo_num=photo_num
+                )
+            )
+    except Exception as e:
+        logger.error(f"Error updating photo in navigate_photo_worker_response: {e}")
+        await callback.answer("Ошибка обновления фото", show_alert=True)

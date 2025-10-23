@@ -1067,21 +1067,21 @@ class KeyboardCollection:
         builder = InlineKeyboardBuilder()
         
         if contact_type == "telegram_only":
-            builder.add(self._inline(button_text="📞 Добавить номер (убрав профиль telegram)", 
+            builder.add(self._inline(button_text="📞 Добавить номер (убрав telegram)",
                                      callback_data="edit_phone_only"))
-            builder.add(self._inline(button_text="📞 Добавить номер (оставив профиль telegram)", 
+            builder.add(self._inline(button_text="📞 Добавить номер (оставив telegram)",
                                      callback_data="edit_both"))
         elif contact_type == "phone_only":
-            builder.add(self._inline(button_text="📱 Изменить номер (добавив профиль telegram)", 
+            builder.add(self._inline(button_text="📱 Изменить номер (добавив telegram)",
                                      callback_data="edit_both"))
-            builder.add(self._inline(button_text="📱 Удалить номер (оставив профиль telegram)", 
+            builder.add(self._inline(button_text="📱 Удалить номер (оставив telegram)",
                                      callback_data="edit_telegram_only"))
         elif contact_type == "both":
-            builder.add(self._inline(button_text="📞 Изменить номер (оставив профиль telegram)", 
+            builder.add(self._inline(button_text="📞 Изменить номер (оставив telegram)",
                                      callback_data="edit_both"))
-            builder.add(self._inline(button_text="📞 Изменить номер (убрав профиль telegram)", 
+            builder.add(self._inline(button_text="📞 Изменить номер (убрав telegram)",
                                      callback_data="edit_phone_only"))
-            builder.add(self._inline(button_text="📱 Удалить номер (оставив профиль telegram)", 
+            builder.add(self._inline(button_text="📱 Удалить номер (оставив telegram)",
                                      callback_data="edit_telegram_only"))
         
         builder.add(self._inline(button_text="◀️ Назад", callback_data="customer_contacts"))
@@ -1113,9 +1113,19 @@ class KeyboardCollection:
 
     # ========== НОВЫЕ КНОПКИ ДЛЯ ОТКЛИКОВ И АНОНИМНОГО ЧАТА ==========
     
-    def advertisement_response_buttons(self, abs_id: int, btn_next: bool = False, btn_back: bool = False, abs_list_id: int = 0) -> InlineKeyboardMarkup:
+    def advertisement_response_buttons(self, abs_id: int, btn_next: bool = False, btn_back: bool = False, abs_list_id: int = 0, count_photo: int = 0, photo_num: int = 0) -> InlineKeyboardMarkup:
         """Кнопки под объявлением для исполнителя с навигацией"""
         builder = InlineKeyboardBuilder()
+        
+        # Кнопки листания фотографий (если их больше одной)
+        if count_photo > 1:
+            builder.add(self._inline(button_text="◀️", 
+                                     callback_data=f"go-to-photo-worker_{photo_num - 1}_{abs_id}_{abs_list_id}"))
+            builder.add(self._inline(button_text=f"{photo_num + 1}/{count_photo}", 
+                                     callback_data="do_nothing"))
+            builder.add(self._inline(button_text="▶️", 
+                                     callback_data=f"go-to-photo-worker_{photo_num + 1}_{abs_id}_{abs_list_id}"))
+        
         builder.add(self._inline(button_text="✅ Откликнуться", 
                                  callback_data=f"respond_to_ad_{abs_id}"))
         builder.add(self._inline(button_text="⚠️ Пожаловаться", 
@@ -1133,7 +1143,11 @@ class KeyboardCollection:
         
         builder.add(self._inline(button_text="🏠 В меню", 
                                  callback_data="back_to_ads"))
-        builder.adjust(1)
+        
+        if count_photo > 1:
+            builder.adjust(3, 1)  # 3 кнопки в первом ряду (навигация по фото), остальные по 1
+        else:
+            builder.adjust(1)
         return builder.as_markup()
 
     def chat_rules_confirmation(self) -> InlineKeyboardMarkup:
@@ -1159,9 +1173,19 @@ class KeyboardCollection:
         return builder.as_markup()
 
     def anonymous_chat_worker_buttons(self, abs_id: int, has_contacts: bool = False, 
-                                     contacts_requested: bool = False, contacts_sent: bool = False) -> InlineKeyboardMarkup:
+                                     contacts_requested: bool = False, contacts_sent: bool = False,
+                                     count_photo: int = 0, photo_num: int = 0) -> InlineKeyboardMarkup:
         """Кнопки для анонимного чата исполнителя"""
         builder = InlineKeyboardBuilder()
+        
+        # Кнопки навигации по фотографиям объявления
+        if count_photo > 1:
+            builder.add(self._inline(button_text="◀️", 
+                                     callback_data=f"go-to-photo-worker-response_{photo_num - 1}_{abs_id}"))
+            builder.add(self._inline(button_text=f"{photo_num + 1}/{count_photo}", 
+                                     callback_data="do_nothing"))
+            builder.add(self._inline(button_text="▶️", 
+                                     callback_data=f"go-to-photo-worker-response_{photo_num + 1}_{abs_id}"))
         
         if has_contacts:
             # Контакты уже куплены - показываем только назад

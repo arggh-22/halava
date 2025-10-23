@@ -176,8 +176,21 @@ async def choose_city_end(callback: CallbackQuery, state: FSMContext) -> None:
     await new_customer.save()
 
     await callback.message.edit_text(
-        text='''Вы успешно зарегистрированы''',
-        reply_markup=kbc.menu_btn_reg()
+        text='''
+
+✅ *Размещаются запросы только на разовые услуги: *
+
+— Анонимно; 
+— Без номера телефона; 
+— Без ссылок; 
+
+🚫 *Запрещается предлагать: *
+
+— Рекламу; 
+— Вакансии; 
+— Работу вахтой;''',
+        reply_markup=kbc.menu_btn_reg(),
+        parse_mode='Markdown'
     )
     await state.set_state(CustomerStates.customer_menu)
 
@@ -1640,7 +1653,21 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
                            protect_content=False,
                            reply_markup=kbc.block_abs_log(advertisement.id))
 
-    # Запускаем фоновую рассылку исполнителям
+    # Даем админу 5 секунд на проверку и возможную блокировку объявления
+    await asyncio.sleep(5)
+    
+    # Проверяем, не было ли объявление заблокировано за это время
+    # Если объявления нет в базе, значит админ его заблокировал
+    try:
+        check_abs = await Abs.get_one(advertisement.id)
+        if not check_abs:
+            logger.info(f"[BLOCKED] Advertisement {advertisement.id} was blocked by admin, skipping send")
+            return
+    except Exception as e:
+        logger.error(f"Error checking advertisement status: {e}")
+        return
+
+    # Запускаем фоновую рассылку исполнителям (только если объявление не было заблокировано)
     asyncio.create_task(
         send_to_workers_background(
             advertisement_id=advertisement.id,
@@ -1676,13 +1703,15 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     photos = {}
     photos_len = len(album)
 
+    # Создаем папку для всех фото объявления один раз
+    file_path, _ = await help_defs.save_photo_var(id=callback.message.chat.id, n=0)
+
     for i, obj in enumerate(album):
         if obj.photo:
             file_id = obj.photo[-1].file_id
         else:
             file_id = obj[obj.content_type].file_id
 
-        file_path, _ = await help_defs.save_photo_var(id=callback.message.chat.id, n=i)
         file_path_photo = f'{file_path}{i}.jpg'
         await bot.download(file=file_id, destination=file_path_photo)
         text_photo = yandex_ocr.analyze_file(file_path_photo)
@@ -1693,7 +1722,6 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
 
         print(file_path_photo)
 
-        help_defs.add_watermark(file_path_photo)
         photos[str(i)] = file_path_photo
 
     file_path_photo = None
@@ -1791,10 +1819,8 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
 
         file_path = help_defs.create_file_in_directory_with_timestamp(id=callback.message.chat.id, text=text,
                                                                       path='app/data/banned/text/')
-        if not photo:
-            file_path_photo = await help_defs.save_photo(id=callback.message.from_user.id,
-                                                         path='app/data/banned/photo/')
-            await bot.download(file=photo, destination=file_path_photo)
+        # Удаляем этот блок кода, так как photo всегда None в этой функции
+        # и скачивание None файла вызывает ошибку
 
         banned_abs = BannedAbs(
             id=None,
@@ -1939,7 +1965,18 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     text = help_defs.escape_markdown(text=text)
 
     # Сразу отвечаем пользователю
-    await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
+    if photos and photos_len > 0 and '0' in photos:
+        # Если есть фото, отправляем фото с подписью
+        await callback.message.answer_photo(
+            photo=FSInputFile(photos['0']),
+            caption=text,
+            reply_markup=kbc.menu(),
+            parse_mode='Markdown'
+        )
+    else:
+        # Если нет фото, отправляем текстовое сообщение
+        await callback.message.answer(text=text, reply_markup=kbc.menu())
+    
     await state.set_state(CustomerStates.customer_menu)
     
     # Уменьшаем счетчик объявлений
@@ -1960,7 +1997,21 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG, caption=text2, photo=FSInputFile(photos['0']), protect_content=False,
                            reply_markup=kbc.block_abs_log(advertisement.id, photo_num=0, photo_len=photos_len))
 
-    # Запускаем фоновую рассылку исполнителям с фото
+    # Даем админу 5 секунд на проверку и возможную блокировку объявления
+    await asyncio.sleep(5)
+    
+    # Проверяем, не было ли объявление заблокировано за это время
+    # Если объявления нет в базе, значит админ его заблокировал
+    try:
+        check_abs = await Abs.get_one(advertisement.id)
+        if not check_abs:
+            logger.info(f"[BLOCKED] Advertisement {advertisement.id} was blocked by admin, skipping send")
+            return
+    except Exception as e:
+        logger.error(f"Error checking advertisement status: {e}")
+        return
+
+    # Запускаем фоновую рассылку исполнителям с фото (только если объявление не было заблокировано)
     asyncio.create_task(
         send_to_workers_background(
             advertisement_id=advertisement.id,
@@ -3082,6 +3133,66 @@ async def customer_contacts_menu(callback: CallbackQuery, state: FSMContext) -> 
     await state.set_state(CustomerStates.customer_contacts)
 
 
+@router.callback_query(F.data == 'customer_contacts', CustomerStates.customer_contacts)
+async def customer_contacts_back_from_edit(callback: CallbackQuery, state: FSMContext) -> None:
+    """Возврат из меню редактирования в основное меню контактов"""
+    logger.debug(f'customer_contacts_back_from_edit...')
+    
+    kbc = KeyboardCollection()
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    if customer.has_contacts():
+        # Контакты уже настроены - показываем текущие контакты
+        contact_info = customer.get_contact_info()
+        text = f"Ваши контакты:\n\n{contact_info}"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_display_menu(),
+            parse_mode='Markdown'
+        )
+    else:
+        # Контакты не настроены - показываем меню выбора
+        text = "Здесь вы можете указать, какие контакты будут отправлены исполнителю:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_menu()
+        )
+    
+    await state.set_state(CustomerStates.customer_contacts)
+
+
+@router.callback_query(F.data == 'customer_contacts', CustomerStates.customer_contacts_phone_input)
+async def customer_contacts_back_from_phone_input(callback: CallbackQuery, state: FSMContext) -> None:
+    """Возврат из ввода номера телефона в меню контактов"""
+    logger.debug(f'customer_contacts_back_from_phone_input...')
+    
+    kbc = KeyboardCollection()
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    
+    if customer.has_contacts():
+        # Контакты уже настроены - показываем текущие контакты
+        contact_info = customer.get_contact_info()
+        text = f"Ваши контакты:\n\n{contact_info}"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_display_menu(),
+            parse_mode='Markdown'
+        )
+    else:
+        # Контакты не настроены - показываем меню выбора
+        text = "Здесь вы можете указать, какие контакты будут отправлены исполнителю:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=kbc.customer_contacts_menu()
+        )
+    
+    await state.set_state(CustomerStates.customer_contacts)
+
+
 @router.callback_query(F.data == 'contact_telegram_only', CustomerStates.customer_contacts)
 async def set_telegram_only_contacts(callback: CallbackQuery, state: FSMContext) -> None:
     """Установка только профиля Telegram"""
@@ -3092,7 +3203,7 @@ async def set_telegram_only_contacts(callback: CallbackQuery, state: FSMContext)
     
     await customer.update_contacts(contact_type="telegram_only")
     
-    text = "✅ Ваши контакты сохранены! Исполнители будут получать только ваш профиль Telegram 📱"
+    text = "✅ Ваши контакты сохранены!\n\n Исполнители будут получать только ваш профиль Telegram 📱"
     
     await callback.message.edit_text(
         text=text,
@@ -3164,9 +3275,9 @@ async def process_phone_number(message: Message, state: FSMContext) -> None:
     
     # Формируем сообщение в зависимости от типа контактов
     if contact_type == "phone_only":
-        text = f"✅ Ваши контакты сохранены! Исполнители будут получать: номер (который вы указали) 📞"
+        text = f"✅ Ваши контакты сохранены!\n\n Исполнители будут получать номер (который вы указали) 📞"
     else:  # both
-        text = f"✅ Ваши контакты сохранены! Исполнители будут получать: профиль Telegram и номер (который вы указали) 📱📞"
+        text = f"✅ Ваши контакты сохранены!\n\n Исполнители будут получать профиль Telegram 📱 и номер (который вы указали) 📞"
     
     await message.answer(
         text=text,
@@ -3190,6 +3301,8 @@ async def edit_contacts_menu(callback: CallbackQuery, state: FSMContext) -> None
         text=text,
         reply_markup=kbc.customer_contacts_edit_menu(customer.contact_type)
     )
+    
+    await state.set_state(CustomerStates.customer_contacts)
 
 
 @router.callback_query(F.data == 'edit_telegram_only', CustomerStates.customer_contacts)
@@ -3202,7 +3315,7 @@ async def edit_to_telegram_only(callback: CallbackQuery, state: FSMContext) -> N
     
     await customer.update_contacts(contact_type="telegram_only", phone_number=None)
     
-    text = "✅ Контакты изменены! Теперь исполнители будут получать только ваш профиль Telegram 📱"
+    text = "✅ Контакты изменены!\n\n Теперь исполнители будут получать только ваш профиль Telegram 📱"
     
     await callback.message.edit_text(
         text=text,
@@ -3221,7 +3334,7 @@ async def edit_to_phone_only(callback: CallbackQuery, state: FSMContext) -> None
     # Если у заказчика уже есть номер, используем его, иначе запрашиваем новый
     if customer.phone_number:
         await customer.update_contacts(contact_type="phone_only")
-        text = "✅ Контакты изменены! Теперь исполнители будут получать только номер телефона 📞"
+        text = "✅ Контакты изменены!\n\n Теперь исполнители будут получать только номер телефона 📞"
         await callback.message.edit_text(
             text=text,
             reply_markup=kbc.customer_contacts_display_menu()
@@ -3247,7 +3360,7 @@ async def edit_to_both(callback: CallbackQuery, state: FSMContext) -> None:
     # Если у заказчика уже есть номер, используем его, иначе запрашиваем новый
     if customer.phone_number:
         await customer.update_contacts(contact_type="both")
-        text = "✅ Контакты изменены! Теперь исполнители будут получать: профиль Telegram и номер 📱📞"
+        text = "✅ Контакты изменены!\n\n Теперь исполнители будут получать: профиль Telegram и номер 📱📞"
         await callback.message.edit_text(
             text=text,
             reply_markup=kbc.customer_contacts_display_menu()

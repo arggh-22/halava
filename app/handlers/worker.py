@@ -1069,7 +1069,6 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
 
         print(file_path_photo)
 
-        help_defs.add_watermark(file_path_photo)
         photos[str(new_key)] = file_path_photo
         logger.info(f"[PORTFOLIO_UPLOAD] Добавлено фото: ключ={new_key}, путь={file_path_photo}")
 
@@ -1358,12 +1357,21 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.message.delete()
         except TelegramBadRequest:
             pass
+        
+        # Парсим JSON строку photo_path для получения количества фото
+        import json
+        try:
+            photo_dict = json.loads(abs_now.photo_path) if isinstance(abs_now.photo_path, str) else abs_now.photo_path
+            count_photo = len(photo_dict) if isinstance(photo_dict, dict) else 0
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            count_photo = 1
+        
         if 'https' in abs_now.photo_path['0']:
             await callback.message.answer(text=text,
-                                          reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=0))
+                                          reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=0, count_photo=count_photo, photo_num=0))
             return
         await callback.message.answer_photo(photo=FSInputFile(abs_now.photo_path['0']), caption=text,
-                                            reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=0))
+                                            reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=0, count_photo=count_photo, photo_num=0))
         return
     try:
         await callback.message.delete()
@@ -1471,6 +1479,14 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
     text = help_defs.read_text_file(advertisement_now.text_path)
     text = f'Объявление {advertisement_now.id}\n\n' + text
 
+    # Парсим JSON строку photo_path для получения количества фото
+    import json
+    try:
+        photo_dict = json.loads(advertisement_now.photo_path) if isinstance(advertisement_now.photo_path, str) else advertisement_now.photo_path
+        count_photo = len(photo_dict) if isinstance(photo_dict, dict) else 0
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        count_photo = 1
+
     # Проверяем, есть ли фото в объявлении и в текущем сообщении
     has_photo_in_ad = advertisement_now.photo_path is not None
     has_photo_in_msg = callback.message.photo is not None
@@ -1487,18 +1503,18 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
                 await callback.message.answer_photo(
                     photo=advertisement_now.photo_path['0'],
                     caption=text,
-                    reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id)
+                    reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0)
                 )
             else:
                 await callback.message.answer_photo(
                     photo=FSInputFile(advertisement_now.photo_path['0']),
                     caption=text,
-                    reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id)
+                    reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0)
                 )
         else:
             await callback.message.answer(
                 text=text,
-                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id)
+                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0)
             )
         return
     
@@ -1510,20 +1526,20 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
                 media=InputMediaPhoto(
                     media=advertisement_now.photo_path['0'],
                     caption=text),
-                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id)
+                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0)
             )
         else:
             await callback.message.edit_media(
                 media=InputMediaPhoto(
                     media=FSInputFile(advertisement_now.photo_path['0']),
                     caption=text),
-                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id)
+                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0)
             )
     else:
         # Текст к тексту
         await callback.message.edit_text(
             text=text,
-            reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id)
+            reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0)
         )
 
 
@@ -1606,6 +1622,14 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = f'Объявление {abs_now.id}\n\n' + text
 
+    # Парсим JSON строку photo_path для получения количества фото
+    import json
+    try:
+        photo_dict = json.loads(abs_now.photo_path) if isinstance(abs_now.photo_path, str) else abs_now.photo_path
+        count_photo = len(photo_dict) if isinstance(photo_dict, dict) else 0
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        count_photo = 1
+
     await abs_now.update(views=1)
 
     if abs_now.photo_path:
@@ -1617,18 +1641,18 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
         if 'https' in abs_now.photo_path['0']:
             await callback.message.answer_photo(photo=abs_now.photo_path['0'],
                                                caption=text,
-                                               reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id))
+                                               reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0))
             return
 
         await callback.message.answer_photo(photo=FSInputFile(abs_now.photo_path['0']),
                                             caption=text,
-                                            reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id))
+                                            reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0))
         return
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    await callback.message.answer(text=text, reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id))
+    await callback.message.answer(text=text, reply_markup=kbc.advertisement_response_buttons(abs_id=abs_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0))
 
 
 @router.callback_query(lambda c: c.data.startswith('go-to-next_'), WorkStates.worker_check_abs)
@@ -1757,6 +1781,131 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
 
+@router.callback_query(lambda c: c.data.startswith('go-to-photo-worker_'), WorkStates.worker_check_abs)
+async def navigate_photo_worker(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик листания фотографий в объявлениях для исполнителей"""
+    logger.debug(f'navigate_photo_worker...')
+    kbc = KeyboardCollection()
+    
+    # Парсим данные: go-to-photo-worker_{photo_num}_{abs_id}_{abs_list_id}
+    parts = callback.data.split('_')
+    photo_num = int(parts[1])
+    abs_id = int(parts[2])
+    abs_list_id = int(parts[3])
+    
+    # Получаем объявление
+    advertisement = await Abs.get_one(id=abs_id)
+    if not advertisement:
+        await callback.answer("Объявление не найдено", show_alert=True)
+        return
+    
+    # Парсим JSON строку photo_path для получения количества фото
+    import json
+    try:
+        photo_dict = json.loads(advertisement.photo_path) if isinstance(advertisement.photo_path, str) else advertisement.photo_path
+        count_photo = len(photo_dict) if isinstance(photo_dict, dict) else 0
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        count_photo = 1
+    
+    # Циклическая навигация
+    if photo_num <= -1:
+        photo_num = count_photo - 1
+    elif photo_num >= count_photo:
+        photo_num = 0
+    
+    # Получаем путь к фото
+    photo_path = advertisement.photo_path[str(photo_num)]
+    
+    # Определяем кнопки навигации для объявлений
+    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+    
+    # Получаем все города исполнителя
+    all_city_ids = list(worker.city_id)
+    from app.data.database.models import WorkerCitySubscription
+    city_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
+    for subscription in city_subscriptions:
+        all_city_ids.extend(subscription.city_ids)
+    all_city_ids = list(set(all_city_ids))
+    
+    # Получаем все объявления для определения навигации
+    advertisements = []
+    for city_id in all_city_ids:
+        advertisements_temp = await Abs.get_all_in_city(city_id=city_id)
+        if advertisements_temp:
+            advertisements += advertisements_temp
+    
+    advertisements.sort(key=lambda x: x.id, reverse=True)
+    
+    # Фильтруем объявления
+    from app.data.database.models import WorkerAndReport, WorkerAndBadResponse
+    worker_and_reports = await WorkerAndReport.get_by_worker(worker_id=worker.id)
+    worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
+    worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
+    
+    bad_abs = []
+    if worker_and_reports:
+        bad_abs += [worker_and_report.abs_id for worker_and_report in worker_and_reports]
+    if worker_and_bad_responses:
+        bad_abs += [worker_and_bad_response.abs_id for worker_and_bad_response in worker_and_bad_responses]
+    if worker_and_abs:
+        bad_abs += [response.abs_id for response in worker_and_abs]
+    
+    bad_abs = set(bad_abs)
+    
+    advertisements_final = []
+    for ad in advertisements:
+        customer = await Customer.get_customer(id=ad.customer_id)
+        if customer.tg_id == worker.tg_id:
+            continue
+        if ad.id in bad_abs:
+            continue
+        if not worker_sub.work_type_ids and not worker_sub.unlimited_work_types:
+            continue
+            
+        is_unlimited = (worker_sub.unlimited_work_types or 
+                       (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
+        
+        if is_unlimited or (worker_sub.work_type_ids and str(ad.work_type_id) in worker_sub.work_type_ids):
+            if ad.relevance:
+                advertisements_final.append(ad)
+        elif worker_sub.unlimited_work_types:
+            if ad.relevance:
+                advertisements_final.append(ad)
+    
+    # Определяем кнопки навигации
+    btn_next = abs_list_id < len(advertisements_final) - 1
+    btn_back = abs_list_id > 0
+    
+    # Обновляем медиа
+    if 'https' in photo_path:
+        await callback.message.edit_media(
+            media=InputMediaPhoto(
+                media=photo_path,
+                caption=callback.message.caption),
+            reply_markup=kbc.advertisement_response_buttons(
+                abs_id=abs_id, 
+                btn_next=btn_next, 
+                btn_back=btn_back, 
+                abs_list_id=abs_list_id,
+                count_photo=count_photo,
+                photo_num=photo_num
+            )
+        )
+    else:
+        await callback.message.edit_media(
+            media=InputMediaPhoto(
+                media=FSInputFile(photo_path),
+                caption=callback.message.caption),
+            reply_markup=kbc.advertisement_response_buttons(
+                abs_id=abs_id, 
+                btn_next=btn_next, 
+                btn_back=btn_back, 
+                abs_list_id=abs_list_id,
+                count_photo=count_photo,
+                photo_num=photo_num
+            )
+        )
 
 
 @router.callback_query(lambda c: c.data.startswith('subscription_'), WorkStates.worker_check_subscription)

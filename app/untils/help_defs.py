@@ -203,9 +203,7 @@ async def save_photo_var(id: int, path: str = 'app//data//photo//', n: int = 0):
 
     while os.path.exists(f'{directory}//{n}.jpg'):
         n += 1
-    if n == 0:
-        return f'{directory}//', n
-    return path, n
+    return f'{directory}//', n
 
 
 async def save_portfolio_photo(user_id: int, photo_key: int):
