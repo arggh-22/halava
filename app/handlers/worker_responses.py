@@ -42,7 +42,8 @@ async def safe_edit_or_send(callback: CallbackQuery, text: str, reply_markup=Non
             )
         else:
             # Если сообщение текстовое, редактируем текст
-            await callback.message.edit_text(
+            await safe_edit_message(
+                callback=callback,
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode
@@ -243,13 +244,17 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
                     )
                 except Exception:
                     # Если фото не загрузилось, показываем текстом
-                    await callback.message.edit_text(
+                    from app.untils.message_utils import safe_edit_message
+                    await safe_edit_message(
+                        callback=callback,
                         text=text,
                         reply_markup=builder.as_markup(),
                         parse_mode='Markdown'
                     )
             else:
-                await callback.message.edit_text(
+                from app.untils.message_utils import safe_edit_message
+                await safe_edit_message(
+                    callback=callback,
                     text=text,
                     reply_markup=builder.as_markup(),
                     parse_mode='Markdown'
@@ -278,7 +283,9 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
                     )
                 except Exception:
                     # Если фото не загрузилось, показываем текстом
-                    await callback.message.edit_text(
+                    from app.untils.message_utils import safe_edit_message
+                    await safe_edit_message(
+                        callback=callback,
                         text=text,
                         reply_markup=kbc.anonymous_chat_customer_buttons(
                             worker_id=worker_id,
@@ -291,7 +298,9 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
                         parse_mode='Markdown'
                     )
             else:
-                await callback.message.edit_text(
+                from app.untils.message_utils import safe_edit_message
+                await safe_edit_message(
+                    callback=callback,
                     text=text,
                     reply_markup=kbc.anonymous_chat_customer_buttons(
                         worker_id=worker_id,
@@ -441,7 +450,9 @@ async def confirm_reject_customer_response(callback: CallbackQuery, state: FSMCo
         
         # Возвращаемся к списку откликов
         kbc = KeyboardCollection()
-        await callback.message.edit_text(
+        from app.untils.message_utils import safe_edit_message
+        await safe_edit_message(
+            callback=callback,
             text="✅ Отклик отклонен\n\nВы вернулись к списку откликов",
             reply_markup=kbc.menu_btn()
         )

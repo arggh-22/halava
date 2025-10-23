@@ -36,11 +36,16 @@ async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=Non
     except Exception as e:
         logger.error(f"Error in safe_edit_message: {e}")
         # Fallback: отправляем новое сообщение
-        await callback.message.answer(
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode
-        )
+        try:
+            await callback.message.answer(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+        except Exception as fallback_error:
+            logger.error(f"Error in fallback message sending: {fallback_error}")
+            # Последняя попытка - просто отвечаем на callback
+            await callback.answer("❌ Ошибка отображения сообщения", show_alert=True)
 
 
 async def safe_delete_message(callback: CallbackQuery):

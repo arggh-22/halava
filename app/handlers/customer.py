@@ -2176,14 +2176,20 @@ async def create_abs_choose_time(callback: CallbackQuery, state: FSMContext) -> 
 
 # Функции для оптимизированной рассылки объявлений
 
-async def send_single_message_to_worker(worker: Worker, advertisement_id: int, text: str, photo_path: dict = None, photos_len: int = 0):
+async def send_single_message_to_worker(worker: Worker, advertisement_id: int, text: str, photo_path: dict = None, photos_len: int = 0, retry_count: int = 0):
     """
     Отправляет сообщение одному исполнителю с обработкой ошибок.
     """
+    # Проверяем, не отправляли ли уже это сообщение этому исполнителю
+    message_key = f"{worker.tg_id}_{advertisement_id}"
+    if message_key in _sent_messages:
+        logger.warning(f'[DEBUG] Message already sent to worker {worker.tg_id} for advertisement {advertisement_id}, skipping')
+        return
+    
     try:
         kbc = KeyboardCollection()
         
-        logger.info(f'[DEBUG] send_single_message_to_worker: worker_id={worker.tg_id}, advertisement_id={advertisement_id}')
+        logger.info(f'[DEBUG] send_single_message_to_worker: worker_id={worker.tg_id}, advertisement_id={advertisement_id}, retry_count={retry_count}')
         logger.info(f'[DEBUG] Photo check: photo_path={photo_path}, photos_len={photos_len}, has_key_0={"0" in photo_path if photo_path else False}')
         
         if photo_path and photos_len > 0 and '0' in photo_path:
@@ -2202,30 +2208,45 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
                 reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_id)
             )
         
-        # Обновляем счетчик просмотров
-        advertisement = await Abs.get_one(advertisement_id)
-        if advertisement:
-            await advertisement.update(views=1)
+        # Отмечаем сообщение как отправленное
+        _sent_messages.add(message_key)
+        logger.info(f'[DEBUG] Message sent successfully to worker {worker.tg_id} for advertisement {advertisement_id}')
             
     except TelegramForbiddenError:
         # Пользователь заблокировал бота - помечаем как неактивного
         logger.debug(f'Worker {worker.tg_id} blocked bot, marking as inactive')
         await worker.update_active(False)
     except TelegramRetryAfter as e:
-        # Rate limit - ждем указанное время
-        logger.debug(f'Rate limit for worker {worker.tg_id}, waiting {e.retry_after} seconds')
-        await asyncio.sleep(e.retry_after)
-        # Повторяем отправку
-        await send_single_message_to_worker(worker, advertisement_id, text, photo_path, photos_len)
+        # Rate limit - ждем указанное время, но ограничиваем количество попыток
+        if retry_count < 3:  # Максимум 3 попытки
+            logger.debug(f'Rate limit for worker {worker.tg_id}, waiting {e.retry_after} seconds (attempt {retry_count + 1}/3)')
+            await asyncio.sleep(e.retry_after)
+            # Повторяем отправку с увеличенным счетчиком
+            await send_single_message_to_worker(worker, advertisement_id, text, photo_path, photos_len, retry_count + 1)
+        else:
+            logger.error(f'Max retry attempts reached for worker {worker.tg_id}, skipping')
     except Exception as e:
         logger.error(f"Failed to send message to worker {worker.tg_id}: {e}")
 
+
+# Глобальные словари для отслеживания активных рассылок и отправленных сообщений
+_active_sends = set()
+_sent_messages = set()  # Отслеживаем уже отправленные сообщения
 
 async def send_to_workers_background(advertisement_id: int, city_id: int, work_type_id: int, text: str, photo_path: dict = None, photos_len: int = 0):
     """
     Фоновая рассылка объявлений исполнителям с батчингом и обработкой ошибок.
     """
+    # Проверяем, не запущена ли уже рассылка для этого объявления
+    send_key = f"{advertisement_id}_{city_id}_{work_type_id}"
+    if send_key in _active_sends:
+        logger.warning(f'[DEBUG] Send already in progress for advertisement {advertisement_id}, skipping duplicate')
+        return
+    
     try:
+        # Добавляем в активные рассылки
+        _active_sends.add(send_key)
+        
         # Записываем в файл логов
         logger.info(f'[DEBUG] Starting send_to_workers_background: city_id={city_id}, work_type_id={work_type_id}, advertisement_id={advertisement_id}')
         logger.info(f'[DEBUG] Photo params: photo_path={photo_path}, photos_len={photos_len}')
@@ -2237,13 +2258,30 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
             logger.info(f'[DEBUG] No active workers found for city {city_id} and work_type {work_type_id}')
             return
         
-        logger.info(f'[DEBUG] Found {len(workers)} workers for advertisement {advertisement_id}')
+        # ДЕДУПЛИКАЦИЯ: убираем дублирующих исполнителей
+        unique_workers = []
+        seen_worker_ids = set()
+        for worker in workers:
+            if worker.tg_id not in seen_worker_ids:
+                unique_workers.append(worker)
+                seen_worker_ids.add(worker.tg_id)
+            else:
+                logger.warning(f'[DEBUG] Duplicate worker found: {worker.tg_id}, skipping')
+        
+        workers = unique_workers
+        logger.info(f'[DEBUG] Found {len(workers)} unique workers for advertisement {advertisement_id} (removed {len(await Worker.get_active_workers_for_advertisement(city_id, work_type_id)) - len(workers)} duplicates)')
         logger.info(f'[DEBUG] Starting background send to {len(workers)} workers for advertisement {advertisement_id}')
+        
+        # Логируем всех исполнителей
+        worker_ids = [worker.tg_id for worker in workers]
+        logger.info(f'[DEBUG] Worker IDs: {worker_ids}')
         
         # Отправляем по 5 сообщений в батче с паузой
         batch_size = 5
         for i in range(0, len(workers), batch_size):
             batch = workers[i:i + batch_size]
+            batch_worker_ids = [worker.tg_id for worker in batch]
+            logger.info(f'[DEBUG] Processing batch {i//batch_size + 1}: workers {batch_worker_ids}')
             
             # Создаем задачи для параллельной отправки
             tasks = [
@@ -2258,10 +2296,24 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
             if i + batch_size < len(workers):
                 await asyncio.sleep(0.5)  # 500ms пауза
         
+        # Обновляем счетчик просмотров один раз для всего объявления
+        advertisement = await Abs.get_one(advertisement_id)
+        if advertisement:
+            await advertisement.update(views=len(workers))
+        
         logger.debug(f'Completed background send to workers for advertisement {advertisement_id}')
         
     except Exception as e:
         logger.error(f"Error in background send to workers: {e}")
+    finally:
+        # Убираем из активных рассылок
+        _active_sends.discard(send_key)
+        
+        # Очищаем старые записи об отправленных сообщениях для этого объявления
+        # (оставляем только записи для других объявлений)
+        global _sent_messages
+        _sent_messages = {key for key in _sent_messages if not key.endswith(f'_{advertisement_id}')}
+        logger.debug(f'[DEBUG] Cleaned up sent messages for advertisement {advertisement_id}')
 
 
 # Новые обработчики для системы покупки контактов
@@ -2797,7 +2849,10 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
         
         if not responses:
             kbc = KeyboardCollection()
-            await callback.message.edit_text(
+            # Используем безопасное редактирование сообщения
+            from app.untils.message_utils import safe_edit_message
+            await safe_edit_message(
+                callback=callback,
                 text="📭 **На это объявление пока нет откликов**\n\n"
                      "Ожидайте откликов от исполнителей.",
                 reply_markup=kbc.menu_btn(),
@@ -2838,7 +2893,10 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
                 city_name = city.city
         
         kbc = KeyboardCollection()
-        await callback.message.edit_text(
+        # Используем безопасное редактирование сообщения
+        from app.untils.message_utils import safe_edit_message
+        await safe_edit_message(
+            callback=callback,
             text=f"📋 **Отклики на объявление #{abs_id}**\n"
                  f"🏙️ Город: {city_name}\n"
                  f"👥 Количество откликов: {len(responses_data)}\n\n"

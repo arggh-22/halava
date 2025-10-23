@@ -393,9 +393,9 @@ class Worker:
 
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
-            # Получаем всех активных исполнителей
+            # Получаем всех активных исполнителей (используем DISTINCT для избежания дублирования)
             query = '''
-                    SELECT w.*, ws.work_type_ids
+                    SELECT DISTINCT w.*, ws.work_type_ids
                     FROM workers w
                              LEFT JOIN worker_and_subscription ws ON w.id = ws.worker_id
                     WHERE w.active = 1
@@ -2171,16 +2171,37 @@ class WorkerAndSubscription:
                                                     sqlite3.PARSE_COLNAMES)
         try:
             cursor = await conn.execute('SELECT * FROM worker_and_subscription WHERE worker_id = ?', [worker_id])
-            record = await cursor.fetchall()
+            records = await cursor.fetchall()
             await cursor.close()
-            return cls(id=record[0][0],
-                       worker_id=record[0][1],
-                       subscription_id=record[0][2],
-                       guaranteed_orders=record[0][3],
-                       subscription_end=record[0][4],
-                       work_type_ids=record[0][5].split('|') if record[0][5] else None,
-                       unlimited_orders=record[0][6],
-                       unlimited_work_types=record[0][7])
+            
+            if not records:
+                return None
+            
+            # Если есть несколько записей, берем самую новую (с наибольшим id)
+            # и удаляем дублирующие записи
+            if len(records) > 1:
+                # Сортируем по id (самая новая запись будет последней)
+                records.sort(key=lambda x: x[0])
+                latest_record = records[-1]
+                
+                # Удаляем старые дублирующие записи
+                old_ids = [record[0] for record in records[:-1]]
+                if old_ids:
+                    placeholders = ','.join(['?' for _ in old_ids])
+                    await conn.execute(f'DELETE FROM worker_and_subscription WHERE id IN ({placeholders})', old_ids)
+                    await conn.commit()
+                    print(f"[CLEANUP] Removed {len(old_ids)} duplicate worker_and_subscription records for worker {worker_id}")
+            else:
+                latest_record = records[0]
+            
+            return cls(id=latest_record[0],
+                       worker_id=latest_record[1],
+                       subscription_id=latest_record[2],
+                       guaranteed_orders=latest_record[3],
+                       subscription_end=latest_record[4],
+                       work_type_ids=latest_record[5].split('|') if latest_record[5] else None,
+                       unlimited_orders=latest_record[6],
+                       unlimited_work_types=latest_record[7])
         finally:
             await conn.close()
 
