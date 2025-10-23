@@ -118,9 +118,7 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
         return
 
     else:
-        # Новый пользователь - показываем выбор роли
-        text = '''<b>Выберите вашу роль:</b>
-'''
+        # Новый пользователь - сразу показываем выбор роли
 
         # Обрабатываем параметры команды /start
         args = message.text.split(maxsplit=1)
@@ -164,9 +162,8 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
 
         # Показываем выбор роли новому пользователю
         await message.answer(
-            text=text,
-            reply_markup=kbc.registration(),
-            parse_mode='HTML'
+            text='Выберите вашу роль',
+            reply_markup=kbc.registration()
         )
         await state.set_state(UserStates.registration_end)
         await state.update_data(username=str(message.from_user.username))
@@ -210,7 +207,7 @@ async def apply_user_agreement(callback: CallbackQuery, state: FSMContext) -> No
 @router.message(Command("admin"))
 async def admin_cmd(message: Message, state: FSMContext) -> None:
     logger.debug('admin_cmd...')
-
+    
     # Проверяем права администратора
     admin = await Admin.get_by_tg_id(message.chat.id)
     if not admin:
@@ -221,21 +218,14 @@ async def admin_cmd(message: Message, state: FSMContext) -> None:
     class FakeCallback:
         def __init__(self, message):
             self.message = message
-
+    
     fake_callback = FakeCallback(message)
-
+    
     # Импортируем и вызываем оптимизированную функцию admin_menu
     from app.handlers.admin import admin_menu
     await admin_menu(fake_callback, state)
 
 
-@router.callback_query(F.data == 'apply_and_continue',
-                       StateFilter(UserStates.registration_end, UserStates.registration_enter_city))
-async def apply_user_agreement(callback: CallbackQuery) -> None:
-    logger.debug(f'apply_user_agreement...')
-    kbc = KeyboardCollection()
-    await callback.message.delete()
-    await callback.message.answer(text='Выберите вашу роль', reply_markup=kbc.registration())
 
 
 @router.message(Command("menu"))

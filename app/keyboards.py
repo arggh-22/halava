@@ -224,8 +224,15 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Разместить объявление", callback_data="create_new_abs"))
         builder.add(self._inline(button_text="Мои объявления", callback_data="my_abs"))
         builder.add(self._inline(button_text="Мои контакты", callback_data="customer_contacts"))
-        builder.add(self._inline(button_text="Купить объявления", callback_data="add_orders"))
         builder.add(self._inline(button_text="Сменить город", callback_data="customer_change_city"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def customer_limit_reached_menu(self) -> InlineKeyboardMarkup:
+        """Клавиатура когда достигнут лимит объявлений"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="💳 Оплатить объявление", callback_data="buy_single_ad"))
+        builder.add(self._inline(button_text="◀️ Назад в меню", callback_data="customer_menu"))
         builder.adjust(1)
         return builder.as_markup()
 
