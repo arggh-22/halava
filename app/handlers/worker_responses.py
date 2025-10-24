@@ -7,6 +7,7 @@ Handlers для работы с откликами исполнителя:
 """
 
 import logging
+from datetime import datetime
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -690,9 +691,9 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
         )
         await worker_and_abs.save()
         
-        # Обновляем с сообщением
+        # Обновляем без сохранения служебного сообщения в истории чата
+        # (это сообщение будет только в уведомлении заказчику)
         await worker_and_abs.update(
-            worker_messages=["Исполнитель откликнулся без сообщения"],
             applyed=True
         )
         
@@ -899,10 +900,15 @@ async def process_response_text(message: Message, state: FSMContext):
         )
         await worker_and_abs.save()
         
-        # Обновляем с сообщением
+        # Добавляем временную метку для сообщения
+        current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message_timestamps = [{"sender": "worker", "timestamp": current_timestamp}]
+        
+        # Обновляем с сообщением и временной меткой
         await worker_and_abs.update(
             worker_messages=[message.text],
-            applyed=True
+            applyed=True,
+            message_timestamps=message_timestamps
         )
         
         # Формируем уведомление с профилем исполнителя

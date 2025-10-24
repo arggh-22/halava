@@ -2229,7 +2229,7 @@ class WorkerAndSubscription:
 class WorkersAndAbs:
     def __init__(self, worker_id: int, abs_id: int, id: int = None, applyed: bool = None, send_by_worker: int = None,
                  send_by_customer: int = None, customer_messages: str = None, worker_messages: str = None,
-                 turn: bool = True):
+                 turn: bool = True, message_timestamps: str = None):
         self.id = id
         self.worker_id = worker_id
         self.abs_id = abs_id
@@ -2238,12 +2238,21 @@ class WorkersAndAbs:
         self.applyed = applyed
         step = 0
         if worker_messages:
+            # Вычисляем step на основе длины строки
             if len(worker_messages) > 1024:
                 step = int(((len(worker_messages) - 1024) / 20))
             elif customer_messages:
                 if len(customer_messages) > 1024:
                     step = int(((len(customer_messages) - 1024) / 20))
-            self.worker_messages = (worker_messages.split(' | '))[step::]
+            
+            # Разбиваем строку на список сообщений
+            messages_list = worker_messages.split(' | ')
+            
+            # Если step слишком большой (больше длины списка), берем все сообщения
+            if step >= len(messages_list):
+                step = 0
+            
+            self.worker_messages = messages_list[step::]
         else:
             self.worker_messages = ['Исполнитель не отправил сообщение']
 
@@ -2253,8 +2262,24 @@ class WorkersAndAbs:
             else:
                 self.customer_messages = []
         else:
-            self.customer_messages = (customer_messages.split(' | '))[step::]
+            # Разбиваем строку на список сообщений
+            customer_messages_list = customer_messages.split(' | ')
+            
+            # Если step слишком большой (больше длины списка), берем все сообщения
+            if step >= len(customer_messages_list):
+                step = 0
+            
+            self.customer_messages = customer_messages_list[step::]
         self.turn = turn
+        
+        # Парсим временные метки сообщений
+        if message_timestamps:
+            try:
+                self.message_timestamps = json.loads(message_timestamps)
+            except (json.JSONDecodeError, TypeError):
+                self.message_timestamps = []
+        else:
+            self.message_timestamps = []
 
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
@@ -2280,7 +2305,8 @@ class WorkersAndAbs:
     async def update(self, worker_id: int = None, abs_id: int = None,
                      applyed: bool = None, send_by_worker: int = None,
                      send_by_customer: int = None, worker_messages: list = None,
-                     customer_messages: list = None, turn: bool = None) -> None:
+                     customer_messages: list = None, turn: bool = None, 
+                     message_timestamps: list = None) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             updates = []
@@ -2319,6 +2345,11 @@ class WorkersAndAbs:
             if turn is not None:
                 updates.append('turn = ?')
                 params.append(turn)
+            
+            if message_timestamps is not None:
+                timestamps_json = json.dumps(message_timestamps)
+                updates.append('message_timestamps = ?')
+                params.append(timestamps_json)
 
             if updates:
                 params.append(self.id)
@@ -2343,7 +2374,8 @@ class WorkersAndAbs:
                         applyed=True if record[5] == 1 else False,
                         worker_messages=record[6],
                         customer_messages=record[7],
-                        turn=True if record[8] == 1 else False)
+                        turn=True if record[8] == 1 else False,
+                        message_timestamps=record[9] if len(record) > 9 else None)
                     for record in records]
         finally:
             await conn.close()
@@ -2364,7 +2396,8 @@ class WorkersAndAbs:
                         applyed=True if record[5] == 1 else False,
                         worker_messages=record[6],
                         customer_messages=record[7],
-                        turn=True if record[8] == 1 else False)
+                        turn=True if record[8] == 1 else False,
+                        message_timestamps=record[9] if len(record) > 9 else None)
                     for record in records]
         finally:
             await conn.close()
@@ -2384,7 +2417,8 @@ class WorkersAndAbs:
                         applyed=True if record[5] == 1 else False,
                         worker_messages=record[6],
                         customer_messages=record[7],
-                        turn=True if record[8] == 1 else False
+                        turn=True if record[8] == 1 else False,
+                        message_timestamps=record[9] if len(record) > 9 else None
                         )
                     for record in records]
         finally:
@@ -2412,7 +2446,8 @@ class WorkersAndAbs:
                     applyed=True if record[5] == 1 else False,
                     worker_messages=record[6],
                     customer_messages=record[7],
-                    turn=True if record[8] == 1 else False
+                    turn=True if record[8] == 1 else False,
+                    message_timestamps=record[9] if len(record) > 9 else None
                 )
             return None
         finally:

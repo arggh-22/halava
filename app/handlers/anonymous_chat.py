@@ -59,10 +59,17 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
     с полной историей диалога
     """
     try:
+        # Небольшая задержка для обеспечения консистентности БД
+        import asyncio
+        await asyncio.sleep(0.1)
+        
         # Получаем WorkersAndAbs для истории сообщений
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
+            logger.warning(f"[CHAT_HISTORY] WorkersAndAbs not found for worker_id={worker.id}, abs_id={abs_id}")
             return
+        
+        logger.info(f"[CHAT_HISTORY] Loading chat history. Worker messages: {len(response.worker_messages) if response.worker_messages else 0}, Customer messages: {len(response.customer_messages) if response.customer_messages else 0}")
 
         # Собираем историю диалога в хронологическом порядке
         chat_history = ""
@@ -71,11 +78,20 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
         worker_messages_list = []
         customer_messages_list = []
 
-        if response.worker_messages and response.worker_messages != ['Исполнитель не отправил сообщение']:
-            worker_messages_list = list(response.worker_messages) if response.worker_messages else []
+        # Фильтруем worker_messages: убираем служебное сообщение и пустые
+        if response.worker_messages:
+            worker_messages_list = [
+                msg for msg in response.worker_messages 
+                if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
+            ]
 
+        # Фильтруем customer_messages: убираем пустые
         if response.customer_messages:
-            customer_messages_list = list(response.customer_messages) if response.customer_messages else []
+            customer_messages_list = [
+                msg for msg in response.customer_messages 
+                if msg and msg.strip()
+            ]
+        
 
         # Создаем единый список всех сообщений с их индексами и отправителем
         all_messages = []
@@ -100,105 +116,129 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                     'sender_type': 'customer'
                 })
 
-        # УМНОЕ РЕШЕНИЕ: Анализируем соотношение сообщений и определяем правильный порядок
-
+        # НОВОЕ РЕШЕНИЕ: Используем временные метки для правильной сортировки
+        
         ordered_messages = []
-
-        # Если количество сообщений примерно одинаковое - чередуем
-        # Если один участник написал намного больше - показываем все его сообщения подряд
-
-        worker_count = len(worker_messages_list)
-        customer_count = len(customer_messages_list)
-
-        # Отладочная информация
-        logger.info(f"[CHAT_HISTORY] Worker messages: {worker_count}, Customer messages: {customer_count}")
-        logger.info(f"[CHAT_HISTORY] Worker messages: {worker_messages_list}")
-        logger.info(f"[CHAT_HISTORY] Customer messages: {customer_messages_list}")
-        logger.info(f"[CHAT_HISTORY] Current turn: {response.turn}")
-        logger.info(f"[CHAT_HISTORY] User type: {user_type}, Sender: {sender}")
-
-        # Определяем, есть ли значительная разница в количестве сообщений
-        if abs(worker_count - customer_count) <= 1:
-            # Количество примерно одинаковое - чередуем
-            worker_idx = 0
-            customer_idx = 0
-
-            while worker_idx < worker_count or customer_idx < customer_count:
-                # Добавляем сообщение исполнителя
-                if worker_idx < worker_count:
-                    msg = worker_messages_list[worker_idx]
-                    if msg and msg.strip():
-                        ordered_messages.append({'text': msg, 'sender': 'worker'})
-                    worker_idx += 1
-
-                # Добавляем сообщение заказчика
-                if customer_idx < customer_count:
-                    msg = customer_messages_list[customer_idx]
-                    if msg and msg.strip():
-                        ordered_messages.append({'text': msg, 'sender': 'customer'})
-                    customer_idx += 1
+        
+        # Получаем временные метки из БД
+        timestamps_list = response.message_timestamps if hasattr(response, 'message_timestamps') else []
+        
+        # Если есть временные метки - используем их для сортировки
+        if timestamps_list and len(timestamps_list) > 0:
+            logger.info(f"[CHAT_HISTORY] Using timestamps for sorting: {len(timestamps_list)} timestamps")
+            
+            # Создаем единый список всех сообщений с временными метками
+            all_messages_with_timestamps = []
+            
+            # Индексы для сообщений каждого типа
+            worker_msg_idx = 0
+            customer_msg_idx = 0
+            
+            # Проходим по временным меткам один раз и сопоставляем с сообщениями
+            for ts_data in timestamps_list:
+                if ts_data['sender'] == 'worker' and worker_msg_idx < len(worker_messages_list):
+                    msg = worker_messages_list[worker_msg_idx]
+                    # Сообщения уже отфильтрованы при загрузке из БД
+                    all_messages_with_timestamps.append({
+                        'text': msg,
+                        'sender': 'worker',
+                        'timestamp': ts_data['timestamp']
+                    })
+                    worker_msg_idx += 1
+                elif ts_data['sender'] == 'customer' and customer_msg_idx < len(customer_messages_list):
+                    msg = customer_messages_list[customer_msg_idx]
+                    # Сообщения уже отфильтрованы при загрузке из БД
+                    all_messages_with_timestamps.append({
+                        'text': msg,
+                        'sender': 'customer',
+                        'timestamp': ts_data['timestamp']
+                    })
+                    customer_msg_idx += 1
+            
+            # Сортируем по временным меткам
+            sorted_messages = sorted(all_messages_with_timestamps, key=lambda x: x['timestamp'])
+            
+            # Формируем финальный список
+            for msg_data in sorted_messages:
+                ordered_messages.append({
+                    'text': msg_data['text'],
+                    'sender': msg_data['sender']
+                })
         else:
-            # Один участник написал намного больше - показываем по порядку добавления
-            # Исполнитель всегда начинает
-            worker_idx = 0
-            customer_idx = 0
-            current_sender = 'worker'  # Начинаем с исполнителя
-
-            while worker_idx < worker_count or customer_idx < customer_count:
-                if current_sender == 'worker' and worker_idx < worker_count:
-                    msg = worker_messages_list[worker_idx]
-                    if msg and msg.strip():
+            # Если временных меток нет - используем старую логику (для обратной совместимости)
+            logger.info(f"[CHAT_HISTORY] No timestamps, using fallback logic")
+            
+            worker_count = len(worker_messages_list)
+            customer_count = len(customer_messages_list)
+            
+            # Старая логика чередования
+            if abs(worker_count - customer_count) <= 1:
+                worker_idx = 0
+                customer_idx = 0
+                while worker_idx < worker_count or customer_idx < customer_count:
+                    if worker_idx < worker_count:
+                        msg = worker_messages_list[worker_idx]
+                        # Сообщения уже отфильтрованы при загрузке из БД
                         ordered_messages.append({'text': msg, 'sender': 'worker'})
-                    worker_idx += 1
-                    # Переключаем на заказчика, если у него есть сообщения
+                        worker_idx += 1
                     if customer_idx < customer_count:
-                        current_sender = 'customer'
-                elif current_sender == 'customer' and customer_idx < customer_count:
-                    msg = customer_messages_list[customer_idx]
-                    if msg and msg.strip():
+                        msg = customer_messages_list[customer_idx]
+                        # Сообщения уже отфильтрованы при загрузке из БД
                         ordered_messages.append({'text': msg, 'sender': 'customer'})
-                    customer_idx += 1
-                    # Переключаем на исполнителя, если у него есть сообщения
-                    if worker_idx < worker_count:
-                        current_sender = 'worker'
-                else:
-                    # Если один участник закончил, берем оставшиеся сообщения другого
-                    if worker_idx < worker_count:
-                        current_sender = 'worker'
-                    elif customer_idx < customer_count:
-                        current_sender = 'customer'
-
-        # Ограничиваем до последних 15 сообщений
-        ordered_messages = ordered_messages[-15:]
-
-        # Формируем историю переписки
-        for msg_data in ordered_messages:
-            msg_text = msg_data['text']
-            msg_sender = msg_data['sender']
-
-            if user_type == "customer":
-                # Заказчик видит свои сообщения как "Вы"
-                if msg_sender == "customer":
-                    chat_history += f"👤 **Вы:** {msg_text}\n"
-                else:
-                    chat_history += f"👤 **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
-            else:  # worker
-                # Исполнитель видит свои сообщения как "Вы"
-                if msg_sender == "worker":
-                    chat_history += f"👤 **Вы:** {msg_text}\n"
-                else:
-                    chat_history += f"👤 **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
-
-        # Формируем текст сообщения
+                        customer_idx += 1
+        
+        # Формируем заголовок
         if user_type == "customer":
             header = f"💬 **Чат с исполнителем**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n"
         else:  # worker
             header = f"💬 **Чат с заказчиком**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
-
-        if chat_history:
-            full_text = header + "📝 **История переписки:**\n" + chat_history
-        else:
+        
+        # Проверяем, есть ли вообще сообщения
+        if not ordered_messages:
             full_text = header + "💬 Начните диалог, отправив сообщение."
+        else:
+            # Динамически подбираем количество сообщений с учетом лимита Telegram (4096 символов)
+            MAX_MESSAGE_LENGTH = 4000  # Оставляем запас
+            MAX_MESSAGES_INITIAL = min(15, len(ordered_messages))
+            
+            full_text = ""
+            messages_shown = 0
+            
+            # Пытаемся показать максимальное количество сообщений
+            for limit in range(MAX_MESSAGES_INITIAL, 0, -1):
+                # Берем последние N сообщений
+                selected_messages = ordered_messages[-limit:]
+                
+                # Формируем историю переписки
+                chat_history = ""
+                for msg_data in selected_messages:
+                    msg_text = msg_data['text']
+                    msg_sender = msg_data['sender']
+
+                    if user_type == "customer":
+                        # Заказчик видит свои сообщения как "Вы"
+                        if msg_sender == "customer":
+                            chat_history += f"👤 **Вы:** {msg_text}\n"
+                        else:
+                            chat_history += f"👤 **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
+                    else:  # worker
+                        # Исполнитель видит свои сообщения как "Вы"
+                        if msg_sender == "worker":
+                            chat_history += f"👤 **Вы:** {msg_text}\n"
+                        else:
+                            chat_history += f"👤 **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
+                
+                # Формируем полный текст
+                full_text = header + "📝 **История переписки:**\n" + chat_history
+                
+                # Проверяем длину
+                if len(full_text) <= MAX_MESSAGE_LENGTH:
+                    messages_shown = limit
+                    break
+            
+            # Если прошли все итерации и ничего не влезло, показываем специальное сообщение
+            if messages_shown == 0:
+                full_text = header + "💬 История переписки слишком длинная.\n\nОтправьте новое сообщение, чтобы продолжить диалог."
 
         # Проверяем статус контактов для кнопок
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
@@ -1216,11 +1256,26 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
             worker_messages_list = list(response.worker_messages) if response.worker_messages else []
             new_worker_messages = worker_messages_list + [message.text]
 
+        # Добавляем временную метку
+        current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Получаем текущие метки или создаем пустой список
+        current_timestamps = response.message_timestamps if hasattr(response, 'message_timestamps') and response.message_timestamps else []
+        
+        # Добавляем новую метку
+        new_timestamps = current_timestamps + [{"sender": "worker", "timestamp": current_timestamp}]
+        
         # Обновляем в БД
         await response.update(
             worker_messages=new_worker_messages,
-            turn=False  # теперь очередь заказчика
+            turn=False,  # теперь очередь заказчика
+            message_timestamps=new_timestamps
         )
+        
+        # Обновляем объект в памяти после сохранения в БД
+        response.worker_messages = new_worker_messages
+        response.message_timestamps = new_timestamps
+        response.turn = False
 
         # Отправляем или обновляем сообщение заказчику
         await send_or_update_chat_message(
@@ -1301,12 +1356,27 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
         # Добавляем сообщение заказчика
         customer_messages_list = list(response.customer_messages) if response.customer_messages else []
         new_customer_messages = customer_messages_list + [message.text]
+        
+        # Добавляем временную метку
+        current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Получаем текущие метки или создаем пустой список
+        current_timestamps = response.message_timestamps if hasattr(response, 'message_timestamps') and response.message_timestamps else []
+        
+        # Добавляем новую метку
+        new_timestamps = current_timestamps + [{"sender": "customer", "timestamp": current_timestamp}]
 
         # Обновляем в БД
         await response.update(
             customer_messages=new_customer_messages,
-            turn=True  # теперь очередь исполнителя
+            turn=True,  # теперь очередь исполнителя
+            message_timestamps=new_timestamps
         )
+        
+        # Обновляем объект в памяти после сохранения в БД
+        response.customer_messages = new_customer_messages
+        response.message_timestamps = new_timestamps
+        response.turn = True
 
         # Отправляем или обновляем сообщение исполнителю
         await send_or_update_chat_message(
@@ -1845,7 +1915,21 @@ async def worker_chat_message(message: Message, state: FSMContext):
                     messages = response.worker_messages or []
 
                 messages.append(message.text)
-                await response.update(worker_messages=" | ".join(messages))
+                
+                # Добавляем временную метку
+                current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                current_timestamps = response.message_timestamps if hasattr(response, 'message_timestamps') and response.message_timestamps else []
+                new_timestamps = current_timestamps + [{"sender": "worker", "timestamp": current_timestamp}]
+                
+                await response.update(
+                    worker_messages=messages,
+                    message_timestamps=new_timestamps
+                )
+                
+                # Обновляем объект в памяти после сохранения в БД
+                response.worker_messages = messages
+                response.message_timestamps = new_timestamps
+                
                 break
 
         # Отправляем заказчику с полным профилем исполнителя
