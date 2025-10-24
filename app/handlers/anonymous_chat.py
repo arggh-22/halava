@@ -52,6 +52,126 @@ async def get_worker_status_string(worker_id: int) -> str:
     return " | ".join(statuses)
 
 
+async def format_chat_history_for_display(user_type: str, abs_id: int, worker, customer) -> str:
+    """
+    Форматирует историю чата для отображения в просмотре отклика
+    Возвращает текст истории переписки
+    """
+    try:
+        # Получаем WorkersAndAbs для истории сообщений
+        response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
+        if not response:
+            return ""
+        
+        # Получаем списки сообщений
+        worker_messages_list = []
+        customer_messages_list = []
+
+        # Фильтруем worker_messages: убираем служебное сообщение и пустые
+        if response.worker_messages:
+            worker_messages_list = [
+                msg for msg in response.worker_messages 
+                if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
+            ]
+
+        # Фильтруем customer_messages: убираем пустые
+        if response.customer_messages:
+            customer_messages_list = [
+                msg for msg in response.customer_messages 
+                if msg and msg.strip()
+            ]
+        
+        ordered_messages = []
+        
+        # Получаем временные метки из БД
+        timestamps_list = response.message_timestamps if hasattr(response, 'message_timestamps') else []
+        
+        # Если есть временные метки - используем их для сортировки
+        if timestamps_list and len(timestamps_list) > 0:
+            # Создаем единый список всех сообщений с временными метками
+            all_messages_with_timestamps = []
+            
+            # Индексы для сообщений каждого типа
+            worker_msg_idx = 0
+            customer_msg_idx = 0
+            
+            # Проходим по временным меткам один раз и сопоставляем с сообщениями
+            for ts_data in timestamps_list:
+                if ts_data['sender'] == 'worker' and worker_msg_idx < len(worker_messages_list):
+                    msg = worker_messages_list[worker_msg_idx]
+                    # Сообщения уже отфильтрованы при загрузке из БД
+                    all_messages_with_timestamps.append({
+                        'text': msg,
+                        'sender': 'worker',
+                        'timestamp': ts_data['timestamp']
+                    })
+                    worker_msg_idx += 1
+                elif ts_data['sender'] == 'customer' and customer_msg_idx < len(customer_messages_list):
+                    msg = customer_messages_list[customer_msg_idx]
+                    # Сообщения уже отфильтрованы при загрузке из БД
+                    all_messages_with_timestamps.append({
+                        'text': msg,
+                        'sender': 'customer',
+                        'timestamp': ts_data['timestamp']
+                    })
+                    customer_msg_idx += 1
+            
+            # Сортируем по временным меткам
+            sorted_messages = sorted(all_messages_with_timestamps, key=lambda x: x['timestamp'])
+            
+            # Формируем финальный список
+            for msg_data in sorted_messages:
+                ordered_messages.append({
+                    'text': msg_data['text'],
+                    'sender': msg_data['sender']
+                })
+        else:
+            # Старая логика чередования
+            worker_count = len(worker_messages_list)
+            customer_count = len(customer_messages_list)
+            
+            if abs(worker_count - customer_count) <= 1:
+                worker_idx = 0
+                customer_idx = 0
+                while worker_idx < worker_count or customer_idx < customer_count:
+                    if worker_idx < worker_count:
+                        msg = worker_messages_list[worker_idx]
+                        ordered_messages.append({'text': msg, 'sender': 'worker'})
+                        worker_idx += 1
+                    if customer_idx < customer_count:
+                        msg = customer_messages_list[customer_idx]
+                        ordered_messages.append({'text': msg, 'sender': 'customer'})
+                        customer_idx += 1
+        
+        # Формируем историю
+        chat_history = ""
+        
+        if ordered_messages:
+            # Показываем последние 10 сообщений для просмотра отклика
+            for msg_data in ordered_messages[-10:]:
+                msg_text = msg_data['text']
+                msg_sender = msg_data['sender']
+
+                if user_type == "customer":
+                    # Заказчик видит свои сообщения как "Вы"
+                    if msg_sender == "customer":
+                        chat_history += f"👤 **Вы:** {msg_text}\n"
+                    else:
+                        chat_history += f"👤 **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
+                else:  # worker
+                    # Исполнитель видит свои сообщения как "Вы"
+                    if msg_sender == "worker":
+                        chat_history += f"👤 **Вы:** {msg_text}\n"
+                    else:
+                        chat_history += f"👤 **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
+        
+        return chat_history
+        
+    except Exception as e:
+        logger.error(f"Error in format_chat_history_for_display: {e}")
+        return ""
+
+
 async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                                       worker, customer, message_text: str, sender: str):
     """
@@ -1575,6 +1695,41 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
         text = f"📋 **Объявление #{abs_id}**\n\n"
         text += help_defs.read_text_file(advertisement.text_path)
         text += "\n\n" + "=" * 30 + "\n\n"
+        
+        # Показываем историю переписки
+        customer = await Customer.get_customer(id=advertisement.customer_id)
+        chat_history = await format_chat_history_for_display("worker", abs_id, worker, customer)
+        
+        if chat_history:
+            # Проверяем длину текста перед добавлением истории
+            temp_text = text + "📝 **История переписки:**\n\n" + chat_history
+            
+            # Если текст слишком длинный (больше 4000 символов), обрезаем историю
+            if len(temp_text) > 4000:
+                # Урезаем историю до тех пор, пока текст не влезет
+                history_lines = chat_history.split('\n')
+                remaining_chars = 4000 - len(text) - 100  # Оставляем запас
+                truncated_history = ""
+                for line in reversed(history_lines):
+                    if line.strip():  # Пропускаем пустые строки
+                        if len(truncated_history) + len(line) + 1 <= remaining_chars:
+                            truncated_history = line + '\n' + truncated_history
+                        else:
+                            break
+                
+                if truncated_history:
+                    text += "📝 **История переписки:**\n\n"
+                    text += truncated_history
+                    text += f"\n... (показаны последние сообщения)\n"
+                    text += "\n" + "=" * 30 + "\n\n"
+                else:
+                    # Если даже одна строка не влезла, не показываем историю
+                    text += "\n📝 История переписки слишком длинная для отображения.\n"
+                    text += "\n" + "=" * 30 + "\n\n"
+            else:
+                text += "📝 **История переписки:**\n\n"
+                text += chat_history
+                text += "\n" + "=" * 30 + "\n\n"
 
         if has_contacts:
             # Контакты уже куплены
@@ -1655,8 +1810,10 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                         parse_mode='Markdown'
                     )
             except Exception:
-                # Если фото не загрузилось, показываем текстом
-                await callback.message.edit_text(
+                # Если фото не загрузилось, показываем текстом с безопасным редактированием
+                from app.untils.message_utils import safe_edit_message
+                await safe_edit_message(
+                    callback=callback,
                     text=text,
                     reply_markup=kbc.anonymous_chat_worker_buttons(
                         abs_id=abs_id,
@@ -1669,7 +1826,10 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                     parse_mode='Markdown'
                 )
         else:
-            await callback.message.edit_text(
+            # Используем безопасное редактирование сообщения
+            from app.untils.message_utils import safe_edit_message
+            await safe_edit_message(
+                callback=callback,
                 text=text,
                 reply_markup=kbc.anonymous_chat_worker_buttons(
                     abs_id=abs_id,

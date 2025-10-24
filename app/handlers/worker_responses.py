@@ -200,18 +200,34 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
         # Дата регистрации
         text += f"📅 **Зарегистрирован:** {worker.registration_data}\n\n"
         
-        # Показываем сообщения
-        if response.worker_messages:
-            text += "💬 **Сообщения исполнителя:**\n"
-            for msg in response.worker_messages:
-                text += f"• {msg}\n"
-            text += "\n"
+        # Показываем историю переписки
+        from app.handlers.anonymous_chat import format_chat_history_for_display
+        chat_history = await format_chat_history_for_display("customer", abs_id, worker, customer)
         
-        if response.customer_messages:
-            text += "💬 **Ваши сообщения:**\n"
-            for msg in response.customer_messages:
-                text += f"• {msg}\n"
-            text += "\n"
+        if chat_history:
+            # Проверяем длину текста перед добавлением истории
+            temp_text = text + "📝 **История переписки:**\n\n" + chat_history
+            
+            # Если текст слишком длинный (больше 4000 символов), обрезаем историю
+            if len(temp_text) > 4000:
+                # Урезаем историю до тех пор, пока текст не влезет
+                history_lines = chat_history.split('\n')
+                remaining_chars = 4000 - len(text) - 100  # Оставляем запас
+                truncated_history = ""
+                for line in reversed(history_lines):
+                    if len(truncated_history) + len(line) + 1 <= remaining_chars:
+                        truncated_history = line + '\n' + truncated_history
+                    else:
+                        break
+                
+                if truncated_history:
+                    text += "📝 **История переписки:**\n\n"
+                    text += truncated_history
+                    text += f"\n... (показаны последние сообщения)\n"
+            else:
+                text += "📝 **История переписки:**\n\n"
+                text += chat_history
+                text += "\n"
         
         # Проверяем статус контактов и чата
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
