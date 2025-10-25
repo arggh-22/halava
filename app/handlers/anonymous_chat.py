@@ -55,7 +55,7 @@ async def get_worker_status_string(worker_id: int) -> str:
 async def get_response_status_indicator(response, user_type: str) -> str:
     """
     Определяет индикатор статуса для отклика в списке
-    Возвращает: " • " (непрочитанное/неотвеченное), "✅" (закрыт), "💬" (активный)
+    Возвращает: "•" (непрочитанное/неотвеченное), "✅" (закрыт), "💬" (активный)
     """
     try:
         # Проверяем, закрыт ли чат (контакты переданы)
@@ -77,13 +77,13 @@ async def get_response_status_indicator(response, user_type: str) -> str:
         last_message_by_customer = getattr(response, 'last_message_by_customer', 0)
         
         if user_type == "worker":
-            # Для исполнителя: показываем " • " если исполнитель написал последним
+            # Для исполнителя: показываем "•" если исполнитель написал последним
             # Используем поле turn: True = очередь исполнителя (исполнитель написал последним)
             if response.turn:
                 return " • "
             return "💬"  # Активный чат
         else:  # customer
-            # Для заказчика: показываем " • " если заказчик написал последним
+            # Для заказчика: показываем "•" если заказчик написал последним
             # Используем поле turn: False = очередь заказчика (заказчик написал последним)
             if not response.turn:
                 return " • "
@@ -214,19 +214,19 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                 worker_msg_index = msg_data.get('worker_msg_index', -1)
                 customer_msg_index = msg_data.get('customer_msg_index', -1)
 
-                # Определяем, нужно ли показать индикатор " • " рядом с СОБСТВЕННЫМИ сообщениями
+                # Определяем, нужно ли показать индикатор "•" рядом с СОБСТВЕННЫМИ сообщениями
                 show_indicator = False
                 if user_type == "customer":
-                    # Для заказчика: показываем " • " рядом с СОБСТВЕННЫМИ сообщениями,
+                    # Для заказчика: показываем "•" рядом с СОБСТВЕННЫМИ сообщениями,
                     # которые исполнитель НЕ ПРОЧИТАЛ
                     if msg_sender == "customer" and customer_msg_index >= 0:
-                        # Показываем " • " если исполнитель не прочитал это сообщение
+                        # Показываем "•" если исполнитель не прочитал это сообщение
                         show_indicator = customer_msg_index >= last_read_by_worker
                 else:  # worker
-                    # Для исполнителя: показываем " • " рядом с СОБСТВЕННЫМИ сообщениями,
+                    # Для исполнителя: показываем "•" рядом с СОБСТВЕННЫМИ сообщениями,
                     # которые заказчик НЕ ПРОЧИТАЛ
                     if msg_sender == "worker" and worker_msg_index >= 0:
-                        # Показываем " • " если заказчик не прочитал это сообщение
+                        # Показываем "•" если заказчик не прочитал это сообщение
                         show_indicator = worker_msg_index >= last_read_by_customer
                 
                 # Добавляем индикатор неотвеченного сообщения
@@ -235,15 +235,15 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                 if user_type == "customer":
                     # Заказчик видит свои сообщения как "Вы"
                     if msg_sender == "customer":
-                        chat_history += f"{unread_indicator}👤 **Вы:** {msg_text}\n"
+                        chat_history += f"{unread_indicator} **Вы:** {msg_text}\n"
                     else:
-                        chat_history += f"👤 **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
+                        chat_history += f" **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
                 else:  # worker
                     # Исполнитель видит свои сообщения как "Вы"
                     if msg_sender == "worker":
-                        chat_history += f"{unread_indicator}👤 **Вы:** {msg_text}\n"
+                        chat_history += f"{unread_indicator} **Вы:** {msg_text}\n"
                     else:
-                        chat_history += f"👤 **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
+                        chat_history += f" **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
         
         return chat_history
         
@@ -422,15 +422,15 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                     if user_type == "customer":
                         # Заказчик видит свои сообщения как "Вы"
                         if msg_sender == "customer":
-                            chat_history += f"👤 **Вы:** {msg_text}\n"
+                            chat_history += f" **Вы:** {msg_text}\n"
                         else:
-                            chat_history += f"👤 **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
+                            chat_history += f" **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
                     else:  # worker
                         # Исполнитель видит свои сообщения как "Вы"
                         if msg_sender == "worker":
-                            chat_history += f"👤 **Вы:** {msg_text}\n"
+                            chat_history += f" **Вы:** {msg_text}\n"
                         else:
-                            chat_history += f"👤 **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
+                            chat_history += f" **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
                 
                 # Формируем полный текст
                 full_text = header + "📝 **История переписки:**\n" + chat_history

@@ -1253,7 +1253,7 @@ class KeyboardCollection:
                                      callback_data=f"confirm_contact_share_{worker_id}_{abs_id}"))
         else:
             # Можно предложить контакты
-            builder.add(self._inline(button_text="📞 Предложить контакты", 
+            builder.add(self._inline(button_text="📞 Отправить контакты",
                                      callback_data=f"offer_contact_share_{worker_id}_{abs_id}"))
         
         # Кнопка просмотра портфолио (показываем только если есть портфолио)
