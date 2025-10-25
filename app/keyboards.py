@@ -1310,7 +1310,8 @@ class KeyboardCollection:
         
         for response in responses_data:
             abs_id = response['abs_id']
-            status_emoji = "💬" if response['active'] else "✅"
+            # Используем индикатор из данных или fallback на старую логику
+            status_emoji = response.get('status_indicator', "💬" if response['active'] else "✅")
             text = f"{status_emoji} Объявление #{abs_id}"
             builder.add(self._inline(button_text=text, 
                                      callback_data=f"view_my_response_{abs_id}"))
@@ -1326,7 +1327,8 @@ class KeyboardCollection:
         
         for response in responses_data:
             worker_public_id = response['worker_public_id']
-            status_emoji = "💬" if response['active'] else "✅"
+            # Используем индикатор из данных или fallback на старую логику
+            status_emoji = response.get('status_indicator', "💬" if response['active'] else "✅")
             text = f"{status_emoji} {worker_public_id}"
             builder.add(self._inline(button_text=text, 
                                      callback_data=f"view_response_{response['worker_id']}_{abs_id}"))

@@ -2229,13 +2229,18 @@ class WorkerAndSubscription:
 class WorkersAndAbs:
     def __init__(self, worker_id: int, abs_id: int, id: int = None, applyed: bool = None, send_by_worker: int = None,
                  send_by_customer: int = None, customer_messages: str = None, worker_messages: str = None,
-                 turn: bool = True, message_timestamps: str = None):
+                 turn: bool = True, message_timestamps: str = None, last_read_by_worker: int = None, last_read_by_customer: int = None,
+                 last_message_by_worker: int = None, last_message_by_customer: int = None):
         self.id = id
         self.worker_id = worker_id
         self.abs_id = abs_id
         self.send_by_worker = send_by_worker
         self.send_by_customer = send_by_customer
         self.applyed = applyed
+        self.last_read_by_worker = last_read_by_worker if last_read_by_worker is not None else 0
+        self.last_read_by_customer = last_read_by_customer if last_read_by_customer is not None else 0
+        self.last_message_by_worker = last_message_by_worker if last_message_by_worker is not None else 0
+        self.last_message_by_customer = last_message_by_customer if last_message_by_customer is not None else 0
         step = 0
         if worker_messages:
             # Вычисляем step на основе длины строки
@@ -2306,7 +2311,9 @@ class WorkersAndAbs:
                      applyed: bool = None, send_by_worker: int = None,
                      send_by_customer: int = None, worker_messages: list = None,
                      customer_messages: list = None, turn: bool = None, 
-                     message_timestamps: list = None) -> None:
+                     message_timestamps: list = None, last_read_by_worker: int = None,
+                     last_read_by_customer: int = None, last_message_by_worker: int = None,
+                     last_message_by_customer: int = None) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             updates = []
@@ -2350,6 +2357,22 @@ class WorkersAndAbs:
                 timestamps_json = json.dumps(message_timestamps)
                 updates.append('message_timestamps = ?')
                 params.append(timestamps_json)
+            
+            if last_read_by_worker is not None:
+                updates.append('last_read_by_worker = ?')
+                params.append(last_read_by_worker)
+            
+            if last_read_by_customer is not None:
+                updates.append('last_read_by_customer = ?')
+                params.append(last_read_by_customer)
+            
+            if last_message_by_worker is not None:
+                updates.append('last_message_by_worker = ?')
+                params.append(last_message_by_worker)
+            
+            if last_message_by_customer is not None:
+                updates.append('last_message_by_customer = ?')
+                params.append(last_message_by_customer)
 
             if updates:
                 params.append(self.id)
@@ -2375,7 +2398,11 @@ class WorkersAndAbs:
                         worker_messages=record[6],
                         customer_messages=record[7],
                         turn=True if record[8] == 1 else False,
-                        message_timestamps=record[9] if len(record) > 9 else None)
+                        message_timestamps=record[9] if len(record) > 9 else None,
+                        last_read_by_worker=record[10] if len(record) > 10 else 0,
+                        last_read_by_customer=record[11] if len(record) > 11 else 0,
+                        last_message_by_worker=record[12] if len(record) > 12 else 0,
+                        last_message_by_customer=record[13] if len(record) > 13 else 0)
                     for record in records]
         finally:
             await conn.close()
@@ -2397,7 +2424,11 @@ class WorkersAndAbs:
                         worker_messages=record[6],
                         customer_messages=record[7],
                         turn=True if record[8] == 1 else False,
-                        message_timestamps=record[9] if len(record) > 9 else None)
+                        message_timestamps=record[9] if len(record) > 9 else None,
+                        last_read_by_worker=record[10] if len(record) > 10 else 0,
+                        last_read_by_customer=record[11] if len(record) > 11 else 0,
+                        last_message_by_worker=record[12] if len(record) > 12 else 0,
+                        last_message_by_customer=record[13] if len(record) > 13 else 0)
                     for record in records]
         finally:
             await conn.close()
@@ -2418,7 +2449,11 @@ class WorkersAndAbs:
                         worker_messages=record[6],
                         customer_messages=record[7],
                         turn=True if record[8] == 1 else False,
-                        message_timestamps=record[9] if len(record) > 9 else None
+                        message_timestamps=record[9] if len(record) > 9 else None,
+                        last_read_by_worker=record[10] if len(record) > 10 else 0,
+                        last_read_by_customer=record[11] if len(record) > 11 else 0,
+                        last_message_by_worker=record[12] if len(record) > 12 else 0,
+                        last_message_by_customer=record[13] if len(record) > 13 else 0
                         )
                     for record in records]
         finally:
@@ -2447,7 +2482,11 @@ class WorkersAndAbs:
                     worker_messages=record[6],
                     customer_messages=record[7],
                     turn=True if record[8] == 1 else False,
-                    message_timestamps=record[9] if len(record) > 9 else None
+                    message_timestamps=record[9] if len(record) > 9 else None,
+                    last_read_by_worker=record[10] if len(record) > 10 else 0,
+                    last_read_by_customer=record[11] if len(record) > 11 else 0,
+                    last_message_by_worker=record[12] if len(record) > 12 else 0,
+                    last_message_by_customer=record[13] if len(record) > 13 else 0
                 )
             return None
         finally:

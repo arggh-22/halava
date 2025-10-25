@@ -34,10 +34,10 @@ async def get_worker_status_string(worker_id: int) -> str:
     """Возвращает строку с подтвержденными статусами исполнителя"""
     from app.data.database.models import WorkerStatus
     worker_status = await WorkerStatus.get_by_worker(worker_id)
-
+    
     if not worker_status:
         return "⚠️ Статус не подтвержден"
-
+    
     statuses = []
     if worker_status.has_ip:
         statuses.append("ИП ✅")
@@ -45,23 +45,69 @@ async def get_worker_status_string(worker_id: int) -> str:
         statuses.append("ООО ✅")
     if worker_status.has_sz:
         statuses.append("Самозанятость ✅")
-
+    
     if not statuses:
         return "⚠️ Статус не подтвержден"
-
+    
     return " | ".join(statuses)
+
+
+async def get_response_status_indicator(response, user_type: str) -> str:
+    """
+    Определяет индикатор статуса для отклика в списке
+    Возвращает: " • " (непрочитанное/неотвеченное), "✅" (закрыт), "💬" (активный)
+    """
+    try:
+        # Проверяем, закрыт ли чат (контакты переданы)
+        from app.data.database.models import ContactExchange
+        contact_exchange = await ContactExchange.get_by_worker_and_abs(response.worker_id, response.abs_id)
+        if contact_exchange and contact_exchange.contacts_purchased:
+            return "✅"  # Чат закрыт
+        
+        # Получаем количество сообщений каждого типа
+        worker_messages_count = len(response.worker_messages) if response.worker_messages else 0
+        customer_messages_count = len(response.customer_messages) if response.customer_messages else 0
+        
+        # Получаем счетчики прочитанных сообщений
+        last_read_by_worker = getattr(response, 'last_read_by_worker', 0)
+        last_read_by_customer = getattr(response, 'last_read_by_customer', 0)
+        
+        # Получаем счетчики последних сообщений
+        last_message_by_worker = getattr(response, 'last_message_by_worker', 0)
+        last_message_by_customer = getattr(response, 'last_message_by_customer', 0)
+        
+        if user_type == "worker":
+            # Для исполнителя: показываем " • " если исполнитель написал последним
+            # Используем поле turn: True = очередь исполнителя (исполнитель написал последним)
+            if response.turn:
+                return " • "
+            return "💬"  # Активный чат
+        else:  # customer
+            # Для заказчика: показываем " • " если заказчик написал последним
+            # Используем поле turn: False = очередь заказчика (заказчик написал последним)
+            if not response.turn:
+                return " • "
+            return "💬"  # Активный чат
+            
+    except Exception as e:
+        logger.error(f"Error in get_response_status_indicator: {e}")
+        return "💬"  # По умолчанию активный чат
 
 
 async def format_chat_history_for_display(user_type: str, abs_id: int, worker, customer) -> str:
     """
     Форматирует историю чата для отображения в просмотре отклика
-    Возвращает текст истории переписки
+    Возвращает текст истории переписки с индикаторами непрочитанных сообщений
     """
     try:
         # Получаем WorkersAndAbs для истории сообщений
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             return ""
+        
+        # Получаем индексы последних прочитанных сообщений
+        last_read_by_worker = getattr(response, 'last_read_by_worker', 0)
+        last_read_by_customer = getattr(response, 'last_read_by_customer', 0)
         
         # Получаем списки сообщений
         worker_messages_list = []
@@ -103,7 +149,8 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                     all_messages_with_timestamps.append({
                         'text': msg,
                         'sender': 'worker',
-                        'timestamp': ts_data['timestamp']
+                        'timestamp': ts_data['timestamp'],
+                        'worker_msg_index': worker_msg_idx
                     })
                     worker_msg_idx += 1
                 elif ts_data['sender'] == 'customer' and customer_msg_idx < len(customer_messages_list):
@@ -112,7 +159,8 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                     all_messages_with_timestamps.append({
                         'text': msg,
                         'sender': 'customer',
-                        'timestamp': ts_data['timestamp']
+                        'timestamp': ts_data['timestamp'],
+                        'customer_msg_index': customer_msg_idx
                     })
                     customer_msg_idx += 1
             
@@ -123,10 +171,12 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
             for msg_data in sorted_messages:
                 ordered_messages.append({
                     'text': msg_data['text'],
-                    'sender': msg_data['sender']
+                    'sender': msg_data['sender'],
+                    'worker_msg_index': msg_data.get('worker_msg_index', -1),
+                    'customer_msg_index': msg_data.get('customer_msg_index', -1)
                 })
         else:
-            # Старая логика чередования
+            # Старая логика чередования (для совместимости)
             worker_count = len(worker_messages_list)
             customer_count = len(customer_messages_list)
             
@@ -136,11 +186,21 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                 while worker_idx < worker_count or customer_idx < customer_count:
                     if worker_idx < worker_count:
                         msg = worker_messages_list[worker_idx]
-                        ordered_messages.append({'text': msg, 'sender': 'worker'})
+                        ordered_messages.append({
+                            'text': msg, 
+                            'sender': 'worker',
+                            'worker_msg_index': worker_idx,
+                            'customer_msg_index': -1
+                        })
                         worker_idx += 1
                     if customer_idx < customer_count:
                         msg = customer_messages_list[customer_idx]
-                        ordered_messages.append({'text': msg, 'sender': 'customer'})
+                        ordered_messages.append({
+                            'text': msg, 
+                            'sender': 'customer',
+                            'worker_msg_index': -1,
+                            'customer_msg_index': customer_idx
+                        })
                         customer_idx += 1
         
         # Формируем историю
@@ -151,17 +211,37 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
             for msg_data in ordered_messages[-10:]:
                 msg_text = msg_data['text']
                 msg_sender = msg_data['sender']
+                worker_msg_index = msg_data.get('worker_msg_index', -1)
+                customer_msg_index = msg_data.get('customer_msg_index', -1)
 
+                # Определяем, нужно ли показать индикатор " • " рядом с СОБСТВЕННЫМИ сообщениями
+                show_indicator = False
+                if user_type == "customer":
+                    # Для заказчика: показываем " • " рядом с СОБСТВЕННЫМИ сообщениями,
+                    # которые исполнитель НЕ ПРОЧИТАЛ
+                    if msg_sender == "customer" and customer_msg_index >= 0:
+                        # Показываем " • " если исполнитель не прочитал это сообщение
+                        show_indicator = customer_msg_index >= last_read_by_worker
+                else:  # worker
+                    # Для исполнителя: показываем " • " рядом с СОБСТВЕННЫМИ сообщениями,
+                    # которые заказчик НЕ ПРОЧИТАЛ
+                    if msg_sender == "worker" and worker_msg_index >= 0:
+                        # Показываем " • " если заказчик не прочитал это сообщение
+                        show_indicator = worker_msg_index >= last_read_by_customer
+                
+                # Добавляем индикатор неотвеченного сообщения
+                unread_indicator = " • " if show_indicator else ""
+                
                 if user_type == "customer":
                     # Заказчик видит свои сообщения как "Вы"
                     if msg_sender == "customer":
-                        chat_history += f"👤 **Вы:** {msg_text}\n"
+                        chat_history += f"{unread_indicator}👤 **Вы:** {msg_text}\n"
                     else:
                         chat_history += f"👤 **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
                 else:  # worker
                     # Исполнитель видит свои сообщения как "Вы"
                     if msg_sender == "worker":
-                        chat_history += f"👤 **Вы:** {msg_text}\n"
+                        chat_history += f"{unread_indicator}👤 **Вы:** {msg_text}\n"
                     else:
                         chat_history += f"👤 **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
         
@@ -177,6 +257,10 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
     """
     Отправляет новое сообщение или обновляет существующее сообщение чата
     с полной историей диалога
+    
+    ВАЖНО: НЕ обновляет счетчики прочитанных сообщений при отправке,
+    т.к. нельзя узнать, открыл ли пользователь уведомление или нет.
+    Счетчики обновляются только при открытии раздела "Отклики".
     """
     try:
         # Небольшая задержка для обеспечения консистентности БД
@@ -1375,6 +1459,9 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         else:
             worker_messages_list = list(response.worker_messages) if response.worker_messages else []
             new_worker_messages = worker_messages_list + [message.text]
+        
+        # Получаем сообщения заказчика для обновления счетчика прочитанных
+        customer_messages_list = list(response.customer_messages) if response.customer_messages else []
 
         # Добавляем временную метку
         current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1389,13 +1476,17 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         await response.update(
             worker_messages=new_worker_messages,
             turn=False,  # теперь очередь заказчика
-            message_timestamps=new_timestamps
+            message_timestamps=new_timestamps,
+            last_message_by_worker=len(new_worker_messages),  # обновляем счетчик последнего сообщения
+            last_read_by_worker=len(customer_messages_list)  # исполнитель "прочитал" сообщения заказчика, отправив ответ
         )
         
         # Обновляем объект в памяти после сохранения в БД
         response.worker_messages = new_worker_messages
         response.message_timestamps = new_timestamps
         response.turn = False
+        response.last_message_by_worker = len(new_worker_messages)
+        response.last_read_by_worker = len(customer_messages_list)
 
         # Отправляем или обновляем сообщение заказчику
         await send_or_update_chat_message(
@@ -1477,6 +1568,9 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
         customer_messages_list = list(response.customer_messages) if response.customer_messages else []
         new_customer_messages = customer_messages_list + [message.text]
         
+        # Получаем сообщения исполнителя для обновления счетчика прочитанных
+        worker_messages_list = list(response.worker_messages) if response.worker_messages else []
+        
         # Добавляем временную метку
         current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -1490,13 +1584,17 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
         await response.update(
             customer_messages=new_customer_messages,
             turn=True,  # теперь очередь исполнителя
-            message_timestamps=new_timestamps
+            message_timestamps=new_timestamps,
+            last_message_by_customer=len(new_customer_messages),  # обновляем счетчик последнего сообщения
+            last_read_by_customer=len(worker_messages_list)  # заказчик "прочитал" сообщения исполнителя, отправив ответ
         )
         
         # Обновляем объект в памяти после сохранения в БД
         response.customer_messages = new_customer_messages
         response.message_timestamps = new_timestamps
         response.turn = True
+        response.last_message_by_customer = len(new_customer_messages)
+        response.last_read_by_customer = len(worker_messages_list)
 
         # Отправляем или обновляем сообщение исполнителю
         await send_or_update_chat_message(
@@ -1621,9 +1719,14 @@ async def my_responses(callback: CallbackQuery, state: FSMContext):
             )
 
             active = not (contact_exchange and contact_exchange.contacts_purchased)
+            
+            # Получаем индикатор статуса
+            status_indicator = await get_response_status_indicator(response, "worker")
+            
             responses_data.append({
                 'abs_id': response.abs_id,
-                'active': active
+                'active': active,
+                'status_indicator': status_indicator
             })
 
         kbc = KeyboardCollection()
@@ -1668,6 +1771,29 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
             await callback.answer("❌ Объявление не найдено", show_alert=True)
             return
 
+        # Получаем response для обновления счетчика прочитанных сообщений
+        response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
+        
+        # Получаем количество сообщений от заказчика
+        customer_messages_list = []
+        if response and response.customer_messages:
+            customer_messages_list = [
+                msg for msg in response.customer_messages 
+                if msg and msg.strip()
+            ]
+        
+        # Обновляем счетчик прочитанных сообщений для исполнителя
+        # Исполнитель видел все сообщения от заказчика
+        if response:
+            last_read_by_worker = len(customer_messages_list)
+            if response.last_read_by_worker != last_read_by_worker:
+                await response.update(last_read_by_worker=last_read_by_worker)
+            
+            # Обновляем счетчик последнего сообщения заказчика
+            last_message_by_customer = len(customer_messages_list)
+            if response.last_message_by_customer != last_message_by_customer:
+                await response.update(last_message_by_customer=last_message_by_customer)
+        
         # Получаем статус обмена контактами
         contact_exchange = await ContactExchange.get_by_worker_and_abs(
             worker.id, abs_id

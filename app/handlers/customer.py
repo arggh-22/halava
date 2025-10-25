@@ -341,20 +341,7 @@ async def buy_single_advertisement(callback: CallbackQuery, state: FSMContext) -
             )
             
         # Возвращаемся в меню заказчика
-        # await state.set_state(CustomerStates.customer_menu)
-        city = await City.get_city(id=customer.city_id)
-        user_abs = await Abs.get_all_by_customer(customer_id=customer.id)
-        text = ('Ваш профиль\n\n'
-                f'ID: {customer.id}\n'
-                f'Ваш город: {city.city}\n'
-                f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                f'Осталось объявлений на сегодня: {customer.abs_count}')
-
         await state.set_state(CustomerStates.customer_menu)
-        await callback.message.answer(
-            text=text,
-            reply_markup=kbc.menu_customer_keyboard()
-        )
         return
 
 @router.callback_query(F.data == 'customer_menu')
@@ -367,7 +354,7 @@ async def back_to_customer_menu_from_limit(callback: CallbackQuery, state: FSMCo
     
     # Получаем город пользователя
     city = await City.get_city(id=customer.city_id)
-    user_abs = await Abs.get_all_by_customer(customer_id=customer.id)
+    user_abs = await Abs.get_abs_by_customer_id(customer_id=customer.id)
     
     text = ('Ваш профиль\n\n'
             f'ID: {customer.id}\n'
@@ -524,7 +511,9 @@ async def create_new_abs(callback: CallbackQuery, state: FSMContext) -> None:
         
         # После нажатия "ОК" показываем меню с кнопками оплаты
         kbc = KeyboardCollection()
-        text = "+ Объявление 📢"
+        text = "⚠️ **Достигнут лимит за сегодня**\n\n"
+        text += "Вы исчерпали лимит бесплатных объявлений (3 в день).\n"
+        text += "Для размещения дополнительного объявления необходимо его приобрести."
 
         await callback.message.edit_text(
             text=text,
@@ -2917,6 +2906,10 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
                 # Проверяем статус контактов
                 contact_exchange = await ContactExchange.get_by_worker_and_abs(response.worker_id, abs_id)
                 
+                # Получаем индикатор статуса
+                from app.handlers.anonymous_chat import get_response_status_indicator
+                status_indicator = await get_response_status_indicator(response, "customer")
+                
                 responses_data.append({
                     'worker_id': response.worker_id,
                     'worker_public_id': worker.public_id or f'ID#{worker.id}',
@@ -2930,7 +2923,8 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
                     'contact_requested': contact_exchange is not None,
                     'contact_confirmed': contact_exchange and contact_exchange.contacts_sent,
                     'contact_purchased': contact_exchange and contact_exchange.contacts_purchased,
-                    'active': response.applyed
+                    'active': response.applyed,
+                    'status_indicator': status_indicator
                 })
         
         # Получаем объявление для контекста
@@ -3027,6 +3021,10 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
                 # Проверяем статус контактов
                 contact_exchange = await ContactExchange.get_by_worker_and_abs(response.worker_id, abs_id)
                 
+                # Получаем индикатор статуса
+                from app.handlers.anonymous_chat import get_response_status_indicator
+                status_indicator = await get_response_status_indicator(response, "customer")
+                
                 responses_data.append({
                     'worker_id': response.worker_id,
                     'worker_public_id': worker.public_id or f'ID#{worker.id}',
@@ -3040,7 +3038,8 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
                     'contact_requested': contact_exchange is not None,
                     'contact_confirmed': contact_exchange and contact_exchange.contacts_sent,
                     'contact_purchased': contact_exchange and contact_exchange.contacts_purchased,
-                    'active': response.applyed
+                    'active': response.applyed,
+                    'status_indicator': status_indicator
                 })
         
         # Получаем объявление для контекста
@@ -3311,7 +3310,7 @@ async def set_telegram_only_contacts(callback: CallbackQuery, state: FSMContext)
     
     await customer.update_contacts(contact_type="telegram_only")
     
-    text = "✅ Ваши контакты сохранены!\n\nИсполнители будут получать только ваш профиль Telegram 📱"
+    text = "✅ Ваши контакты сохранены!\n\n Исполнители будут получать только ваш профиль Telegram 📱"
     
     await callback.message.edit_text(
         text=text,
@@ -3383,9 +3382,9 @@ async def process_phone_number(message: Message, state: FSMContext) -> None:
     
     # Формируем сообщение в зависимости от типа контактов
     if contact_type == "phone_only":
-        text = f"✅ Ваши контакты сохранены!\n\nИсполнители будут получать номер 📞 (который вы указали)"
+        text = f"✅ Ваши контакты сохранены!\n\n Исполнители будут получать номер (который вы указали) 📞"
     else:  # both
-        text = f"✅ Ваши контакты сохранены!\n\nИсполнители будут получать профиль Telegram 📱 и номер 📞 (который вы указали)"
+        text = f"✅ Ваши контакты сохранены!\n\n Исполнители будут получать профиль Telegram 📱 и номер (который вы указали) 📞"
     
     await message.answer(
         text=text,
@@ -3423,7 +3422,7 @@ async def edit_to_telegram_only(callback: CallbackQuery, state: FSMContext) -> N
     
     await customer.update_contacts(contact_type="telegram_only", phone_number=None)
     
-    text = "✅ Контакты изменены!\n\nТеперь исполнители будут получать только ваш профиль Telegram 📱"
+    text = "✅ Контакты изменены!\n\n Теперь исполнители будут получать только ваш профиль Telegram 📱"
     
     await callback.message.edit_text(
         text=text,
@@ -3442,7 +3441,7 @@ async def edit_to_phone_only(callback: CallbackQuery, state: FSMContext) -> None
     # Если у заказчика уже есть номер, используем его, иначе запрашиваем новый
     if customer.phone_number:
         await customer.update_contacts(contact_type="phone_only")
-        text = "✅ Контакты изменены!\n\nТеперь исполнители будут получать только номер телефона 📞"
+        text = "✅ Контакты изменены!\n\n Теперь исполнители будут получать только номер телефона 📞"
         await callback.message.edit_text(
             text=text,
             reply_markup=kbc.customer_contacts_display_menu()
@@ -3468,7 +3467,7 @@ async def edit_to_both(callback: CallbackQuery, state: FSMContext) -> None:
     # Если у заказчика уже есть номер, используем его, иначе запрашиваем новый
     if customer.phone_number:
         await customer.update_contacts(contact_type="both")
-        text = "✅ Контакты изменены!\n\nТеперь исполнители будут получать: профиль Telegram и номер 📱📞"
+        text = "✅ Контакты изменены!\n\n Теперь исполнители будут получать: профиль Telegram и номер 📱📞"
         await callback.message.edit_text(
             text=text,
             reply_markup=kbc.customer_contacts_display_menu()
@@ -3493,7 +3492,7 @@ async def confirm_delete_phone(callback: CallbackQuery, state: FSMContext) -> No
     
     await customer.update_contacts(contact_type="telegram_only", phone_number=None)
     
-    text = "✅ Номер удален успешно!Теперь исполнители будут получать только ваш профиль Telegram! 📱"
+    text = "✅ Номер удален успешно! Теперь исполнители будут получать только ваш профиль Telegram! 📱"
     
     await callback.message.edit_text(
         text=text,

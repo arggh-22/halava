@@ -177,6 +177,25 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
             await callback.answer("❌ Отклик не найден", show_alert=True)
             return
         
+        # Получаем количество сообщений от исполнителя
+        worker_messages_list = []
+        if response.worker_messages:
+            worker_messages_list = [
+                msg for msg in response.worker_messages 
+                if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
+            ]
+        
+        # Обновляем счетчик прочитанных сообщений для заказчика
+        # Заказчик видел все сообщения от исполнителя
+        last_read_by_customer = len(worker_messages_list)
+        if response.last_read_by_customer != last_read_by_customer:
+            await response.update(last_read_by_customer=last_read_by_customer)
+        
+        # Обновляем счетчик последнего сообщения исполнителя
+        last_message_by_worker = len(worker_messages_list)
+        if response.last_message_by_worker != last_message_by_worker:
+            await response.update(last_message_by_worker=last_message_by_worker)
+        
         # Формируем текст с информацией об исполнителе
         text = f"📋 **Отклик на объявление #{abs_id}**\n\n"
         
