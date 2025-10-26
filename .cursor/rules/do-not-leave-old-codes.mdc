@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+When you write or change some functionality/code, try not to leave the old code. The result should be one working code without duplication.

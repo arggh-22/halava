@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+When there is a need to use some kind of parse mode, for example for bold text, you need to use parse_mode=HTML and html tags <b> </b>
