@@ -9,7 +9,7 @@ from app.data.database.models import Admin, Customer, Worker, City, Banned, Abs,
     WorkerAndRefsAssociation, BannedAbs, AskAnswer, WorkerAndSubscription, SubscriptionType, WorkType
 from app.keyboards import KeyboardCollection
 from app.states import WorkStates, UserStates, BannedStates, CustomerStates, AdminStates
-from app.untils import help_defs, checks
+from app.untils import help_defs, checks, message_utils
 from loaders import bot
 
 router = Router()
@@ -83,7 +83,7 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
 
     # Проверяем блокировку
     if user_data['banned_id']:
-        await message.answer(text='Упс, вы заблокированы')
+        await message_utils.send_message_with_cleanup(message, 'Упс, вы заблокированы')
         await state.set_state(BannedStates.banned)
         return
 

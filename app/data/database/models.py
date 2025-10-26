@@ -1921,7 +1921,16 @@ class Abs:
 
             if date_to_delite is not None:
                 updates.append('date_to_delite = ?')
-                self.date_to_delite += datetime.strptime(str(date_to_delite), '%Y-%m-%d %H:%M:%S.%f')
+                # Если передан datetime объект, используем его напрямую
+                if isinstance(date_to_delite, datetime):
+                    self.date_to_delite = date_to_delite
+                else:
+                    # Если передан timedelta или строка, добавляем к существующей дате
+                    if isinstance(date_to_delite, str):
+                        self.date_to_delite += datetime.strptime(str(date_to_delite), '%Y-%m-%d %H:%M:%S.%f')
+                    else:
+                        # Для timedelta объектов
+                        self.date_to_delite += date_to_delite
                 params.append(self.date_to_delite)
 
             if photo_path is not None:

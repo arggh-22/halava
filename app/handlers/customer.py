@@ -1405,7 +1405,43 @@ async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> No
     logger.debug(f'skip_star_for_worker...')
     kbc = KeyboardCollection()
     
-    # Объявление уже удалено в confirm_close_advertisement
+    # Получаем abs_id из состояния
+    state_data = await state.get_data()
+    abs_id = state_data.get('pending_advertisement_id')
+    
+    # Если есть abs_id, проверяем и удаляем объявление
+    if abs_id:
+        try:
+            advertisement = await Abs.get_one(id=abs_id)
+            if advertisement:
+                # Объявление еще существует - удаляем его
+                await advertisement.delete(delite_photo=True)
+                
+                # Удаляем связанные записи
+                from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, WorkersAndAbs
+                workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
+                if workers_and_bad_responses:
+                    [await bad_response.delete() for bad_response in workers_and_bad_responses]
+                
+                workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
+                if workers_and_reports:
+                    [await report.delete() for report in workers_and_reports]
+                
+                contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
+                if contact_exchanges:
+                    [await exchange.delete() for exchange in contact_exchanges]
+                
+                workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
+                if workers_and_abs:
+                    [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
+                
+                # Обновляем статистику админов
+                from app.data.database.models import Admin
+                admins = await Admin.get_all()
+                for admin in admins:
+                    await admin.update(done_abs=admin.done_abs + 1)
+        except Exception as e:
+            logger.error(f"Error cleaning up advertisement in skip_star_for_worker: {e}")
     
     await state.set_state(CustomerStates.customer_menu)
     await callback.message.edit_text(
@@ -2277,7 +2313,7 @@ async def change_city_end(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(CustomerStates.customer_menu)
 
 
-@router.callback_query(lambda c: c.data.startswith('extend_'))
+@router.callback_query(lambda c: c.data.startswith('extend_') and not c.data.startswith('extend_advertisement_') and not c.data.startswith('extend_24h_') and not c.data.startswith('extend_2d_') and not c.data.startswith('extend_3d_'))
 async def extend_abs_time(callback: CallbackQuery, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
@@ -2866,7 +2902,39 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
     
     await callback.answer(f"Спасибо! Вы оценили исполнителя на {rating} звезд", show_alert=True)
     
-    # Объявление уже удалено в confirm_close_advertisement
+    # Проверяем, нужно ли удалить объявление после оценки
+    # (если оно было истекшим и ожидало оценки)
+    try:
+        advertisement = await Abs.get_one(id=abs_id)
+        if advertisement:
+            # Объявление еще существует - удаляем его после оценки
+            await advertisement.delete(delite_photo=True)
+            
+            # Удаляем связанные записи
+            from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, WorkersAndAbs
+            workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
+            if workers_and_bad_responses:
+                [await bad_response.delete() for bad_response in workers_and_bad_responses]
+            
+            workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
+            if workers_and_reports:
+                [await report.delete() for report in workers_and_reports]
+            
+            contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
+            if contact_exchanges:
+                [await exchange.delete() for exchange in contact_exchanges]
+            
+            workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
+            if workers_and_abs:
+                [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
+            
+            # Обновляем статистику админов
+            from app.data.database.models import Admin
+            admins = await Admin.get_all()
+            for admin in admins:
+                await admin.update(done_abs=admin.done_abs + 1)
+    except Exception as e:
+        logger.error(f"Error cleaning up advertisement after rating: {e}")
     
     # Показываем сообщение об успешной оценке
     await callback.message.edit_text(
@@ -3438,22 +3506,18 @@ async def edit_to_phone_only(callback: CallbackQuery, state: FSMContext) -> None
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     
-    # Если у заказчика уже есть номер, используем его, иначе запрашиваем новый
+    # Всегда запрашиваем новый номер для изменения
     if customer.phone_number:
-        await customer.update_contacts(contact_type="phone_only")
-        text = "✅ Контакты изменены!\n\n Теперь исполнители будут получать только номер телефона 📞"
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=kbc.customer_contacts_display_menu()
-        )
+        text = f"Текущий номер: {customer.phone_number}\n\nВведите новый номер телефона в формате +7XXXXXXXXXX"
     else:
-        text = "Введите новый номер телефона в формате +7XXXXXXXXXX"
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=kbc.customer_contacts_back_menu()
-        )
-        await state.update_data(contact_type="phone_only")
-        await state.set_state(CustomerStates.customer_contacts_phone_input)
+        text = "Введите номер телефона в формате +7XXXXXXXXXX"
+    
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.customer_contacts_back_menu()
+    )
+    await state.update_data(contact_type="phone_only")
+    await state.set_state(CustomerStates.customer_contacts_phone_input)
 
 
 @router.callback_query(F.data == 'edit_both', CustomerStates.customer_contacts)
@@ -3464,22 +3528,18 @@ async def edit_to_both(callback: CallbackQuery, state: FSMContext) -> None:
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     
-    # Если у заказчика уже есть номер, используем его, иначе запрашиваем новый
+    # Всегда запрашиваем новый номер для изменения
     if customer.phone_number:
-        await customer.update_contacts(contact_type="both")
-        text = "✅ Контакты изменены!\n\n Теперь исполнители будут получать: профиль Telegram и номер 📱📞"
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=kbc.customer_contacts_display_menu()
-        )
+        text = f"Текущий номер: {customer.phone_number}\n\nВведите новый номер телефона в формате +7XXXXXXXXXX"
     else:
-        text = "Введите новый номер телефона в формате +7XXXXXXXXXX"
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=kbc.customer_contacts_back_menu()
-        )
-        await state.update_data(contact_type="both")
-        await state.set_state(CustomerStates.customer_contacts_phone_input)
+        text = "Введите номер телефона в формате +7XXXXXXXXXX"
+    
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=kbc.customer_contacts_back_menu()
+    )
+    await state.update_data(contact_type="both")
+    await state.set_state(CustomerStates.customer_contacts_phone_input)
 
 
 @router.callback_query(F.data == 'confirm_delete_phone', CustomerStates.customer_contacts)
@@ -3689,6 +3749,374 @@ async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSM
     except Exception as e:
         logger.error(f"Error in customer_navigate_worker_portfolio: {e}")
         await callback.answer("❌ Произошла ошибка при навигации по портфолио", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith('extend_advertisement_'))
+async def extend_advertisement_handler(callback: CallbackQuery) -> None:
+    """Обработчик кнопки 'Продлить' при истечении объявления"""
+    logger.debug(f'extend_advertisement_handler...')
+    
+    kbc = KeyboardCollection()
+    abs_id = int(callback.data.split('_')[2])
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    await callback.message.answer(
+        text='⏰ Выберите период продления:',
+        reply_markup=kbc.extend_advertisement_periods(abs_id)
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('extend_24h_') or c.data.startswith('extend_2d_') or c.data.startswith('extend_3d_'))
+async def extend_advertisement_period_handler(callback: CallbackQuery) -> None:
+    """Обработчик выбора периода продления"""
+    logger.debug(f'extend_advertisement_period_handler...')
+    
+    kbc = KeyboardCollection()
+    parts = callback.data.split('_')
+    period = parts[1]  # 24h, 2d, 3d
+    abs_id = int(parts[2])
+    
+    # Получаем объявление
+    advertisement = await Abs.get_one(id=abs_id)
+    if not advertisement:
+        await callback.answer("Объявление не найдено", show_alert=True)
+        return
+    
+    # Определяем период продления
+    from datetime import timedelta
+    if period == '24h':
+        extension = timedelta(hours=24)
+        period_text = "24 часа"
+    elif period == '2d':
+        extension = timedelta(days=2)
+        period_text = "2 дня"
+    elif period == '3d':
+        extension = timedelta(days=3)
+        period_text = "3 дня"
+    else:
+        await callback.answer("Неверный период", show_alert=True)
+        return
+    
+    # Обновляем срок истечения
+    new_date = advertisement.date_to_delite + extension
+    await advertisement.update(date_to_delite=new_date)
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    # Показываем всплывающее сообщение
+    await callback.answer(f"✅ Срок актуальности объявления продлен на {period_text}!", show_alert=True)
+    
+    # Получаем данные заказчика для формирования текста меню
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    user_abs = await Abs.get_all_by_customer(customer.id)
+    city = await City.get_city(id=int(customer.city_id))
+    
+    # Формируем текст профиля заказчика
+    menu_text = ('Ваш профиль\n\n'
+                f'ID: {customer.id}\n'
+                f'Ваш город: {city.city}\n'
+                f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+                f'Осталось объявлений на сегодня: {customer.abs_count}')
+    
+    # Отправляем меню заказчика
+    await callback.message.answer(
+        text=menu_text,
+        reply_markup=kbc.menu_customer_keyboard()
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('dont_extend_advertisement_'))
+async def dont_extend_advertisement_handler(callback: CallbackQuery) -> None:
+    """Обработчик кнопки 'Не продлять'"""
+    logger.debug(f'dont_extend_advertisement_handler...')
+    
+    kbc = KeyboardCollection()
+    
+    await callback.answer("❌ Вы отменили продление объявления!", show_alert=True)
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+
+    # Получаем данные заказчика для формирования текста меню
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    user_abs = await Abs.get_all_by_customer(customer.id)
+    city = await City.get_city(id=int(customer.city_id))
+
+    # Формируем текст профиля заказчика
+    menu_text = ('Ваш профиль\n\n'
+                 f'ID: {customer.id}\n'
+                 f'Ваш город: {city.city}\n'
+                 f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+                 f'Осталось объявлений на сегодня: {customer.abs_count}')
+    
+    await callback.message.answer(
+        text=menu_text,
+        reply_markup=kbc.menu_customer_keyboard()
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('close_advertisement_'))
+async def close_advertisement_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик кнопки 'Закрыть' (без оценки) - показывает подтверждение"""
+    logger.debug(f'close_advertisement_handler...')
+    
+    kbc = KeyboardCollection()
+    abs_id = int(callback.data.split('_')[2])
+    
+    # Получаем объявление для отображения информации
+    advertisement = await Abs.get_one(id=abs_id)
+    if not advertisement:
+        await callback.answer("Объявление не найдено", show_alert=True)
+        return
+    
+    text = help_defs.read_text_file(advertisement.text_path)
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    await callback.message.answer(
+        text=f'⚠️ Вы уверены, что хотите закрыть объявление #{abs_id}?\n\n'
+             f'{text}\n\n'
+             f'После закрытия объявление будет удалено без возможности восстановления.',
+        reply_markup=kbc.confirm_close_advertisement_expiry(abs_id)
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('confirm_close_expiry_'))
+async def confirm_close_advertisement_expiry_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтверждение закрытия объявления при истечении"""
+    logger.debug(f'confirm_close_advertisement_expiry_handler...')
+    
+    kbc = KeyboardCollection()
+    abs_id = int(callback.data.split('_')[3])
+    
+    # Получаем объявление
+    advertisement = await Abs.get_one(id=abs_id)
+    if not advertisement:
+        await callback.answer("Объявление не найдено", show_alert=True)
+        return
+    
+    # Удаляем объявление
+    await advertisement.delete(delite_photo=True)
+    
+    # Удаляем связанные записи
+    from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, WorkersAndAbs
+    workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
+    if workers_and_bad_responses:
+        [await bad_response.delete() for bad_response in workers_and_bad_responses]
+    
+    workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
+    if workers_and_reports:
+        [await report.delete() for report in workers_and_reports]
+    
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
+    if contact_exchanges:
+        [await exchange.delete() for exchange in contact_exchanges]
+    
+    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
+    if workers_and_abs:
+        [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
+    
+    # Обновляем статистику админов
+    from app.data.database.models import Admin
+    admins = await Admin.get_all()
+    for admin in admins:
+        await admin.update(done_abs=admin.done_abs + 1)
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    await callback.message.answer(
+        text='✅ Объявление было успешно закрыто!',
+        reply_markup=kbc.menu_customer_keyboard()
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('cancel_close_expiry_'))
+async def cancel_close_advertisement_expiry_handler(callback: CallbackQuery) -> None:
+    """Отмена закрытия объявления при истечении"""
+    logger.debug(f'cancel_close_advertisement_expiry_handler...')
+    
+    kbc = KeyboardCollection()
+    
+    await callback.answer("❌ Закрытие объявления отменено", show_alert=True)
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    await callback.message.answer(
+        text='Объявление остается активным.',
+        reply_markup=kbc.menu_customer_keyboard()
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('close_and_rate_'))
+async def close_and_rate_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик кнопки 'Закрыть и оценить' - показывает подтверждение"""
+    logger.debug(f'close_and_rate_handler...')
+    
+    kbc = KeyboardCollection()
+    abs_id = int(callback.data.split('_')[3])  # close_and_rate_abs_id
+    
+    # Получаем объявление для отображения информации
+    advertisement = await Abs.get_one(id=abs_id)
+    if not advertisement:
+        await callback.answer("Объявление не найдено", show_alert=True)
+        return
+    
+    text = help_defs.read_text_file(advertisement.text_path)
+    
+    # Проверяем, есть ли исполнители для оценки
+    from app.data.database.models import ContactExchange
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
+    workers_for_assessment = []
+    
+    for contact_exchange in contact_exchanges:
+        if contact_exchange.contacts_purchased:  # Купил контакты
+            worker = await Worker.get_worker(id=contact_exchange.worker_id)
+            if worker:
+                workers_for_assessment.append(worker)
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    if workers_for_assessment:
+        await callback.message.answer(
+            text=f'⚠️ Вы уверены, что хотите закрыть объявление #{abs_id} и оценить исполнителей?\n\n'
+                 f'{text}\n\n'
+                 f'После закрытия вы сможете оценить {len(workers_for_assessment)} исполнителей.',
+            reply_markup=kbc.confirm_close_and_rate_advertisement_expiry(abs_id)
+        )
+    else:
+        await callback.message.answer(
+            text=f'⚠️ Вы уверены, что хотите закрыть объявление #{abs_id}?\n\n'
+                 f'{text}\n\n'
+                 f'Исполнителей для оценки не найдено.',
+            reply_markup=kbc.confirm_close_advertisement_expiry(abs_id)
+        )
+
+
+@router.callback_query(lambda c: c.data.startswith('confirm_close_and_rate_expiry_'))
+async def confirm_close_and_rate_advertisement_expiry_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтверждение закрытия и оценки объявления при истечении"""
+    logger.debug(f'confirm_close_and_rate_advertisement_expiry_handler...')
+    
+    kbc = KeyboardCollection()
+    abs_id = int(callback.data.split('_')[4])  # confirm_close_and_rate_expiry_abs_id
+    
+    # Получаем объявление
+    advertisement = await Abs.get_one(id=abs_id)
+    if not advertisement:
+        await callback.answer("Объявление не найдено", show_alert=True)
+        return
+    
+    # Находим исполнителей для оценки (купили контакты)
+    from app.data.database.models import ContactExchange
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
+    workers_for_assessment = []
+    
+    for contact_exchange in contact_exchanges:
+        if contact_exchange.contacts_purchased:  # Купил контакты
+            worker = await Worker.get_worker(id=contact_exchange.worker_id)
+            if worker:
+                workers_for_assessment.append(worker)
+    
+    # Удаляем объявление
+    await advertisement.delete(delite_photo=True)
+    
+    # Удаляем связанные записи
+    from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, WorkersAndAbs
+    workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
+    if workers_and_bad_responses:
+        [await bad_response.delete() for bad_response in workers_and_bad_responses]
+    
+    workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
+    if workers_and_reports:
+        [await report.delete() for report in workers_and_reports]
+    
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
+    if contact_exchanges:
+        [await exchange.delete() for exchange in contact_exchanges]
+    
+    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
+    if workers_and_abs:
+        [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
+    
+    # Обновляем статистику админов
+    from app.data.database.models import Admin
+    admins = await Admin.get_all()
+    for admin in admins:
+        await admin.update(done_abs=admin.done_abs + 1)
+    
+    # Если есть исполнители для оценки - показываем их
+    if workers_for_assessment:
+        names = [
+            f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
+            for worker in workers_for_assessment
+        ]
+        ids = [worker.id for worker in workers_for_assessment]
+        
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
+        
+        # Сохраняем abs_id в состоянии для последующего удаления
+        await state.update_data(pending_advertisement_id=abs_id)
+        
+        await callback.message.answer(
+            text='✅ Объявление закрыто!\n\nВыберите исполнителей для оценки:',
+            reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=abs_id)
+        )
+    else:
+        # Нет исполнителей для оценки - просто закрываем
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
+        
+        await callback.message.answer(
+            text='✅ Объявление закрыто!\n\nИсполнителей для оценки не найдено.',
+            reply_markup=kbc.menu()
+        )
+        await state.set_state(CustomerStates.customer_menu)
+
+
+@router.callback_query(lambda c: c.data.startswith('cancel_close_and_rate_expiry_'))
+async def cancel_close_and_rate_advertisement_expiry_handler(callback: CallbackQuery) -> None:
+    """Отмена закрытия и оценки объявления при истечении"""
+    logger.debug(f'cancel_close_and_rate_advertisement_expiry_handler...')
+    
+    kbc = KeyboardCollection()
+    
+    await callback.answer("❌ Закрытие и оценка объявления отменены", show_alert=True)
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    await callback.message.answer(
+        text='Объявление остается активным.',
+        reply_markup=kbc.menu_customer_keyboard()
+    )
 
 
 #  _    _        _      _____              _

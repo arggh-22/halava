@@ -179,6 +179,8 @@ async def handle_expired_advertisement(advertisement, kbc):
                          f'Выберите исполнителя для оценки',
                     reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement.id)
                 )
+                # НЕ удаляем объявление сразу - удалим после оценки
+                return  # Выходим из функции, не удаляя объявление
             except Exception as e:
                 logger.info(e)
 
@@ -192,6 +194,7 @@ async def handle_expired_advertisement(advertisement, kbc):
         except Exception as e:
             logger.info(e)
 
+    # Удаляем объявление только если нет исполнителей для оценки
     await advertisement.delete(delite_photo=True if advertisement.photo_path else False)
 
 
@@ -202,12 +205,18 @@ async def handle_expiring_soon_advertisement(advertisement, kbc):
     customer = await Customer.get_customer(id=advertisement.customer_id)
     text = help_defs.read_text_file(advertisement.text_path)
     
+    # Проверяем, есть ли исполнители, которые купили контакты
+    from app.data.database.models import ContactExchange
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=advertisement.id)
+    has_purchased_contacts = any(ce.contacts_purchased for ce in contact_exchanges)
+    
     try:
         await bot.send_message(
             chat_id=customer.tg_id,
             text=f'⚠️ Объявление #{advertisement.id} истекает через 2 часа!\n\n'
                  f'{text}\n\n'
-                 f'Объявление будет автоматически закрыто при истечении срока.'
+                 f'Объявление будет автоматически закрыто при истечении срока.',
+            reply_markup=kbc.advertisement_expiry_actions(advertisement.id, has_purchased_contacts)
         )
     except Exception as e:
         logger.info(e)
@@ -218,11 +227,19 @@ async def handle_expiring_tomorrow_advertisement(advertisement, kbc):
     logger.info(f'Handling expiring tomorrow advertisement {advertisement.id}')
     
     customer = await Customer.get_customer(id=advertisement.customer_id)
+    text = help_defs.read_text_file(advertisement.text_path)
+    
+    # Проверяем, есть ли исполнители, которые купили контакты
+    from app.data.database.models import ContactExchange
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=advertisement.id)
+    has_purchased_contacts = any(ce.contacts_purchased for ce in contact_exchanges)
     
     try:
         await bot.send_message(
             chat_id=customer.tg_id,
-            text=f'📅 Завтра истекает срок вашего объявления #{advertisement.id}!'
+            text=f'📅 Завтра истекает срок вашего объявления #{advertisement.id}!\n\n'
+                 f'{text}',
+            reply_markup=kbc.advertisement_expiry_actions(advertisement.id, has_purchased_contacts)
         )
     except Exception as e:
         logger.info(e)

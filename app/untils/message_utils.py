@@ -3,7 +3,9 @@
 """
 
 import logging
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
+from app.middleware.cleanup_middleware import cleanup_middleware
+from app.untils.auto_cleanup import send_with_cleanup, send_photo_with_cleanup, send_video_with_cleanup
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +39,13 @@ async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=Non
         logger.error(f"Error in safe_edit_message: {e}")
         # Fallback: отправляем новое сообщение
         try:
-            await callback.message.answer(
+            sent_message = await callback.message.answer(
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode
             )
+            # Сохраняем ID нового сообщения для очистки
+            cleanup_middleware.save_message_id(callback.message.chat.id, sent_message.message_id)
         except Exception as fallback_error:
             logger.error(f"Error in fallback message sending: {fallback_error}")
             # Последняя попытка - просто отвечаем на callback
@@ -60,3 +64,9 @@ async def safe_delete_message(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Error in safe_delete_message: {e}")
         # Сообщение может быть уже удалено или недоступно для удаления
+
+
+# Переопределяем функции для использования новых функций с автоматической очисткой
+send_message_with_cleanup = send_with_cleanup
+send_photo_with_cleanup = send_photo_with_cleanup
+send_video_with_cleanup = send_video_with_cleanup

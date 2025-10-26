@@ -782,13 +782,45 @@ class KeyboardCollection:
 
 # Старая функция set_star удалена - теперь используется set_rating
 
-    def confirm_close_advertisement(self, abs_id):
-        """Клавиатура подтверждения закрытия объявления"""
+    def advertisement_expiry_actions(self, abs_id, has_purchased_contacts=False):
+        """Клавиатура действий при истечении объявления"""
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text=f'✅ Подтвердить',
-                                 callback_data=f'confirm-close_{abs_id}'))
-        builder.add(self._inline(button_text=f'❌ Отменить',
-                                 callback_data=f'cancel-close_{abs_id}'))
+        
+        builder.add(self._inline(button_text="⏰ Продлить", callback_data=f"extend_advertisement_{abs_id}"))
+        builder.add(self._inline(button_text="❌ Не продлять", callback_data=f"dont_extend_advertisement_{abs_id}"))
+        
+        if has_purchased_contacts:
+            builder.add(self._inline(button_text="✅ Закрыть и оценить", callback_data=f"close_and_rate_{abs_id}"))
+        else:
+            builder.add(self._inline(button_text="✅ Закрыть", callback_data=f"close_advertisement_{abs_id}"))
+        
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def confirm_close_advertisement_expiry(self, abs_id):
+        """Клавиатура подтверждения закрытия объявления при истечении"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Подтвердить закрытие", callback_data=f"confirm_close_expiry_{abs_id}"))
+        builder.add(self._inline(button_text="❌ Отменить", callback_data=f"cancel_close_expiry_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def confirm_close_and_rate_advertisement_expiry(self, abs_id):
+        """Клавиатура подтверждения закрытия и оценки объявления при истечении"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Подтвердить закрытие и оценку", callback_data=f"confirm_close_and_rate_expiry_{abs_id}"))
+        builder.add(self._inline(button_text="❌ Отменить", callback_data=f"cancel_close_and_rate_expiry_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def extend_advertisement_periods(self, abs_id):
+        """Клавиатура выбора периода продления"""
+        builder = InlineKeyboardBuilder()
+        
+        builder.add(self._inline(button_text="24 часа", callback_data=f"extend_24h_{abs_id}"))
+        builder.add(self._inline(button_text="2 дня", callback_data=f"extend_2d_{abs_id}"))
+        builder.add(self._inline(button_text="3 дня", callback_data=f"extend_3d_{abs_id}"))
+        
         builder.adjust(1)
         return builder.as_markup()
 
