@@ -36,7 +36,7 @@ async def registration_new_customer(callback: CallbackQuery, state: FSMContext) 
         city_id=city_id,
         tg_name=username)
     await new_customer.save()
-    await callback.message.edit_text(
+    await callback.message.answer(
         text='''Вы успешно зарегистрированы''',
         reply_markup=kbc.menu_btn()
     )
@@ -64,7 +64,7 @@ async def choose_city_main(callback: CallbackQuery, state: FSMContext) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите ваш город\n'
              f'Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -89,7 +89,7 @@ async def choose_city_next(callback: CallbackQuery) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите ваш город\n'
              f' Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -112,7 +112,7 @@ async def choose_city_end(callback: CallbackQuery, state: FSMContext) -> None:
     )
     await new_customer.save()
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text='''Вы успешно зарегистрированы''',
         reply_markup=kbc.menu_btn_reg()
     )
@@ -133,7 +133,7 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
     customer = await Customer.get_customer(tg_id=tg_id)
     if customer is None:
         text = '''Упс, вы еще не зарегистрированы как заказчик'''
-        await callback.message.edit_text(text=text, reply_markup=kbc.registration_customer())
+        await callback.message.answer(text=text, reply_markup=kbc.registration_customer())
         if worker := await Worker.get_worker(tg_id=callback.message.chat.id):
             await state.set_state(UserStates.registration_end)
             await state.update_data(city_id=str(worker.city_id), username=str(worker.tg_name))
@@ -173,7 +173,7 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
 
     if customer is None:
         text = 'Упс, вы еще не зарегистрированы как заказчик'
-        await callback.message.edit_text(text=text, reply_markup=kbc.registration_customer())
+        await callback.message.answer(text=text, reply_markup=kbc.registration_customer())
         if worker := await Worker.get_worker(tg_id=callback.message.chat.id):
             logger.debug('go as worker')
             await state.set_state(UserStates.registration_end)
@@ -200,7 +200,7 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
             f'Осталось объявлений на сегодня: {customer.abs_count}')
 
     await state.set_state(CustomerStates.customer_menu)
-    await callback.message.edit_text(text=text,
+    await callback.message.answer(text=text,
                                      reply_markup=kbc.menu_customer_keyboard())
 
 
@@ -237,7 +237,7 @@ async def create_new_abs(callback: CallbackQuery, state: FSMContext) -> None:
         show_alert=True
     )
 
-    await callback.message.edit_text(text='Выберете направление',
+    await callback.message.answer(text='Выберете направление',
                                      reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
 
 
@@ -261,7 +261,7 @@ async def create_new_abs_back(callback: CallbackQuery, state: FSMContext) -> Non
             f'Осталось объявлений на сегодня: {customer.abs_count}')
 
     await state.set_state(CustomerStates.customer_menu)
-    await callback.message.edit_text(text=text,
+    await callback.message.answer(text=text,
                                      reply_markup=kbc.menu_customer_keyboard())
 
 
@@ -275,7 +275,7 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements = await Abs.get_all_by_customer(customer_id=customer.id)
 
     if not advertisements:
-        await callback.message.edit_text(text='У вас пока нет объявлений', reply_markup=kbc.menu())
+        await callback.message.answer(text='У вас пока нет объявлений', reply_markup=kbc.menu())
         await state.set_state(CustomerStates.customer_menu)
         return
 
@@ -315,7 +315,7 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
                                                                                       btn_close=True,
                                                                                       btn_close_name=btn_close_name))
     else:
-        await callback.message.edit_text(text=text,
+        await callback.message.answer(text=text,
                                          reply_markup=kbc.choose_obj_with_out_list(id_now=0, btn_next=btn_next,
                                                                                    btn_back=False,
                                                                                    btn_close=True,
@@ -573,7 +573,7 @@ async def staring_worker(callback: CallbackQuery, state: FSMContext) -> None:
 
     await state.set_state(CustomerStates.customer_menu)
 
-    await callback.message.edit_text(text=f'Оценка {count_star} ⭐️ Исполнителю ID {worker_id} выставлена',
+    await callback.message.answer(text=f'Оценка {count_star} ⭐️ Исполнителю ID {worker_id} выставлена',
                                      reply_markup=kbc.menu())
 
 
@@ -582,7 +582,7 @@ async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> No
     logger.debug(f'skip_star_for_worker...')
     kbc = KeyboardCollection()
     await state.set_state(CustomerStates.customer_menu)
-    await callback.message.edit_text(text=f'Выставление оценки отменено', reply_markup=kbc.menu())
+    await callback.message.answer(text=f'Выставление оценки отменено', reply_markup=kbc.menu())
 
 
 @router.callback_query(lambda c: c.data.startswith('obj-id_'), CustomerStates.customer_create_abs_work_type)
@@ -596,7 +596,7 @@ async def create_abs_work_type(callback: CallbackQuery, state: FSMContext) -> No
     if work_sub_type:
         names = [work_type.work_type for work_type in work_sub_type]
         ids = [work_type.id for work_type in work_sub_type]
-        await callback.message.edit_text(text='Выберете категорию',
+        await callback.message.answer(text='Выберете категорию',
                                          reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
         await state.set_state(CustomerStates.customer_choose_work_sub_types)
         await state.update_data(work_type_id=work_type_id)
@@ -616,7 +616,7 @@ async def create_abs_work_type(callback: CallbackQuery, state: FSMContext) -> No
                                             parse_mode='HTML')
         return
 
-    example_msg = await callback.message.edit_text(text=text, parse_mode='HTML')
+    example_msg = await callback.message.answer(text=text, parse_mode='HTML')
 
     msg = await callback.message.answer('Укажите задачу, что необходимо: (не более 800 символов)',
                                         reply_markup=kbc.back_btn())
@@ -649,7 +649,7 @@ async def create_abs_work_sub_type(callback: CallbackQuery, state: FSMContext) -
         await callback.message.answer_photo(photo=FSInputFile(work_sub_type.template_photo), caption=text,
                                             parse_mode='HTML')
         return
-    example_msg = await callback.message.edit_text(text=text, parse_mode='HTML')
+    example_msg = await callback.message.answer(text=text, parse_mode='HTML')
 
     msg = await callback.message.answer('Укажите задачу, что необходимо: (не более 800 символов)',
                                         reply_markup=kbc.back_btn())
@@ -672,7 +672,7 @@ async def create_abs_work_sub_type_back(callback: CallbackQuery, state: FSMConte
     names = [work_type.work_type for work_type in work_types]
     ids = [work_type.id for work_type in work_types]
 
-    await callback.message.edit_text(text='Выберете направление',
+    await callback.message.answer(text='Выберете направление',
                                      reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
 
 
@@ -696,7 +696,7 @@ async def create_abs_work_type_back(callback: CallbackQuery, state: FSMContext) 
         work_sub_type = await WorkSubType.get_work_sub_types(work_mine_type_id=int(work_type_id_list[0]))
         names = [work_type.work_type for work_type in work_sub_type]
         ids = [work_type.id for work_type in work_sub_type]
-        await callback.message.edit_text(text='Выберете категорию',
+        await callback.message.answer(text='Выберете категорию',
                                          reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
         await state.set_state(CustomerStates.customer_choose_work_sub_types)
         await state.update_data(work_type_id=work_type_id_list[0])
@@ -796,7 +796,7 @@ async def create_abs_work_type_back(callback: CallbackQuery, state: FSMContext) 
     task = str(state_data.get('task'))
     example_msg_id = str(state_data.get('example_msg_id'))
 
-    msg = await callback.message.edit_text(text='Укажите задачу: (не более 800 символов)', reply_markup=kbc.back_btn())
+    msg = await callback.message.answer(text='Укажите задачу: (не более 800 символов)', reply_markup=kbc.back_btn())
     await state.set_state(CustomerStates.customer_create_abs_price)
     await state.update_data(work_type_id=work_type_id)
     await state.update_data(task=task)
@@ -834,7 +834,7 @@ async def create_abs_choose_time(callback: CallbackQuery, state: FSMContext) -> 
     await state.update_data(work_type_id=work_type_id)
     await state.update_data(task=task)
     await state.update_data(time=time)
-    msg = await callback.message.edit_text(text='Прикрепите фото, или нажмите кнопку пропустить',
+    msg = await callback.message.answer(text='Прикрепите фото, или нажмите кнопку пропустить',
                                            reply_markup=kbc.skip_btn())
     await state.update_data(msg=msg.message_id)
     await callback.answer(
@@ -866,7 +866,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     kbc = KeyboardCollection()
 
     try:
-        msg = await callback.message.edit_text('Подождите идет проверка')
+        msg = await callback.message.answer('Подождите идет проверка')
     except TelegramBadRequest:
         msg = await callback.message.answer('Подождите идет проверка')
 
@@ -1463,7 +1463,7 @@ async def apply_worker(callback: CallbackQuery, state: FSMContext) -> None:
 
     if user_blocked := await Banned.get_banned(tg_id=callback.message.chat.id):
         if user_blocked.ban_now or user_blocked.forever:
-            await callback.message.edit_text(text='Упс, вы заблокированы')
+            await callback.message.answer(text='Упс, вы заблокированы')
             await state.set_state(BannedStates.banned)
             return
 
@@ -1482,7 +1482,7 @@ async def apply_worker(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(CustomerStates.customer_apply_worker)
     await state.update_data(worker_id=worker_id)
     await state.update_data(abs_id=abs_id)
-    msg = await callback.message.edit_text(text=text,
+    msg = await callback.message.answer(text=text,
                                            reply_markup=kbc.apply_final_btn(idk=worker_id, name=name, send_btn=send_btn,
                                                                             role='customer'))
     await state.update_data(msg_id=msg.message_id)
@@ -1517,7 +1517,7 @@ async def apply_worker_with_out_msg(callback: CallbackQuery, state: FSMContext) 
 async def apply_order_hide(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'apply_order_hide...')
     kbc = KeyboardCollection()
-    await callback.message.edit_text(text='Отклик отклонен!', reply_markup=kbc.menu())
+    await callback.message.answer(text='Отклик отклонен!', reply_markup=kbc.menu())
     await state.set_state(CustomerStates.customer_menu)
 
 
@@ -1732,7 +1732,7 @@ async def change_city_main(callback: CallbackQuery, state: FSMContext) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f'Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -1758,7 +1758,7 @@ async def change_city_next(callback: CallbackQuery) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f' Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -1775,7 +1775,7 @@ async def change_city_end(callback: CallbackQuery, state: FSMContext) -> None:
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     await customer.update_city(city_id=city_id)
 
-    await callback.message.edit_text('Вы успешно сменили город!', reply_markup=kbc.menu())
+    await callback.message.answer('Вы успешно сменили город!', reply_markup=kbc.menu())
     await state.set_state(CustomerStates.customer_menu)
 
 #  _    _        _      _____              _

@@ -11,8 +11,10 @@ from aiogram.types import CallbackQuery, FSInputFile, Message, InputMediaPhoto
 from aiogram.utils.markdown import link
 
 # Импорт вспомогательных модулей и компонентов из приложения
-from app.data.database.models import Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, \
-    SubscriptionType, City, WorkerAndRefsAssociation, WorkType, Admin, WorkerAndBadResponse, WorkerAndReport
+from app.data.database.models import (
+    Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, SubscriptionType, City,
+    WorkerAndRefsAssociation, WorkType, Admin, WorkerAndBadResponse, WorkerAndReport
+)
 from app.keyboards import KeyboardCollection
 from app.states import AdminStates, UserStates, BannedStates
 from app.untils import help_defs
@@ -213,11 +215,11 @@ async def edit_order_price(callback: CallbackQuery, state: FSMContext) -> None:
     
     admin = await Admin.get_by_tg_id(callback.message.chat.id)
     
-    text = f'💰 **Управление ценой объявлений**\n\n'
+    text = f'💰 <b>Управление ценой объявлений</b>\n\n'
     text += f'Текущая цена: {admin.order_price}₽\n\n'
     text += f'Введите новую цену в рублях:'
     
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'), parse_mode='Markdown')
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'), parse_mode='HTML')
     await state.set_state(AdminStates.edit_order_price)
     await state.update_data(msg_id=msg.message_id)
 
@@ -283,7 +285,7 @@ async def edit_subscription(callback: CallbackQuery, state: FSMContext) -> None:
     subscriptions = await SubscriptionType.get_all()
     subscriptions_ids = [sub.id for sub in subscriptions[1::]]
     subscriptions_names = [sub.subscription_type for sub in subscriptions[1::]]
-    await callback.message.edit_text(text=text,
+    await callback.message.answer(text=text,
                                      reply_markup=kbc.choose_worker_subscription(
                                          subscriptions_ids=subscriptions_ids,
                                          subscriptions_names=subscriptions_names)
@@ -308,7 +310,7 @@ async def check_subscription(callback: CallbackQuery) -> None:
             f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
             f'Цена: {subscription.price} ₽\n')
 
-    await callback.message.edit_text(text=text,
+    await callback.message.answer(text=text,
                                      reply_markup=kbc.admin_edit_subscription(
                                          sub_id=subscription.id),
                                      parse_mode='HTML'
@@ -324,7 +326,7 @@ async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None
 
     text = f'Текущая цена: {subscription.price}\n\nВведите цену:'
 
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
+    msg = await callback.message.answer(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
     await state.set_state(AdminStates.edit_subscription_price)
     await state.update_data(subscription_id=subscription_id)
     await state.update_data(msg_id=msg.message_id)
@@ -364,7 +366,7 @@ async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None
 
     text = f'Текущее количество откликов: {subscription.count_guaranteed_orders if subscription.id != 6 else "бесконечно"}\n\nВведите новое количество:'
 
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
+    msg = await callback.message.answer(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
     await state.set_state(AdminStates.edit_subscription_order)
     await state.update_data(subscription_id=subscription_id)
     await state.update_data(msg_id=msg.message_id)
@@ -403,7 +405,7 @@ async def edit_user(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = f'Выберите что хотите сделать:'
 
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.menu_admin_edit_users())
+    msg = await callback.message.answer(text=text, reply_markup=kbc.menu_admin_edit_users())
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -415,7 +417,7 @@ async def unblock_user(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Введите общий ID пользователя, которого хотите разблокировать'
 
     await state.set_state(AdminStates.unblock_user)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -427,7 +429,7 @@ async def unblock_user(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Введите общий ID пользователя, которого хотите заблокировать'
 
     await state.set_state(AdminStates.block_user)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -439,7 +441,7 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Введите ID заказчика'
 
     await state.set_state(AdminStates.get_customer)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -453,7 +455,7 @@ async def unblock_user(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Напишите сообщение для пользователя:'
 
     await state.set_state(AdminStates.send_to_user)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'))
     await state.update_data(msg_id=msg.message_id)
     await state.update_data(user_id=user_id)
 
@@ -466,7 +468,7 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Введите общий ID пользователя'
 
     await state.set_state(AdminStates.get_user)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -541,17 +543,17 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
                                                     reply_markup=kbc.admin_back_or_send(callback_data='menu',
                                                                                      customer_id=customer_id))
             else:
-                await callback.message.edit_text(text=text, protect_content=False,
+                await callback.message.answer(text=text, protect_content=False,
                                                  reply_markup=kbc.admin_back_or_send(callback_data='menu',
                                                                                      customer_id=customer_id))
         else:
-            await callback.message.edit_text(text=text, protect_content=False,
+            await callback.message.answer(text=text, protect_content=False,
                                              reply_markup=kbc.admin_back_or_send(callback_data='menu',
                                                                                  customer_id=customer_id))
         await state.update_data(user_id=user_id)
         return
     else:
-        await callback.message.edit_text(text='Упс, такого пользователя нет', reply_markup=kbc.admin_back_btn('menu'))
+        await callback.message.answer(text='Упс, такого пользователя нет', reply_markup=kbc.admin_back_btn('menu'))
         return
 
 
@@ -563,7 +565,7 @@ async def get_worker(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Введите ID исполнителя'
 
     await state.set_state(AdminStates.get_worker)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -583,7 +585,7 @@ async def get_worker(callback: CallbackQuery, state: FSMContext) -> None:
 
     await state.set_state(AdminStates.menu)
     try:
-        await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'))
+        await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'))
     except Exception:
         text = f'Заблокированные пользователи\n'
         if banned_users:
@@ -592,7 +594,7 @@ async def get_worker(callback: CallbackQuery, state: FSMContext) -> None:
                     text += f' - Общий ID {banned.tg_id}, заблокирован на сутки\n'
         else:
             text += 'Заблокированных пользователей нет'
-        await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('menu'))
+        await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'))
 
 
 @router.message(F.text, StateFilter(AdminStates.unblock_user))
@@ -836,7 +838,7 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
         user_id = customer.tg_id
     except Exception as err:
         logger.debug(f'get_user_...{err}')
-        msg = await callback.message.edit_text(text='Что-то пошло не так', reply_markup=kbc.menu_btn())
+        msg = await callback.message.answer(text='Что-то пошло не так', reply_markup=kbc.menu_btn())
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
 
@@ -1192,7 +1194,7 @@ async def menu_send_msg_admin_keyboard(callback: CallbackQuery, state: FSMContex
             f'Выберете интересующую вас группу отправки')
 
     await state.set_state(AdminStates.menu)
-    await callback.message.edit_text(text=text, reply_markup=kbc.menu_send_msg_admin_keyboard())
+    await callback.message.answer(text=text, reply_markup=kbc.menu_send_msg_admin_keyboard())
 
 
 @router.callback_query(F.data == 'menu_admin', StateFilter(AdminStates.menu, UserStates.menu, BannedStates.banned))
@@ -1279,7 +1281,7 @@ async def admin_choose_city_for_workers_main_ref(callback: CallbackQuery, state:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f'Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -1305,11 +1307,17 @@ async def admin_choose_city_for_workers_next(callback: CallbackQuery) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f' Показано {id_now + len(city_names)} из {count_cities}',
-        reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
-                                    btn_next=btn_next, btn_back=btn_back))
+        reply_markup=kbc.choose_obj(
+            id_now=id_now,
+            ids=city_ids,
+            names=city_names,
+            btn_next=btn_next,
+            btn_back=btn_back
+        )
+    )
 
 
 @router.callback_query(lambda c: c.data.startswith('obj-id_'), AdminStates.msg_to_worker_choose_city_ref)
@@ -1318,7 +1326,7 @@ async def admin_choose_city_for_workers_end(callback: CallbackQuery, state: FSMC
 
     city_id = int(callback.data.split('_')[1])
 
-    msg = await callback.message.edit_text(text='Напишите ваше обращение к исполнителям')
+    msg = await callback.message.answer(text='Напишите ваше обращение к исполнителям')
     await state.set_state(AdminStates.msg_to_worker_text_city_ref)
     await state.update_data(msg_id=msg.message_id)
     await state.update_data(city_id=city_id)
@@ -1353,7 +1361,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
     message_to_worker = str(state_data.get('message_to_worker'))
     city_id = int(state_data.get('city_id'))
 
-    msg = await callback.message.edit_text('Подождите, идет отправка')
+    msg = await callback.message.answer('Подождите, идет отправка')
 
     workers = await Worker.get_all_in_city(city_id=city_id)
     if workers:
@@ -1422,7 +1430,7 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
 async def admin_choose_city_for_workers_end(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'admin_msg_for_all_workers_ref...')
 
-    msg = await callback.message.edit_text(text='Напишите ваше обращение к исполнителям')
+    msg = await callback.message.answer(text='Напишите ваше обращение к исполнителям')
     await state.set_state(AdminStates.msg_to_worker_text_ref)
     await state.update_data(msg_id=msg.message_id)
 
@@ -1453,7 +1461,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
     state_data = await state.get_data()
     message_to_worker = str(state_data.get('message_to_worker'))
 
-    msg = await callback.message.edit_text('Подождите, идет отправка')
+    msg = await callback.message.answer('Подождите, идет отправка')
 
     workers = await Worker.get_all()
     if workers:
@@ -1519,7 +1527,7 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
 
     if not advertisements:
         customer = await Customer.get_customer(id=customer_id)
-        await callback.message.edit_text(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
+        await callback.message.answer(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
         await state.set_state(AdminStates.get_user)
         await state.update_data(user_id=customer.tg_id)
         return
@@ -1583,7 +1591,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements = await Abs.get_all_by_customer(customer_id=customer_id)
 
     if not advertisements:
-        await callback.message.edit_text(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
+        await callback.message.answer(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
         await state.set_state(AdminStates.menu)
         return
 
@@ -1653,7 +1661,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements = await Abs.get_all_by_customer(customer_id=customer_id)
 
     if not advertisements:
-        await callback.message.edit_text(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
+        await callback.message.answer(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
         await state.set_state(AdminStates.menu)
         return
 
@@ -2129,7 +2137,7 @@ async def check_banned_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements = await BannedAbs.get_all_by_customer(customer_id=customer_id)
 
     if not advertisements:
-        await callback.message.edit_text(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
+        await callback.message.answer(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
         await state.set_state(AdminStates.menu)
         return
 
@@ -2198,7 +2206,7 @@ async def check_banned_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements = await BannedAbs.get_all_by_customer(customer_id=customer_id)
 
     if not advertisements:
-        await callback.message.edit_text(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
+        await callback.message.answer(text='Объявлений нет', reply_markup=kbc.back_to_user(customer_id=customer_id))
         await state.set_state(AdminStates.menu)
         return
 

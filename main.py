@@ -72,8 +72,8 @@ async def run():
     scheduler.add_job(time_checker.check_time_workers, "interval", hours=24)
     scheduler.add_job(time_checker.check_time_customer, "interval", hours=24)
     # Основная проверка объявлений каждые 2 часа для коротких сроков
-    # scheduler.add_job(time_checker.check_time_advertisement, "interval", hours=2)
-    scheduler.add_job(time_checker.check_time_advertisement, "interval", minutes=1)
+    scheduler.add_job(time_checker.check_time_advertisement, "interval", hours=2)
+    # scheduler.add_job(time_checker.check_time_advertisement, "interval", minutes=1)
     scheduler.add_job(time_checker.check_time_banned_advertisement, "interval", hours=24)
     scheduler.add_job(time_checker.check_time_workers_stars, "interval", hours=48)
     scheduler.add_job(time_checker.cleanup_orphaned_files, "interval", days=7)  # Еженедельная очистка файлов

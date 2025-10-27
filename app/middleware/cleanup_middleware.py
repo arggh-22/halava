@@ -38,6 +38,42 @@ class DeletePreviousMiddleware(BaseMiddleware):
             logger.debug("No bot in data, skipping middleware")
             return await handler(event, data)
         
+        # Получаем состояние FSM для проверки исключений
+        state = data.get("state")
+        if state:
+            current_state = await state.get_state()
+            logger.debug(f"Current FSM state: {current_state}")
+            
+            # Исключения для состояний, где не нужно удалять сообщения
+            skip_cleanup_states = [
+                "WorkStates:portfolio_upload_photo",  # Загрузка фото в портфолио
+                "WorkStates:create_photo_profile",    # Загрузка фото профиля
+                "WorkStates:create_portfolio",        # Просмотр портфолио
+                "CustomerStates:customer_create_abs_add_photo",  # Загрузка фото в объявления
+                "CustomerStates:customer_create_abs_personal_add_photo"  # Загрузка фото в личные объявления
+            ]
+            
+            if current_state in skip_cleanup_states:
+                logger.debug(f"Skipping cleanup for state: {current_state}")
+                # Сохраняем ID сообщения пользователя, но не удаляем предыдущие
+                chat_id = None
+                message_id = None
+                
+                if hasattr(event, 'chat') and hasattr(event, 'message_id'):
+                    chat_id = event.chat.id
+                    message_id = event.message_id
+                elif hasattr(event, 'message') and hasattr(event.message, 'chat'):
+                    chat_id = event.message.chat.id
+                    message_id = event.message.message_id
+                
+                if message_id and chat_id:
+                    self.last_user_messages[chat_id] = message_id
+                    logger.debug(f"Saved user message ID {message_id} for chat {chat_id} (no cleanup)")
+                
+                # Выполняем основное действие без очистки
+                result = await handler(event, data)
+                return result
+        
         # Определяем chat_id и message_id в зависимости от типа события
         chat_id = None
         message_id = None

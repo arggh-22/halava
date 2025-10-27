@@ -20,7 +20,7 @@ logger = logging.getLogger()
 async def msg_to_worker(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'msg_to_worker...')
 
-    msg = await callback.message.edit_text(text='Напишите ваше обращение к исполнителям')
+    msg = await callback.message.answer(text='Напишите ваше обращение к исполнителям')
     await state.set_state(AdminStates.msg_to_worker_text)
     await state.update_data(msg_id=msg.message_id)
 
@@ -52,7 +52,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
     state_data = await state.get_data()
     message_to_worker = str(state_data.get('message_to_worker'))
 
-    msg = await callback.message.edit_text('Подождите, идет отправка')
+    msg = await callback.message.answer('Подождите, идет отправка')
 
     workers = await Worker.get_all()
     if workers:
@@ -105,7 +105,7 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
 async def msg_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'msg_to_customer...')
 
-    msg = await callback.message.edit_text(text='Напишите ваше обращение к заказчикам')
+    msg = await callback.message.answer(text='Напишите ваше обращение к заказчикам')
     await state.set_state(AdminStates.msg_to_customer_text)
     await state.update_data(msg_id=msg.message_id)
 
@@ -136,7 +136,7 @@ async def msg_to_customer_skip(callback: CallbackQuery, state: FSMContext) -> No
     state_data = await state.get_data()
     message_to_customer = str(state_data.get('message_to_customer'))
 
-    msg = await callback.message.edit_text('Подождите, идет отправка')
+    msg = await callback.message.answer('Подождите, идет отправка')
 
     customer = await Customer.get_all()
     if customer:
@@ -189,7 +189,7 @@ async def msg_to_customer_photo(message: Message, state: FSMContext) -> None:
 async def msg_to_all(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'msg_to_all...')
 
-    msg = await callback.message.edit_text(text='Напишите ваше обращение к пользователям')
+    msg = await callback.message.answer(text='Напишите ваше обращение к пользователям')
     await state.set_state(AdminStates.msg_to_all_text)
     await state.update_data(msg_id=msg.message_id)
 
@@ -220,7 +220,7 @@ async def msg_to_all_skip(callback: CallbackQuery, state: FSMContext) -> None:
     state_data = await state.get_data()
     message_to_all = str(state_data.get('message_to_all'))
 
-    msg = await callback.message.edit_text('Подождите, идет отправка')
+    msg = await callback.message.answer('Подождите, идет отправка')
 
     user_send = []
 
@@ -314,7 +314,7 @@ async def admin_choose_city_for_workers_main(callback: CallbackQuery, state: FSM
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f'Показано {id_now + len(city_names)} {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -340,7 +340,7 @@ async def admin_choose_city_for_workers_next(callback: CallbackQuery) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f' Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -353,7 +353,7 @@ async def admin_choose_city_for_workers_end(callback: CallbackQuery, state: FSMC
 
     city_id = int(callback.data.split('_')[1])
 
-    msg = await callback.message.edit_text(text='Напишите ваше обращение к исполнителям')
+    msg = await callback.message.answer(text='Напишите ваше обращение к исполнителям')
     await state.set_state(AdminStates.msg_to_worker_text_city)
     await state.update_data(msg_id=msg.message_id)
     await state.update_data(city_id=city_id)
@@ -388,7 +388,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
     message_to_worker = str(state_data.get('message_to_worker'))
     city_id = int(state_data.get('city_id'))
 
-    msg = await callback.message.edit_text('Подождите, идет отправка')
+    msg = await callback.message.answer('Подождите, идет отправка')
 
     workers = await Worker.get_all_in_city(city_id=city_id)
     if workers:
@@ -461,7 +461,7 @@ async def admin_choose_city_for_customer_main(callback: CallbackQuery, state: FS
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f'Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -487,7 +487,7 @@ async def admin_choose_city_for_customer_next(callback: CallbackQuery) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f' Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -500,7 +500,7 @@ async def admin_choose_city_for_customer_end(callback: CallbackQuery, state: FSM
 
     city_id = int(callback.data.split('_')[1])
 
-    msg = await callback.message.edit_text(text='Напишите ваше обращение к заказчикам')
+    msg = await callback.message.answer(text='Напишите ваше обращение к заказчикам')
     await state.set_state(AdminStates.msg_to_customer_text_city)
     await state.update_data(msg_id=msg.message_id)
     await state.update_data(city_id=city_id)
@@ -535,7 +535,7 @@ async def msg_to_customer_skip(callback: CallbackQuery, state: FSMContext) -> No
     message_to_customer = str(state_data.get('message_to_customer'))
     city_id = int(state_data.get('city_id'))
 
-    msg = await callback.message.edit_text('Подождите, идет отправка')
+    msg = await callback.message.answer('Подождите, идет отправка')
 
     customers = await Customer.get_all_in_city(city_id=city_id)
     if customers:
@@ -607,7 +607,7 @@ async def admin_choose_city_for_all_main(callback: CallbackQuery, state: FSMCont
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f'Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -633,7 +633,7 @@ async def admin_choose_city_for_all_next(callback: CallbackQuery) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f'Пожалуйста выберите город\n'
              f' Показано {id_now + len(city_names)} из {count_cities}',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -646,7 +646,7 @@ async def admin_choose_city_for_all_end(callback: CallbackQuery, state: FSMConte
 
     city_id = int(callback.data.split('_')[1])
 
-    msg = await callback.message.edit_text(text='Напишите ваше обращение к пользователям')
+    msg = await callback.message.answer(text='Напишите ваше обращение к пользователям')
     await state.set_state(AdminStates.msg_to_all_text_city)
     await state.update_data(msg_id=msg.message_id)
     await state.update_data(city_id=city_id)
@@ -681,7 +681,7 @@ async def msg_to_all_skip(callback: CallbackQuery, state: FSMContext) -> None:
     message_to_all = str(state_data.get('message_to_all'))
     city_id = int(state_data.get('city_id'))
 
-    msg = await callback.message.edit_text('Подождите, идет отправка')
+    msg = await callback.message.answer('Подождите, идет отправка')
 
     user_send = []
 

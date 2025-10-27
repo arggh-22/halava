@@ -30,7 +30,7 @@ async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=Non
             )
         else:
             # Если сообщение текстовое, редактируем текст
-            await callback.message.edit_text(
+            await callback.message.answer(
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode

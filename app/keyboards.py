@@ -636,6 +636,9 @@ class KeyboardCollection:
                                      callback_data=f'do_nothing'))
             builder.add(self._inline(button_text=f'>',
                                      callback_data=f'go-to-portfolio_{photo_num + 1}'))
+        
+        # Кнопка удаления фото показывается всегда, если есть хотя бы одно фото
+        if photo_len > 0:
             builder.add(self._inline(button_text=f'Удалить фото',
                                      callback_data=f'delite-photo-portfolio_{photo_num}'))
 

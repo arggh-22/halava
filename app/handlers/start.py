@@ -333,13 +333,13 @@ async def menu(callback: CallbackQuery, state: FSMContext) -> None:
     kbc = KeyboardCollection()
     if user_baned := await Banned.get_banned(tg_id=callback.message.chat.id):
         if user_baned.ban_now or user_baned.forever:
-            await callback.message.edit_text(text='Упс, вы заблокированы', reply_markup=kbc.support_btn())
+            await callback.message.answer(text='Упс, вы заблокированы', reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
     if await Worker.get_worker(tg_id=callback.message.chat.id) or Customer.get_customer(
             tg_id=callback.message.chat.id) or await Admin.get_by_tg_id(tg_id=callback.message.chat.id):
         await state.set_state(UserStates.menu)
-        await callback.message.edit_text(
+        await callback.message.answer(
             text=f'Меню\n\nВыберите интересующий вас пункт',
             reply_markup=kbc.command_menu_keyboard(),
         )
@@ -354,7 +354,7 @@ async def user_change_role(callback: CallbackQuery) -> None:
         admin_btn = True
     else:
         admin_btn = False
-    await callback.message.edit_text(text='Выберите роль', reply_markup=kbc.menu_keyboard(admin=admin_btn))
+    await callback.message.answer(text='Выберите роль', reply_markup=kbc.menu_keyboard(admin=admin_btn))
 
 
 @router.message(Command("role"))
@@ -553,12 +553,12 @@ async def user_ask_support(callback: CallbackQuery, state: FSMContext) -> None:
 
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=callback.message.chat.id):
         if user_and_support_queue.turn:
-            await callback.message.edit_text('Ваш вопрос принят, ожидайте пожалуйста ответа.',
+            await callback.message.answer('Ваш вопрос принят, ожидайте пожалуйста ответа.',
                                              reply_markup=kbc.menu_btn())
             return
 
     await state.set_state(UserStates.ask_support)
-    msg = await callback.message.edit_text('Напишите ваш вопрос')
+    msg = await callback.message.answer('Напишите ваш вопрос')
     await state.update_data(msg_id=msg.message_id)
     return
 
@@ -571,12 +571,12 @@ async def user_ask_support(callback: CallbackQuery, state: FSMContext) -> None:
 
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=callback.message.chat.id):
         if user_and_support_queue.turn:
-            await callback.message.edit_text('Ваш вопрос принят, ожидайте пожалуйста ответа.',
+            await callback.message.answer('Ваш вопрос принят, ожидайте пожалуйста ответа.',
                                              reply_markup=kbc.menu_btn())
             return
 
     await state.set_state(UserStates.ask_support)
-    msg = await callback.message.edit_text('Напишите ваш вопрос')
+    msg = await callback.message.answer('Напишите ваш вопрос')
     await state.update_data(msg_id=msg.message_id)
     return
 
@@ -689,7 +689,7 @@ async def skip_send_photo(callback: CallbackQuery, state: FSMContext):
         if await checks.levenshtein_distance_check_faq(phrase=ask, words=ask_answer.questions):
             answer = f'Ответ от поддержки: "{ask_answer.answer}"'
             await callback.message.answer(text=answer, reply_markup=kbc.support_btn())
-            await callback.message.edit_text('Ваш вопрос отправлен', reply_markup=kbc.menu_btn())
+            await callback.message.answer('Ваш вопрос отправлен', reply_markup=kbc.menu_btn())
             await state.set_state(UserStates.menu)
             if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(
                     user_tg_id=callback.message.chat.id):
@@ -728,7 +728,7 @@ async def skip_send_photo(callback: CallbackQuery, state: FSMContext):
             text += f'\n\nЭтот пользователь заблокирован\nПричина блокировки: {banned.ban_reason}'
     await bot.send_message(chat_id=config.SUPPORT_CHAT, text=text,
                            reply_markup=kbc.admin_answer_user(tg_id=callback.message.chat.id), protect_content=False)
-    await callback.message.edit_text('Ваш вопрос отправлен', reply_markup=kbc.menu_btn())
+    await callback.message.answer('Ваш вопрос отправлен', reply_markup=kbc.menu_btn())
 
 
 @router.message(F.photo, UserStates.ask_support_photo)

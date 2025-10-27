@@ -13,6 +13,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
+from aiogram.exceptions import TelegramBadRequest
 
 from app.states import WorkStates, CustomerStates
 from app.keyboards import KeyboardCollection
@@ -620,7 +621,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                             )
                         else:
                             # Если нет фото, редактируем текст
-                            await callback.message.edit_text(
+                            await callback.message.answer(
                                 text=original_text,
                                 reply_markup=kbc.anonymous_chat_customer_buttons(
                                     worker_id=worker_id,
@@ -722,7 +723,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                     )
                 else:
                     # Если нет фото, редактируем текст
-                    await callback.message.edit_text(
+                    await callback.message.answer(
                         text=original_text,
                         reply_markup=kbc.anonymous_chat_customer_buttons(
                             worker_id=worker_id,
@@ -803,7 +804,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                 )
             else:
                 # Если нет фото, редактируем текст
-                await callback.message.edit_text(
+                await callback.message.answer(
                     text=original_text,
                     reply_markup=kbc.anonymous_chat_customer_buttons(
                         worker_id=worker_id,
@@ -919,11 +920,19 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
 
             # Обновляем сообщение
             kbc = KeyboardCollection()
-            await callback.message.edit_text(
-                text=f"✅ **Контакты переданы!**\n\n📋 Объявление: #{abs_id}\n\n{contacts_text}\n\n💰 Осталось контактов: {new_count}",
-                reply_markup=kbc.menu_btn(),
-                parse_mode='Markdown'
-            )
+            try:
+                await callback.message.answer(
+                    text=f"✅ **Контакты переданы!**\n\n📋 Объявление: #{abs_id}\n\n{contacts_text}\n\n💰 Осталось контактов: {new_count}",
+                    reply_markup=kbc.menu_btn(),
+                    parse_mode='Markdown'
+                )
+            except TelegramBadRequest:
+                # Если сообщение недоступно для редактирования, отправляем новое
+                await callback.message.answer(
+                    text=f"✅ **Контакты переданы!**\n\n📋 Объявление: #{abs_id}\n\n{contacts_text}\n\n💰 Осталось контактов: {new_count}",
+                    reply_markup=kbc.menu_btn(),
+                    parse_mode='Markdown'
+                )
 
             # Устанавливаем правильное состояние
             await state.set_state(WorkStates.worker_menu)
@@ -933,11 +942,19 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
 
         # Нет купленных контактов - показываем тарифы покупки
         kbc = KeyboardCollection()
-        await callback.message.edit_text(
-            text="💰 **Тарифы на покупку контактов**\n\nВыберите подходящий тариф:",
-            reply_markup=kbc.buy_tokens_tariffs(),
-            parse_mode='Markdown'
-        )
+        try:
+            await callback.message.answer(
+                text="💰 **Тарифы на покупку контактов**\n\nВыберите подходящий тариф:",
+                reply_markup=kbc.buy_tokens_tariffs(),
+                parse_mode='Markdown'
+            )
+        except TelegramBadRequest:
+            # Если сообщение недоступно для редактирования, отправляем новое
+            await callback.message.answer(
+                text="💰 **Тарифы на покупку контактов**\n\nВыберите подходящий тариф:",
+                reply_markup=kbc.buy_tokens_tariffs(),
+                parse_mode='Markdown'
+            )
 
         # Сохраняем данные для последующей покупки
         await state.update_data(
@@ -987,11 +1004,19 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
 
         # Обновляем сообщение исполнителя
         kbc = KeyboardCollection()
-        await callback.message.edit_text(
-            text="❌ **Вы отказались от покупки контактов**\n\nОтклик возвращен в обычный режим.",
-            reply_markup=kbc.menu_btn(),
-            parse_mode='Markdown'
-        )
+        try:
+            await callback.message.answer(
+                text="❌ **Вы отказались от покупки контактов**\n\nОтклик возвращен в обычный режим.",
+                reply_markup=kbc.menu_btn(),
+                parse_mode='Markdown'
+            )
+        except TelegramBadRequest:
+            # Если сообщение недоступно для редактирования, отправляем новое
+            await callback.message.answer(
+                text="❌ **Вы отказались от покупки контактов**\n\nОтклик возвращен в обычный режим.",
+                reply_markup=kbc.menu_btn(),
+                parse_mode='Markdown'
+            )
 
         # Устанавливаем правильное состояние
         await state.set_state(WorkStates.worker_menu)
@@ -1072,7 +1097,7 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
         # Безопасное редактирование (может быть фото)
         try:
             if callback.message.text:
-                await callback.message.edit_text(
+                await callback.message.answer(
                     text=new_text,
                     reply_markup=kbc.customer_responses_list_buttons(
                         responses_data=[{
@@ -1205,7 +1230,7 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
         # Безопасное редактирование
         try:
             if callback.message.text:
-                await callback.message.edit_text(
+                await callback.message.answer(
                     text=new_text,
                     reply_markup=kbc.anonymous_chat_customer_buttons(
                         worker_id=worker_id,
@@ -1330,24 +1355,42 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
             
             contacts_text += f"🔒 **Чат закрыт** - теперь можете общаться напрямую."
 
-            await callback.message.edit_text(
-                text=contacts_text,
-                parse_mode='Markdown'
-            )
+            try:
+                await callback.message.answer(
+                    text=contacts_text,
+                    parse_mode='Markdown'
+                )
+            except TelegramBadRequest:
+                # Если сообщение недоступно для редактирования, отправляем новое
+                await callback.message.answer(
+                    text=contacts_text,
+                    parse_mode='Markdown'
+                )
 
             await callback.answer("✅ Контакты получены! Чат закрыт.")
 
         else:
             # Показываем тарифы для покупки
             kbc = KeyboardCollection()
-            await callback.message.edit_text(
-                text=f"💰 **Для получения контактов необходимо оплатить**\n\n"
-                     f"📋 Объявление: #{abs_id}\n"
-                     f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
-                     f"Выберите тариф:",
-                reply_markup=kbc.buy_tokens_tariffs(),
-                parse_mode='Markdown'
-            )
+            try:
+                await callback.message.answer(
+                    text=f"💰 **Для получения контактов необходимо оплатить**\n\n"
+                         f"📋 Объявление: #{abs_id}\n"
+                         f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+                         f"Выберите тариф:",
+                    reply_markup=kbc.buy_tokens_tariffs(),
+                    parse_mode='Markdown'
+                )
+            except TelegramBadRequest:
+                # Если сообщение недоступно для редактирования, отправляем новое
+                await callback.message.answer(
+                    text=f"💰 **Для получения контактов необходимо оплатить**\n\n"
+                         f"📋 Объявление: #{abs_id}\n"
+                         f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+                         f"Выберите тариф:",
+                    reply_markup=kbc.buy_tokens_tariffs(),
+                    parse_mode='Markdown'
+                )
             
             # Сохраняем данные для последующей покупки
             await state.update_data(
@@ -1392,11 +1435,19 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
             parse_mode='Markdown'
         )
 
-        await callback.message.edit_text(
-            text="❌ **Предложение контактов отклонено**\n\n"
-                 "Вы отклонили получение контактов заказчика.",
-            parse_mode='Markdown'
-        )
+        try:
+            await callback.message.answer(
+                text="❌ **Предложение контактов отклонено**\n\n"
+                     "Вы отклонили получение контактов заказчика.",
+                parse_mode='Markdown'
+            )
+        except TelegramBadRequest:
+            # Если сообщение недоступно для редактирования, отправляем новое
+            await callback.message.answer(
+                text="❌ **Предложение контактов отклонено**\n\n"
+                     "Вы отклонили получение контактов заказчика.",
+                parse_mode='Markdown'
+            )
 
         await callback.answer("❌ Предложение отклонено")
 
@@ -1691,7 +1742,7 @@ async def my_responses(callback: CallbackQuery, state: FSMContext):
 
             # Безопасное редактирование
             try:
-                await callback.message.edit_text(
+                await callback.message.answer(
                     text=text,
                     reply_markup=kbc.menu_btn(),
                     parse_mode='Markdown'
@@ -1736,7 +1787,7 @@ async def my_responses(callback: CallbackQuery, state: FSMContext):
 
         # Безопасное редактирование
         try:
-            await callback.message.edit_text(
+            await callback.message.answer(
                 text=text,
                 reply_markup=kbc.my_responses_list_buttons(responses_data),
                 parse_mode='Markdown'
@@ -2471,11 +2522,19 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
         ))
         keyboard_builder.adjust(1)
 
-        await callback.message.edit_text(
-            text=confirmation_text,
-            reply_markup=keyboard_builder.as_markup(),
-            parse_mode='Markdown'
-        )
+        try:
+            await callback.message.answer(
+                text=confirmation_text,
+                reply_markup=keyboard_builder.as_markup(),
+                parse_mode='Markdown'
+            )
+        except TelegramBadRequest:
+            # Если сообщение недоступно для редактирования, отправляем новое
+            await callback.message.answer(
+                text=confirmation_text,
+                reply_markup=keyboard_builder.as_markup(),
+                parse_mode='Markdown'
+            )
 
     except Exception as e:
         logger.error(f"Error in buy_tokens: {e}")
@@ -2587,26 +2646,52 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                     if response:
                         await response.update(applyed=False)
 
-                    await callback.message.edit_text(
-                        text=f"✅ **Покупка успешна!**\n\nКонтакты заказчика переданы!",
-                        reply_markup=kbc.menu_btn(),
-                        parse_mode='Markdown'
-                    )
+                    try:
+                        await callback.message.answer(
+                            text=f"✅ **Покупка успешна!**\n\nКонтакты заказчика переданы!",
+                            reply_markup=kbc.menu_btn(),
+                            parse_mode='Markdown'
+                        )
+                    except TelegramBadRequest:
+                        # Если сообщение недоступно для редактирования, отправляем новое
+                        await callback.message.answer(
+                            text=f"✅ **Покупка успешна!**\n\nКонтакты заказчика переданы!",
+                            reply_markup=kbc.menu_btn(),
+                            parse_mode='Markdown'
+                        )
                 else:
-                    await callback.message.edit_text(
+                    try:
+                        await callback.message.answer(
+                            text=f"✅ **Покупка успешна!**\n\n"
+                                 f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон(ов)'}",
+                            reply_markup=kbc.menu_btn(),
+                            parse_mode='Markdown'
+                        )
+                    except TelegramBadRequest:
+                        # Если сообщение недоступно для редактирования, отправляем новое
+                        await callback.message.answer(
+                            text=f"✅ **Покупка успешна!**\n\n"
+                                 f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон(ов)'}",
+                            reply_markup=kbc.menu_btn(),
+                            parse_mode='Markdown'
+                        )
+            else:
+                # Обычная покупка токенов
+                try:
+                    await callback.message.answer(
                         text=f"✅ **Покупка успешна!**\n\n"
                              f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон(ов)'}",
                         reply_markup=kbc.menu_btn(),
                         parse_mode='Markdown'
                     )
-            else:
-                # Обычная покупка токенов
-                await callback.message.edit_text(
-                    text=f"✅ **Покупка успешна!**\n\n"
-                         f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон(ов)'}",
-                    reply_markup=kbc.menu_btn(),
-                    parse_mode='Markdown'
-                )
+                except TelegramBadRequest:
+                    # Если сообщение недоступно для редактирования, отправляем новое
+                    await callback.message.answer(
+                        text=f"✅ **Покупка успешна!**\n\n"
+                             f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон(ов)'}",
+                        reply_markup=kbc.menu_btn(),
+                        parse_mode='Markdown'
+                    )
 
             # Устанавливаем правильное состояние вместо clear()
             await state.set_state(WorkStates.worker_menu)
@@ -2627,10 +2712,17 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
 async def cancel_token_purchase(callback: CallbackQuery, state: FSMContext):
     """Отмена покупки жетонов"""
     kbc = KeyboardCollection()
-    await callback.message.edit_text(
-        text="❌ Покупка отменена",
-        reply_markup=kbc.menu_btn()
-    )
+    try:
+        await callback.message.answer(
+            text="❌ Покупка отменена",
+            reply_markup=kbc.menu_btn()
+        )
+    except TelegramBadRequest:
+        # Если сообщение недоступно для редактирования, отправляем новое
+        await callback.message.answer(
+            text="❌ Покупка отменена",
+            reply_markup=kbc.menu_btn()
+        )
     await state.set_state(WorkStates.worker_menu)
 
 

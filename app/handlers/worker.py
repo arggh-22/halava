@@ -196,7 +196,7 @@ async def choose_city_callback(callback: CallbackQuery, state: FSMContext) -> No
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    msg = await callback.message.edit_text(
+    msg = await callback.message.answer(
         text=f'Выберите город или напишите его текстом\n\n'
              f'Показано {id_now + len(city_names)} из {count_cities} городов',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -225,7 +225,7 @@ async def choose_city_main(callback: CallbackQuery, state: FSMContext) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    msg = await callback.message.edit_text(
+    msg = await callback.message.answer(
         text=f'Выберите город или напишите его текстом\n\n'
              f'Показано {id_now + len(city_names)} из {count_cities} городов',
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -289,7 +289,7 @@ async def choose_city_next(callback: CallbackQuery, state: FSMContext) -> None:
                                                                  id_now=id_now)
 
     try:
-        msg = await callback.message.edit_text(
+        msg = await callback.message.answer(
             text=f'Выберите город или напишите его текстом\n\n'
                  f'Показано {id_now + len(city_names)} из {count_cities} городов',
             reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
@@ -311,7 +311,7 @@ async def choose_city_end(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(city_id=city_id)
     await state.set_state(WorkStates.registration_enter_name)
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text='Укажите ваше имя:'
     )
 
@@ -371,7 +371,7 @@ async def choose_work_types_start(callback: CallbackQuery, state: FSMContext) ->
     from app.data.database.models import WorkType
     work_types = await WorkType.get_all()
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text='🎯 Выберите направления работы',
         reply_markup=kbc.choose_work_types_improved(
             all_work_types=work_types,
@@ -687,7 +687,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
             return
     user_worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     if not user_worker:
-        await (callback.message.edit_text(
+        await (callback.message.answer(
             text=f'''Упс, вы пока не зарегистрированы, как исполнитель''',
             reply_markup=kbc.registration_worker(),
         ))
@@ -749,7 +749,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
 
     if not user_worker:
 
-        await (callback.message.edit_text(
+        await (callback.message.answer(
             text=f'''Упс, вы пока не зарегистрированы, как исполнитель''',
             reply_markup=kbc.registration_worker(),
         ))
@@ -840,33 +840,50 @@ async def my_portfolio(callback: CallbackQuery) -> None:
     logger.debug(f'my_portfolio...')
     kbc = KeyboardCollection()
 
-    photo_id = int(callback.data.split('_')[1])
+    try:
+        photo_id = int(callback.data.split('_')[1])
 
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+        worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
-    photo_len = len(worker.portfolio_photo)
-    
-    # Получаем отсортированные ключи из словаря портфолио
-    sorted_keys = sorted(worker.portfolio_photo.keys(), key=int)
-    
-    # Корректируем photo_id для работы с реальными ключами
-    if photo_id <= -1:
-        photo_id = len(sorted_keys) - 1
-    elif photo_id >= len(sorted_keys):
-        photo_id = 0
-    
-    # Получаем реальный ключ по индексу
-    real_key = sorted_keys[photo_id]
+        photo_len = len(worker.portfolio_photo)
+        
+        # Получаем отсортированные ключи из словаря портфолио
+        sorted_keys = sorted(worker.portfolio_photo.keys(), key=int)
+        
+        # Корректируем photo_id для работы с реальными ключами
+        if photo_id <= -1:
+            photo_id = len(sorted_keys) - 1
+        elif photo_id >= len(sorted_keys):
+            photo_id = 0
+        
+        # Получаем реальный ключ по индексу
+        real_key = sorted_keys[photo_id]
 
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=FSInputFile(worker.portfolio_photo[real_key])),
-        reply_markup=kbc.my_portfolio(
-            photo_num=photo_id,
-            photo_len=photo_len,
-            new_photo=True if photo_len < 10 else False
-        )
-    )
+        try:
+            await callback.message.edit_media(
+                media=InputMediaPhoto(
+                    media=FSInputFile(worker.portfolio_photo[real_key])),
+                reply_markup=kbc.my_portfolio(
+                    photo_num=photo_id,
+                    photo_len=photo_len,
+                    new_photo=True if photo_len < 10 else False
+                )
+            )
+        except TelegramBadRequest as e:
+            logger.warning(f"Could not edit media, sending new message: {e}")
+            # Если не можем отредактировать, отправляем новое сообщение
+            await callback.message.answer_photo(
+                photo=FSInputFile(worker.portfolio_photo[real_key]),
+                reply_markup=kbc.my_portfolio(
+                    photo_num=photo_id,
+                    photo_len=photo_len,
+                    new_photo=True if photo_len < 10 else False
+                )
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in portfolio navigation: {e}")
+        await callback.message.answer(text=f'❌ Произошла ошибка при просмотре портфолио: {str(e)}')
 
 
 @router.callback_query(lambda c: c.data.startswith("delite-photo-portfolio_"), WorkStates.create_portfolio)
@@ -874,65 +891,82 @@ async def my_portfolio(callback: CallbackQuery) -> None:
     logger.debug(f'my_portfolio...')
     kbc = KeyboardCollection()
 
-    photo_id = int(callback.data.split('_')[1])
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    try:
+        photo_id = int(callback.data.split('_')[1])
+        worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
-    # Получаем отсортированные ключи из словаря портфолио
-    sorted_keys = sorted(worker.portfolio_photo.keys(), key=int)
-    
-    # Получаем реальный ключ по индексу
-    real_key = sorted_keys[photo_id]
-    
-    logger.info(f"[PORTFOLIO_DELETE] Удаляем фото: индекс={photo_id}, ключ={real_key}")
-    logger.info(f"[PORTFOLIO_DELETE] Портфолио до удаления: {worker.portfolio_photo}")
-    
-    # Удаляем фото из словаря и получаем путь к файлу для удаления
-    new_portfolio, removed_file_path = help_defs.remove_portfolio_photo(d=worker.portfolio_photo, removed_key=real_key)
-    
-    # Удаляем физический файл с диска
-    if removed_file_path:
-        file_deleted = help_defs.delete_file(removed_file_path)
-        if file_deleted:
-            logger.info(f"Фото портфолио удалено: {removed_file_path}")
-        else:
-            logger.warning(f"Не удалось удалить файл портфолио: {removed_file_path}")
+        # Получаем отсортированные ключи из словаря портфолио
+        sorted_keys = sorted(worker.portfolio_photo.keys(), key=int)
+        
+        # Получаем реальный ключ по индексу
+        real_key = sorted_keys[photo_id]
+        
+        logger.info(f"[PORTFOLIO_DELETE] Удаляем фото: индекс={photo_id}, ключ={real_key}")
+        logger.info(f"[PORTFOLIO_DELETE] Портфолио до удаления: {worker.portfolio_photo}")
+        
+        # Удаляем фото из словаря и получаем путь к файлу для удаления
+        new_portfolio, removed_file_path = help_defs.remove_portfolio_photo(d=worker.portfolio_photo, removed_key=real_key)
+        
+        # Удаляем физический файл с диска
+        if removed_file_path:
+            file_deleted = help_defs.delete_file(removed_file_path)
+            if file_deleted:
+                logger.info(f"Фото портфолио удалено: {removed_file_path}")
+            else:
+                logger.warning(f"Не удалось удалить файл портфолио: {removed_file_path}")
 
-    # Обновляем портфолио в базе данных
-    await worker.update_portfolio_photo(new_portfolio)
-    photo_len = len(new_portfolio)
-    
-    logger.info(f"[PORTFOLIO_DELETE] Портфолио после удаления: {new_portfolio}")
-    logger.info(f"[PORTFOLIO_DELETE] Количество фото после удаления: {photo_len}")
+        # Обновляем портфолио в базе данных
+        await worker.update_portfolio_photo(new_portfolio)
+        photo_len = len(new_portfolio)
+        
+        logger.info(f"[PORTFOLIO_DELETE] Портфолио после удаления: {new_portfolio}")
+        logger.info(f"[PORTFOLIO_DELETE] Количество фото после удаления: {photo_len}")
 
-    if photo_len == 0:
-        await callback.message.answer(
-            text='У вас пока нет фото в портфолио',
-            reply_markup=kbc.my_portfolio()
-        )
-        return
+        if photo_len == 0:
+            await callback.message.answer(
+                text='У вас пока нет фото в портфолио',
+                reply_markup=kbc.my_portfolio()
+            )
+            return
 
-    # Получаем отсортированные ключи из обновленного портфолио
-    sorted_keys = sorted(new_portfolio.keys(), key=int)
-    
-    # Корректируем photo_id для отображения
-    if photo_id <= -1:
-        photo_id = len(sorted_keys) - 1
-    elif photo_id >= len(sorted_keys):
-        photo_id = 0
-    
-    # Получаем реальный ключ по индексу
-    real_key = sorted_keys[photo_id]
+        # Получаем отсортированные ключи из обновленного портфолио
+        sorted_keys = sorted(new_portfolio.keys(), key=int)
+        
+        # Корректируем photo_id для отображения
+        if photo_id <= -1:
+            photo_id = len(sorted_keys) - 1
+        elif photo_id >= len(sorted_keys):
+            photo_id = 0
+        
+        # Получаем реальный ключ по индексу
+        real_key = sorted_keys[photo_id]
 
-    # Обновляем интерфейс
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=FSInputFile(new_portfolio[real_key])),
-        reply_markup=kbc.my_portfolio(
-            photo_num=photo_id,
-            photo_len=photo_len,
-            new_photo=True if photo_len < 10 else False
-        )
-    )
+        # Обновляем интерфейс
+        try:
+            await callback.message.edit_media(
+                media=InputMediaPhoto(
+                    media=FSInputFile(new_portfolio[real_key])),
+                reply_markup=kbc.my_portfolio(
+                    photo_num=photo_id,
+                    photo_len=photo_len,
+                    new_photo=True if photo_len < 10 else False
+                )
+            )
+        except TelegramBadRequest as e:
+            logger.warning(f"Could not edit media after delete, sending new message: {e}")
+            # Если не можем отредактировать, отправляем новое сообщение
+            await callback.message.answer_photo(
+                photo=FSInputFile(new_portfolio[real_key]),
+                reply_markup=kbc.my_portfolio(
+                    photo_num=photo_id,
+                    photo_len=photo_len,
+                    new_photo=True if photo_len < 10 else False
+                )
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in portfolio photo deletion: {e}")
+        await callback.message.answer(text=f'❌ Произошла ошибка при удалении фото: {str(e)}')
 
 
 @router.callback_query(F.data == "upload_photo", WorkStates.create_portfolio)
@@ -941,25 +975,30 @@ async def upload_photo(callback: CallbackQuery, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
 
-    text = f'Загрузите фото'
+        text = f'Загрузите фото'
 
-    msg = await callback.message.answer(
-        text=text, reply_markup=kbc.menu()
-    )
+        msg = await callback.message.answer(
+            text=text, reply_markup=kbc.menu()
+        )
 
-    await callback.answer(
-        text=f"Вы можете прикрепить до 10 фото.\n"
-             f"На фото не должно быть надписей, цифр и символов, если они присутствуют - их следует замазать перед загрузкой.\n"
-             f"Загрузка видео недоступна!\n",
-        show_alert=True
-    )
+        await callback.answer(
+            text=f"Вы можете прикрепить до 10 фото.\n"
+                 f"На фото не должно быть надписей, цифр и символов, если они присутствуют - их следует замазать перед загрузкой.\n"
+                 f"Загрузка видео недоступна!\n",
+            show_alert=True
+        )
 
-    await state.set_state(WorkStates.portfolio_upload_photo)
-    await state.update_data(msg=msg.message_id)
+        await state.set_state(WorkStates.portfolio_upload_photo)
+        await state.update_data(msg=msg.message_id)
+        
+    except Exception as e:
+        logger.error(f"Error in upload_photo: {e}")
+        await callback.message.answer(text=f'❌ Произошла ошибка при инициализации загрузки фото: {str(e)}')
 
 
 @router.message(F.photo, WorkStates.portfolio_upload_photo)
@@ -968,36 +1007,42 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
 
     kbc = KeyboardCollection()
 
-    # Загружаем данные состояния
-    data = await state.get_data()
-    album = data.get('album', [])
+    try:
+        # Загружаем данные состояния
+        data = await state.get_data()
+        album = data.get('album', [])
 
-    if len(album) == 10:
+        if len(album) == 10:
+            msg = str(data.get('msg'))
+            try:
+                await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+                msg = await message.answer(text='Больше фото загрузить нельзя\nНажмите, чтобы закончить загрузку',
+                                           reply_markup=kbc.done_btn())
+                await state.update_data(msg=msg.message_id)
+            except TelegramBadRequest:
+                pass
+            return
+
+        album.append(message)
+        await state.update_data(album=album)
         msg = str(data.get('msg'))
+        
         try:
             await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
-            msg = await message.answer(text='Больше фото загрузить нельзя\nНажмите, чтобы закончить загрузку',
-                                       reply_markup=kbc.done_btn())
+            msg = await message.answer(text='Нажмите, чтобы закончить загрузку', reply_markup=kbc.done_btn())
             await state.update_data(msg=msg.message_id)
         except TelegramBadRequest:
             pass
-        return
 
-    album.append(message)
-    await state.update_data(album=album)
-    msg = str(data.get('msg'))
-    try:
-        await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
-        msg = await message.answer(text='Нажмите, чтобы закончить загрузку', reply_markup=kbc.done_btn())
-        await state.update_data(msg=msg.message_id)
-    except TelegramBadRequest:
-        pass
+        if len(album) < 10:
+            return
 
-    if len(album) < 10:
-        return
-
-    if len(album) > 10:
-        return
+        if len(album) > 10:
+            return
+            
+    except Exception as e:
+        logger.error(f"Error in upload_photo_portfolio: {e}")
+        await message.answer(text=f'❌ Произошла ошибка при загрузке фото: {str(e)}')
 
 
 @router.callback_query(F.data == 'skip_it_photo', WorkStates.portfolio_upload_photo)
@@ -1005,102 +1050,128 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     logger.debug(f'create_abs_with_photo_end...')
 
     kbc = KeyboardCollection()
-    state_data = await state.get_data()
-
-    msg = str(state_data.get('msg'))
-    album = state_data.get('album', [])
-
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg)
-    msg = await callback.message.answer(text='Подождите идет проверка')
-
-    photos = {}
-    photo_len = len(album)
-
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-
-    portfolio_len = 0
-
-    if worker.portfolio_photo:
-        portfolio_len = len(worker.portfolio_photo)
-
-    # Мигрируем существующие фото в правильную структуру папок
-    if worker.portfolio_photo:
-        logger.info(f"[PORTFOLIO_UPLOAD] Миграция существующего портфолио...")
-        worker.portfolio_photo = help_defs.migrate_portfolio_to_user_folder(
-            worker.portfolio_photo, 
-            callback.message.chat.id
-        )
-        # Обновляем портфолио в базе данных после миграции
-        await worker.update_portfolio_photo(portfolio_photo=worker.portfolio_photo)
-        logger.info(f"[PORTFOLIO_UPLOAD] Миграция завершена: {worker.portfolio_photo}")
     
-    # Получаем максимальный ключ из существующего портфолио
-    max_key = 0
-    if worker.portfolio_photo:
-        max_key = max(int(k) for k in worker.portfolio_photo.keys())
-        logger.info(f"[PORTFOLIO_UPLOAD] Существующее портфолио: {worker.portfolio_photo}")
-        logger.info(f"[PORTFOLIO_UPLOAD] Максимальный ключ: {max_key}")
-    
-    for i, obj in enumerate(album):
-        if obj.photo:
-            file_id = obj.photo[-1].file_id
-        else:
-            file_id = obj[obj.content_type].file_id
+    try:
+        state_data = await state.get_data()
+        msg = str(state_data.get('msg'))
+        album = state_data.get('album', [])
 
-        # Используем последовательную нумерацию начиная с max_key + 1
-        new_key = max_key + i + 1
+        # Проверяем, есть ли фото для загрузки
+        if not album:
+            await callback.message.answer(text='❌ Нет фото для загрузки. Сначала загрузите фото.')
+            return
+
+        try:
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg)
+        except TelegramBadRequest:
+            pass
+            
+        msg = await callback.message.answer(text='Подождите идет проверка')
+
+        photos = {}
+        photo_len = len(album)
+
+        worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+
+        portfolio_len = 0
+
+        if worker.portfolio_photo:
+            portfolio_len = len(worker.portfolio_photo)
+
+        # Мигрируем существующие фото в правильную структуру папок
+        if worker.portfolio_photo:
+            logger.info(f"[PORTFOLIO_UPLOAD] Миграция существующего портфолио...")
+            worker.portfolio_photo = help_defs.migrate_portfolio_to_user_folder(
+                worker.portfolio_photo, 
+                callback.message.chat.id
+            )
+            # Обновляем портфолио в базе данных после миграции
+            await worker.update_portfolio_photo(portfolio_photo=worker.portfolio_photo)
+            logger.info(f"[PORTFOLIO_UPLOAD] Миграция завершена: {worker.portfolio_photo}")
         
-        # Создаем правильную структуру папок для портфолио
-        portfolio_dir, filename = await help_defs.save_portfolio_photo(
-            user_id=callback.message.chat.id, 
-            photo_key=new_key
+        # Получаем максимальный ключ из существующего портфолио
+        max_key = 0
+        if worker.portfolio_photo:
+            max_key = max(int(k) for k in worker.portfolio_photo.keys())
+            logger.info(f"[PORTFOLIO_UPLOAD] Существующее портфолио: {worker.portfolio_photo}")
+            logger.info(f"[PORTFOLIO_UPLOAD] Максимальный ключ: {max_key}")
+        
+        for i, obj in enumerate(album):
+            if obj.photo:
+                file_id = obj.photo[-1].file_id
+            else:
+                file_id = obj[obj.content_type].file_id
+
+            # Используем последовательную нумерацию начиная с max_key + 1
+            new_key = max_key + i + 1
+            
+            # Создаем правильную структуру папок для портфолио
+            portfolio_dir, filename = await help_defs.save_portfolio_photo(
+                user_id=callback.message.chat.id, 
+                photo_key=new_key
+            )
+            file_path_photo = os.path.join(portfolio_dir, filename)
+            await bot.download(file=file_id, destination=file_path_photo)
+            text_photo = yandex_ocr.analyze_file(file_path_photo)
+
+            if text_photo:
+                if await checks.fool_check(text=text_photo):
+                    try:
+                        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+                    except TelegramBadRequest:
+                        pass
+                    await callback.message.answer(text='На фото содержится недопустимый текст!\nПопробуйте еще раз')
+                    await state.clear()
+                    await state.set_state(WorkStates.portfolio_upload_photo)
+                    return
+
+            print(file_path_photo)
+
+            photos[str(new_key)] = file_path_photo
+            logger.info(f"[PORTFOLIO_UPLOAD] Добавлено фото: ключ={new_key}, путь={file_path_photo}")
+
+        # Объединяем портфолио правильно
+        if worker.portfolio_photo:
+            worker.portfolio_photo.update(photos)
+            photo_len = len(worker.portfolio_photo)
+        else:
+            worker.portfolio_photo = photos
+            photo_len = len(worker.portfolio_photo)
+        
+        logger.info(f"[PORTFOLIO_UPLOAD] Итоговое портфолио: {worker.portfolio_photo}")
+        logger.info(f"[PORTFOLIO_UPLOAD] Количество фото: {photo_len}")
+
+        await worker.update_portfolio_photo(portfolio_photo=worker.portfolio_photo)
+
+        try:
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+        except TelegramBadRequest:
+            pass
+
+        # Очищаем состояние после успешной загрузки
+        await state.clear()
+
+        # Получаем первый доступный ключ из словаря портфолио
+        first_photo_key = min(worker.portfolio_photo.keys(), key=int)
+        
+        await callback.message.answer_photo(
+            photo=FSInputFile(worker.portfolio_photo[first_photo_key]),
+            reply_markup=kbc.my_portfolio(
+                photo_len=photo_len,
+                new_photo=True if photo_len < 10 else False
+            )
         )
-        file_path_photo = os.path.join(portfolio_dir, filename)
-        await bot.download(file=file_id, destination=file_path_photo)
-        text_photo = yandex_ocr.analyze_file(file_path_photo)
-
-        if text_photo:
-            if await checks.fool_check(text=text_photo):
-                await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
-                await callback.message.answer(text='На фото содержится недопустимый текст!\nПопробуйте еще раз')
-                await state.clear()
-                await state.set_state(WorkStates.portfolio_upload_photo)
-                return
-
-        print(file_path_photo)
-
-        photos[str(new_key)] = file_path_photo
-        logger.info(f"[PORTFOLIO_UPLOAD] Добавлено фото: ключ={new_key}, путь={file_path_photo}")
-
-    # Объединяем портфолио правильно
-    if worker.portfolio_photo:
-        worker.portfolio_photo.update(photos)
-        photo_len = len(worker.portfolio_photo)
-    else:
-        worker.portfolio_photo = photos
-        photo_len = len(worker.portfolio_photo)
-    
-    logger.info(f"[PORTFOLIO_UPLOAD] Итоговое портфолио: {worker.portfolio_photo}")
-    logger.info(f"[PORTFOLIO_UPLOAD] Количество фото: {photo_len}")
-
-    await worker.update_portfolio_photo(portfolio_photo=worker.portfolio_photo)
-
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
-
-    # Очищаем состояние после успешной загрузки
-    await state.clear()
-
-    # Получаем первый доступный ключ из словаря портфолио
-    first_photo_key = min(worker.portfolio_photo.keys(), key=int)
-    
-    await callback.message.answer_photo(
-        photo=FSInputFile(worker.portfolio_photo[first_photo_key]),
-        reply_markup=kbc.my_portfolio(
-            photo_len=photo_len,
-            new_photo=True if photo_len < 10 else False
-        )
-    )
-    await state.set_state(WorkStates.create_portfolio)
+        await state.set_state(WorkStates.create_portfolio)
+        
+    except Exception as e:
+        logger.error(f"[PORTFOLIO_UPLOAD] Ошибка при загрузке фото: {e}")
+        try:
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+        except TelegramBadRequest:
+            pass
+        await callback.message.answer(text=f'❌ Произошла ошибка при загрузке фото. Попробуйте еще раз.\nОшибка: {str(e)}')
+        await state.clear()
+        await state.set_state(WorkStates.create_portfolio)
 
 
 @router.callback_query(F.data == "create_photo_profile", WorkStates.worker_menu)
@@ -1433,7 +1504,7 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
     advertisements_final = []
 
     if not advertisements:
-        await callback.message.edit_text(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
+        await callback.message.answer(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -1458,7 +1529,7 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
                 advertisements_final.append(advertisement)
 
     if not advertisements_final or abs_list_id >= len(advertisements_final):
-        await callback.message.edit_text(text='Объявление не найдено', reply_markup=kbc.menu())
+        await callback.message.answer(text='Объявление не найдено', reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -1537,7 +1608,7 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
             )
     else:
         # Текст к тексту
-        await callback.message.edit_text(
+        await callback.message.answer(
             text=text,
             reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_now.id, btn_next=btn_next, btn_back=btn_back, abs_list_id=abs_list_id, count_photo=count_photo, photo_num=0)
         )
@@ -1576,7 +1647,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements_final = []
 
     if not advertisements:
-        await callback.message.edit_text(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
+        await callback.message.answer(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -1599,7 +1670,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
             advertisements_final.append(advertisement)
 
     if not advertisements_final:
-        await callback.message.edit_text(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
+        await callback.message.answer(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -1709,7 +1780,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements_final = []
 
     if not advertisements:
-        await callback.message.edit_text(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
+        await callback.message.answer(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -1734,7 +1805,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                 advertisements_final.append(advertisement)
 
     if not advertisements_final:
-        await callback.message.edit_text(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
+        await callback.message.answer(text='У вас в городе пока нет объявлений', reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -1927,7 +1998,7 @@ async def check_subscription(callback: CallbackQuery) -> None:
             f'Доступно количество городов: {subscription.count_cites}\n'
             f'Цена: {subscription.price} ₽\n')
 
-    await callback.message.edit_text(text=text,
+    await callback.message.answer(text=text,
                                      reply_markup=kbc.choose_worker_subscription_and_buy(
                                          cur_sub_id=subscription.id,
                                          cur_sub_name=subscription.subscription_type,
@@ -2022,7 +2093,7 @@ async def success_payment_handler(callback: CallbackQuery, state: FSMContext):
 
     btn_back = True
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f"Бонус успешно использован!\n\nВыберите направления!\nВыбрано 0 из {subscription.count_work_types}",
         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=btn_back, name_btn_back='Назад')
     )
@@ -2384,7 +2455,7 @@ async def show_selected_work_types(callback: CallbackQuery, state: FSMContext) -
     for i, wt in enumerate(selected_work_types, 1):
             text += f"{i}. {wt.work_type}\n"
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=kbc.show_selected_work_types(selected_work_types, count_work_types)
     )
@@ -2483,7 +2554,7 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
     removal_blocked = False
 
     # Обновляем сообщение
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=kbc.choose_work_types_improved(
             all_work_types=work_types,
@@ -2519,7 +2590,7 @@ async def choose_work_types_old(callback: CallbackQuery, state: FSMContext) -> N
     await state.update_data(work_type_ids=str(work_type_id_str))
 
     if int(callback.data.split('_')[1]) == 20:
-        await callback.message.edit_text(
+        await callback.message.answer(
             text='*В этом направлении:* \n\n - Бармен\n - Официант\n - Повар\n - Хостес\n - Уборщица\n - Охрана\n - Курьер\n - Кальянщик',
             reply_markup=kbc.worker_apply_work_type()
         )
@@ -2535,7 +2606,7 @@ async def choose_work_types_old(callback: CallbackQuery, state: FSMContext) -> N
         else:
             text = 'Отлично, направления выбраны'
         await worker_sub.update(work_type_ids=work_type_id_list)
-        await callback.message.edit_text(text=text, reply_markup=kbc.menu())
+        await callback.message.answer(text=text, reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -2554,7 +2625,7 @@ async def choose_work_types_old(callback: CallbackQuery, state: FSMContext) -> N
 
     btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)} из {subscription.count_work_types}",
         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=btn_back, name_btn_back='Назад')
     )
@@ -2584,7 +2655,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
         else:
             text = 'Отлично, направления выбраны'
         await worker_sub.update(work_type_ids=work_type_id_list)
-        await callback.message.edit_text(text=text, reply_markup=kbc.menu())
+        await callback.message.answer(text=text, reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -2603,7 +2674,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
 
     btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)} из {subscription.count_work_types}",
         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=btn_back, name_btn_back='Назад')
     )
@@ -2637,7 +2708,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
         else:
             text = 'Отлично, направления выбраны'
         await worker_sub.update(work_type_ids=work_type_id_list)
-        await callback.message.edit_text(text=text, reply_markup=kbc.menu())
+        await callback.message.answer(text=text, reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -2656,7 +2727,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
 
     btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)} из {subscription.count_work_types}",
         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=btn_back, name_btn_back='Назад')
     )
@@ -2816,7 +2887,7 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
     # pending_selection сбрасывается только при достижении максимального лимита направлений по рангу
     # При ручном завершении (кнопка "Сохранить") флаг НЕ сбрасывается
 
-    await callback.message.edit_text(text, reply_markup=kbc.menu())
+    await callback.message.answer(text, reply_markup=kbc.menu())
     await state.set_state(WorkStates.worker_menu)
 
 
@@ -2939,7 +3010,7 @@ async def worker_activity(callback: CallbackQuery, state: FSMContext) -> None:
     
     # Безопасное редактирование
     try:
-        await callback.message.edit_text(
+        await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
             parse_mode='Markdown'
@@ -3004,7 +3075,7 @@ async def worker_status(callback: CallbackQuery, state: FSMContext) -> None:
     
     # Безопасное редактирование
     try:
-        await callback.message.edit_text(
+        await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
             parse_mode='Markdown'
@@ -3424,7 +3495,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #     if not can_change:
 #         # Показываем сообщение об ограничении
 #         try:
-#             await callback.message.edit_text(
+#             await callback.message.answer(
 #                 text=message + "\n\n💡 Вы сможете изменить направления после истечения периода ожидания.",
 #                 reply_markup=kbc.menu_btn(),
 #                 parse_mode='Markdown'
@@ -3494,7 +3565,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #     await state.update_data(page=0, original_work_types=list(original_work_types))
     
 #     try:
-#         await callback.message.edit_text(
+#         await callback.message.answer(
 #             text=text,
 #             reply_markup=kbc.choose_work_types_improved(
 #                 all_work_types=all_work_types,
@@ -3569,7 +3640,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #     text += "Нажмите на направление, чтобы удалить его из списка."
     
 #     try:
-#         await callback.message.edit_text(
+#         await callback.message.answer(
 #             text=text,
 #             reply_markup=kbc.choose_work_types_improved(
 #                 all_work_types=all_work_types,
@@ -3634,7 +3705,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #         text += "Выберите направления из списка ниже."
     
 #     try:
-#         await callback.message.edit_text(
+#         await callback.message.answer(
 #             text=text,
 #             reply_markup=kbc.choose_work_types_improved(
 #                 all_work_types=all_work_types,
@@ -3690,7 +3761,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #         text += "Выберите направления из списка ниже."
     
 #     try:
-#         await callback.message.edit_text(
+#         await callback.message.answer(
 #             text=text,
 #             reply_markup=kbc.choose_work_types_improved(
 #                 all_work_types=all_work_types,
@@ -3745,7 +3816,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #     text += "Нажмите на направление, чтобы удалить его:"
     
 #     try:
-#         await callback.message.edit_text(
+#         await callback.message.answer(
 #             text=text,
 #             reply_markup=kbc.show_selected_work_types(
 #                 selected_work_types=selected_work_types,
@@ -3848,7 +3919,7 @@ async def add_city(callback: CallbackQuery, state: FSMContext) -> None:
     
     # Безопасное редактирование
     try:
-        await callback.message.edit_text(
+        await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
             parse_mode='Markdown'
@@ -3908,7 +3979,7 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
     builder.add(kbc._inline("◀️ К выбору количества городов", "add_city"))
     builder.adjust(1)
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
         parse_mode='Markdown'
@@ -3942,7 +4013,7 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
     builder.add(kbc._inline("❌ Отмена", "add_city"))
     builder.adjust(1)
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
         parse_mode='Markdown'
@@ -4014,7 +4085,7 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
             text += f"Все города уже выбраны в других подписках или являются основными.\n"
             text += f"Подписка сохранена, вы сможете выбрать города позже."
             
-            await callback.message.edit_text(
+            await callback.message.answer(
                 text=text,
                 reply_markup=kbc.menu_btn(),
                 parse_mode='Markdown'
@@ -4116,7 +4187,7 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
     builder.add(kbc._inline("🏠 В меню", "worker_menu"))
     builder.adjust(1)
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
         parse_mode='Markdown'
@@ -4188,7 +4259,7 @@ async def subscription_cities_confirm(callback: CallbackQuery, state: FSMContext
     builder.add(kbc._inline("❌ Отмена", "subscription_cities_back"))
     builder.adjust(1)
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
         parse_mode='Markdown'
@@ -4257,7 +4328,7 @@ async def subscription_cities_final_confirm(callback: CallbackQuery, state: FSMC
             text += f"• {name}\n"
         text += f"\n💡 Теперь вы будете получать заказы из всех этих городов!"
         
-        await callback.message.edit_text(
+        await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
             parse_mode='Markdown'
@@ -4425,7 +4496,7 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
         builder.add(kbc._inline("◀️ Отмена", "add_city"))
         builder.adjust(1)
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
         parse_mode='Markdown'
@@ -4453,7 +4524,7 @@ async def confirm_cancel_subscription(callback: CallbackQuery, state: FSMContext
         text += f"Подписка на дополнительные города деактивирована.\n"
         text += f"Вы можете снова подключить её в любое время через меню."
         
-        await callback.message.edit_text(
+        await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
             parse_mode='Markdown'
@@ -4564,7 +4635,7 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
     
     # Безопасное редактирование
     try:
-        await callback.message.edit_text(
+        await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
             parse_mode='Markdown'
@@ -4628,7 +4699,7 @@ async def buy_contacts_handler(callback: CallbackQuery, state: FSMContext) -> No
     builder.add(kbc._inline("❌ Отмена", "worker_purchased_contacts"))
     builder.adjust(1)
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
         parse_mode='Markdown'
@@ -4681,7 +4752,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
 💡 Используйте их для получения телефонов заказчиков!
             """
         
-        await callback.message.edit_text(
+        await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
             parse_mode='Markdown'
@@ -4724,7 +4795,7 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
         
         # Безопасное редактирование
         try:
-            await callback.message.edit_text(
+            await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
                 parse_mode='Markdown'
@@ -4757,7 +4828,7 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
         
         # Безопасное редактирование
         try:
-            await callback.message.edit_text(
+            await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
                 parse_mode='Markdown'
@@ -4804,7 +4875,7 @@ async def worker_change_main_city(callback: CallbackQuery, state: FSMContext) ->
     text += f"Выберите город или напишите его текстом\n\n"
     text += f'Показано {id_now + len(city_names)} из {count_cities} городов'
 
-    msg = await callback.message.edit_text(
+    msg = await callback.message.answer(
         text=text,
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
                                     btn_next=btn_next, btn_back=True,),
@@ -4836,7 +4907,7 @@ async def worker_choose_city(callback: CallbackQuery, state: FSMContext) -> None
     text += f"Выберите город или напишите его текстом\n\n"
     text += f'Показано {id_now + len(city_names)} из {count_cities} городов'
 
-    msg = await callback.message.edit_text(
+    msg = await callback.message.answer(
         text=text,
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
                                     btn_next=btn_next, btn_back=True,),
@@ -4879,7 +4950,7 @@ async def change_main_city_next(callback: CallbackQuery, state: FSMContext) -> N
     current_main_city = cities_dict.get(worker.city_id[0], f"Город {worker.city_id[0]}")
 
     try:
-        msg = await callback.message.edit_text(
+        msg = await callback.message.answer(
             text=f"🔄 **Смена основного города**\n\n"
                  f"📍 **Текущий основной город:** {current_main_city}\n\n"
                  f"Выберите город или напишите его текстом\n\n"
@@ -4975,7 +5046,7 @@ async def change_main_city_end(callback: CallbackQuery, state: FSMContext) -> No
     text += f"📍 **Предыдущий город:** {old_city_name}\n\n"
     text += "Изменения вступят в силу немедленно."
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=kbc.menu_btn(),
         parse_mode='Markdown'
@@ -5010,7 +5081,7 @@ async def choose_city_next_worker(callback: CallbackQuery, state: FSMContext) ->
                                                                  id_now=id_now)
 
     try:
-        msg = await callback.message.edit_text(
+        msg = await callback.message.answer(
             text=f"📍 **Выберите город**\n\n"
                  f"Выберите город или напишите его текстом\n\n"
                  f'Показано {id_now + len(city_names)} из {count_cities} городов',
@@ -5094,7 +5165,7 @@ async def choose_city_end_worker(callback: CallbackQuery, state: FSMContext) -> 
     text += f"📍 **Предыдущий город:** {old_city_name}\n\n"
     text += "Изменения вступят в силу немедленно."
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=kbc.menu_btn(),
         parse_mode='Markdown'
@@ -5144,7 +5215,7 @@ async def set_main_city(callback: CallbackQuery, state: FSMContext) -> None:
     text += f"📍 **Предыдущий город:** {old_city_name}\n\n"
     text += "Изменения вступят в силу немедленно."
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=kbc.menu_btn(),
         parse_mode='Markdown'
@@ -5237,7 +5308,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
     builder.add(kbc._inline("◀️ Назад", "worker_change_city_menu"))
     builder.adjust(1)
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
         parse_mode='Markdown'
@@ -5381,7 +5452,7 @@ async def change_city_next(callback: CallbackQuery, state: FSMContext) -> None:
                                                                  id_now=id_now)
 
     try:
-        msg = await callback.message.edit_text(
+        msg = await callback.message.answer(
             text=f'Выберите город или напишите его текстом\n\n'
                  f' Показано {id_now + len(city_names)} из {count_cities}\n\n'
                  f'По вашей подписке доступно количество городов: {subscription.count_cites} городов, выбрано {len(cites)}\n',
@@ -5413,7 +5484,7 @@ async def change_city_end(callback: CallbackQuery, state: FSMContext) -> None:
 
     if len(cites_list) >= subscription.count_cites:
         await worker.update_city(city_id=cites_list)
-        await callback.message.edit_text('Вы успешно сменили город!', reply_markup=kbc.menu())
+        await callback.message.answer('Вы успешно сменили город!', reply_markup=kbc.menu())
         await state.set_state(WorkStates.worker_menu)
         return
 
@@ -5436,7 +5507,7 @@ async def change_city_end(callback: CallbackQuery, state: FSMContext) -> None:
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    msg = await callback.message.edit_text(
+    msg = await callback.message.answer(
         text=f'Выберите город или напишите его текстом\n\n'
              f'Показано {id_now + len(city_names)} из {count_cities}\n\n'
              f'По вашей подписке доступно количество городов: {subscription.count_cites} городов, выбрано {len(cites_list)}\n',
@@ -5498,7 +5569,7 @@ async def worker_rank(callback: CallbackQuery, state: FSMContext) -> None:
         
         # Пробуем отредактировать текст, если не получится - удаляем и отправляем новое
         try:
-            await callback.message.edit_text(
+            await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
                 parse_mode='Markdown'

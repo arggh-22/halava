@@ -36,7 +36,7 @@ async def menu_send_msg_admin_keyboard(callback: CallbackQuery, state: FSMContex
             f'Белый список')
 
     await state.set_state(AdminStates.edit_stop_words)
-    await callback.message.edit_text(text=text, reply_markup=kbc.menu_admin_keyboard_stop_words())
+    await callback.message.answer(text=text, reply_markup=kbc.menu_admin_keyboard_stop_words())
 
 
 @router.callback_query(F.data == 'stop_words_long',
@@ -49,7 +49,7 @@ async def stop_words_long(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_stop_words_long)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'stop_words_long_message',
@@ -63,7 +63,7 @@ async def stop_words_long_message(callback: CallbackQuery, state: FSMContext) ->
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_stop_words_long_message)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'stop_words_short',
@@ -76,7 +76,7 @@ async def stop_words_short(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_stop_words_short)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'stop_words_short_message',
@@ -90,7 +90,7 @@ async def stop_words_short_message(callback: CallbackQuery, state: FSMContext) -
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_stop_words_short_message)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'stop_words_profanity',
@@ -104,7 +104,7 @@ async def stop_words_profanity(callback: CallbackQuery, state: FSMContext) -> No
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_stop_words_profanity)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'white_words', StateFilter(AdminStates.edit_stop_words, AdminStates.edit_white_words,
@@ -117,7 +117,7 @@ async def white_words(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_white_words)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'stop_words_long_personal',
@@ -131,7 +131,7 @@ async def white_words(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_personal_stop_words)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'stop_words_short_personal',
@@ -145,7 +145,7 @@ async def stop_words_short_message(callback: CallbackQuery, state: FSMContext) -
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_stop_words_short_personal)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'stop_words_long_photo',
@@ -159,7 +159,7 @@ async def white_words(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_photo_stop_words)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'stop_words_short_photo',
@@ -173,7 +173,7 @@ async def stop_words_short_message(callback: CallbackQuery, state: FSMContext) -
     text = f'Что вы хотите сделать?'
 
     await state.set_state(AdminStates.edit_stop_words_short_photo)
-    await callback.message.edit_text(text=text, reply_markup=kbc.admin_edit_chose())
+    await callback.message.answer(text=text, reply_markup=kbc.admin_edit_chose())
 
 
 @router.callback_query(F.data == 'delite', StateFilter(AdminStates.edit_stop_words_profanity))
@@ -184,7 +184,7 @@ async def stop_words_profanity_delite(callback: CallbackQuery, state: FSMContext
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_stop_words_profanity_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_profanity'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_profanity'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -196,7 +196,7 @@ async def stop_words_long_message_delite(callback: CallbackQuery, state: FSMCont
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_stop_words_long_message_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_message'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_message'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -208,7 +208,7 @@ async def stop_words_long_message_delite(callback: CallbackQuery, state: FSMCont
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_personal_stop_words_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_personal'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_personal'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -220,7 +220,7 @@ async def stop_words_profanity_delite(callback: CallbackQuery, state: FSMContext
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_stop_words_short_message_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_message'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_message'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -232,7 +232,7 @@ async def stop_words_long_delite(callback: CallbackQuery, state: FSMContext) -> 
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_stop_words_long_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_long'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_long'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -244,7 +244,7 @@ async def stop_words_short_delite(callback: CallbackQuery, state: FSMContext) ->
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_stop_words_short_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_short'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_short'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -256,7 +256,7 @@ async def white_words_delite(callback: CallbackQuery, state: FSMContext) -> None
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_white_words_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('white_words'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('white_words'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -268,7 +268,7 @@ async def stop_words_profanity_delite(callback: CallbackQuery, state: FSMContext
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_stop_words_short_personal_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_personal'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_personal'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -280,7 +280,7 @@ async def stop_words_long_message_delite(callback: CallbackQuery, state: FSMCont
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_photo_stop_words_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_personal'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_personal'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -292,7 +292,7 @@ async def stop_words_profanity_delite(callback: CallbackQuery, state: FSMContext
     text = f'Напишите слово, которое хотите удалить'
 
     await state.set_state(AdminStates.edit_stop_words_short_photo_delite)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_personal'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_personal'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -574,7 +574,7 @@ async def stop_words_profanity_delite(callback: CallbackQuery, state: FSMContext
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_stop_words_profanity_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_profanity'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_profanity'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -586,7 +586,7 @@ async def stop_words_long_delite(callback: CallbackQuery, state: FSMContext) -> 
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_stop_words_long_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_long'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_long'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -598,7 +598,7 @@ async def stop_words_long_message_insert(callback: CallbackQuery, state: FSMCont
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_stop_words_long_message_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_message'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_message'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -610,7 +610,7 @@ async def stop_words_long_message_insert(callback: CallbackQuery, state: FSMCont
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_personal_stop_words_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_personal'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_personal'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -622,7 +622,7 @@ async def stop_words_short_message_insert(callback: CallbackQuery, state: FSMCon
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_stop_words_short_message_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_message'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_message'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -634,7 +634,7 @@ async def stop_words_short_message_insert(callback: CallbackQuery, state: FSMCon
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_stop_words_short_personal_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_personal'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_personal'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -646,7 +646,7 @@ async def stop_words_short_delite(callback: CallbackQuery, state: FSMContext) ->
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_stop_words_short_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_short'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_short'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -658,7 +658,7 @@ async def white_words_delite(callback: CallbackQuery, state: FSMContext) -> None
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_white_words_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('white_words'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('white_words'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -670,7 +670,7 @@ async def stop_words_long_message_insert(callback: CallbackQuery, state: FSMCont
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_photo_stop_words_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_personal'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_long_personal'))
     await state.update_data(msg_id=msg.message_id)
 
 
@@ -682,7 +682,7 @@ async def stop_words_short_message_insert(callback: CallbackQuery, state: FSMCon
     text = f'Напишите слово, которое хотите добавить'
 
     await state.set_state(AdminStates.edit_stop_words_short_photo_insert)
-    msg = await callback.message.edit_text(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_personal'))
+    msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('stop_words_short_personal'))
     await state.update_data(msg_id=msg.message_id)
 
 
