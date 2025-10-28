@@ -1181,18 +1181,39 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
         album = data.get('album', [])
 
         if len(album) == 10:
-            # msg = str(data.get('msg'))
-            # await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
             msg = await message.answer(text='Больше фото загрузить нельзя\nНажмите, чтобы закончить загрузку',
                                        reply_markup=kbc.done_btn())
             await state.update_data(msg=msg.message_id)
             return
 
+        # Проверяем фото на текст через Яндекс OCR
+        photo = message.photo[-1].file_id
+        file_path_photo = await help_defs.save_photo(id=message.from_user.id)
+        await bot.download(file=photo, destination=file_path_photo)
+        
+        text_photo = yandex_ocr.analyze_file(file_path_photo)
+        logger.info(f'Portfolio OCR result: {text_photo}')
+        
+        if text_photo:
+            # Если найден текст на фото - показываем всплывающее окно
+            await message.answer(
+                text="Фото нарушает правила платформы 🚫\n\nЗагрузите другое!",
+                reply_markup=kbc.done_btn()
+            )
+            
+            # Отправляем в лог админам
+            worker = await Worker.get_worker(tg_id=message.chat.id)
+            await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
+                                 caption=f'ID #{message.chat.id}\nЗагружено фото портфолио с текстом\nТекст: {text_photo}',
+                                 photo=FSInputFile(file_path_photo),
+                                 protect_content=False, 
+                                 reply_markup=kbc.delite_it_photo(worker_id=worker.id))
+            return
+
+        # Если текст не найден - добавляем фото в альбом
         album.append(message)
         await state.update_data(album=album)
-        # msg = str(data.get('msg'))
         
-        # await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
         msg = await message.answer(text='Нажмите, чтобы закончить загрузку', reply_markup=kbc.done_btn())
         await state.update_data(msg=msg.message_id)
 
@@ -1391,22 +1412,26 @@ async def process_photos(message: Message, state: FSMContext):
 
     worker = await Worker.get_worker(tg_id=message.chat.id)
 
+    # Проверяем фото на текст через Яндекс OCR
     text_photo = yandex_ocr.analyze_file(file_path_photo)
-    logger.info(f'{text_photo}')
+    logger.info(f'OCR result: {text_photo}')
+    
     if text_photo:
-        if await checks.fool_check(text=text_photo):
-            is_photo = True if worker.profile_photo else False
-            await message.answer(
-                text='Упс, похоже вы пытались прикрепить не соответствующее фото, повторите попытку снова 😌',
-                reply_markup=kbc.photo_work_keyboard(is_photo=is_photo))
-            return
-        if checks.contains_invalid_chars(text=text_photo):
-            is_photo = True if worker.profile_photo else False
-            await message.answer(
-                text='Упс, похоже вы пытались прикрепить не соответствующее фото, повторите попытку снова 😌',
-                reply_markup=kbc.photo_work_keyboard(is_photo=is_photo))
-            return
+        # Если найден текст на фото - удаляем фото и показываем всплывающее окно
+        await message.answer(
+            text="Фото нарушает правила платформы 🚫\n\nЗагрузите другое!",
+            reply_markup=kbc.photo_work_keyboard(is_photo=False)
+        )
+        
+        # Отправляем в лог админам с кнопками управления
+        await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
+                             caption=f'ID #{message.chat.id}\nЗагружено фото профиля с текстом\nТекст: {text_photo}',
+                             photo=FSInputFile(file_path_photo),
+                             protect_content=False, 
+                             reply_markup=kbc.delite_it_photo(worker_id=worker.id))
+        return
 
+    # Если текст не найден - сохраняем фото
     await worker.update_profile_photo(profile_photo=file_path_photo)
 
     await state.set_state(WorkStates.worker_menu)

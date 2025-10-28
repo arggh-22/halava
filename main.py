@@ -24,7 +24,7 @@ except Exception as e:
 
 import config
 from aiogram.types import BotCommand
-from app.handlers import start, worker, customer, admin, admin_send_msg, admin_edit_stop_words, admin_log_work, admin_support
+from app.handlers import start, worker, customer, admin, admin_send_msg, admin_edit_stop_words, admin_log_work, admin_support, admin_photo_moderation
 from app.untils import time_checker
 from app.untils.time_checker import restore_weekly_activity, check_worker_statuses, update_worker_ranks
 from app.handlers.worker import send_city_subscription_expiry_notifications
@@ -64,7 +64,7 @@ async def run():
     logging.info("[MAIN] Including routers...")
     logging.info(f"[MAIN] worker_responses.router: {worker_responses.router}")
     logging.info(f"[MAIN] Number of handlers in worker_responses: {len(worker_responses.router.observers)}")
-    dp.include_routers(start.router, worker_responses.router, anonymous_chat.router, worker.router, admin.router, customer.router, admin_send_msg.router, admin_edit_stop_words.router, admin_log_work.router, admin_support.router)
+    dp.include_routers(start.router, worker_responses.router, anonymous_chat.router, worker.router, admin.router, customer.router, admin_send_msg.router, admin_edit_stop_words.router, admin_log_work.router, admin_support.router, admin_photo_moderation.router)
     logging.info("[MAIN] Routers included!")
 
     scheduler.add_job(time_checker.check_time_alive, "interval", minutes=30)

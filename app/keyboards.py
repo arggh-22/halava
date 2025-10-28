@@ -671,8 +671,8 @@ class KeyboardCollection:
 
     def delite_it_photo(self, worker_id):
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text=f'Заблокировать',
-                                 callback_data=f'delite-it-photo_{worker_id}'))
+        builder.add(self._inline(button_text='Заблокировать и удалить', callback_data=f'admin_block_photo_{worker_id}'))
+        builder.add(self._inline(button_text='Удалить', callback_data=f'admin_delete_photo_{worker_id}'))
         builder.adjust(1)
         return builder.as_markup()
 

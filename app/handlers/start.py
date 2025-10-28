@@ -858,9 +858,6 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
                 f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
                 f'{cites + end if subscription.count_cites == 1 else ""}'
                 f'Выполненных заказов: {worker.order_count}\n'
-                f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                f'Тариф: {subscription.subscription_type}\n'
-                f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'
             )
         else:
             if customer := await Customer.get_customer(tg_id=message.chat.id):
