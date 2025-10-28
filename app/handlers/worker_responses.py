@@ -1050,12 +1050,16 @@ async def back_to_ads(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data.startswith('report_ad_'))
 async def report_ad(callback: CallbackQuery, state: FSMContext):
-    """Жалоба на объявление"""
+    """Жалоба на объявление - единая система"""
     try:
         abs_id = int(callback.data.split('_')[2])
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
         
-        from app.data.database.models import WorkerAndReport
+        from app.data.database.models import WorkerAndReport, Abs, Customer
+        from app.untils import help_defs
+        from app.keyboards import KeyboardCollection
+        from aiogram.types import FSInputFile
+        import config
         
         # Проверяем, не отправлял ли уже жалобу
         existing_report = await WorkerAndReport.get_by_worker(worker_id=worker.id)
@@ -1065,28 +1069,52 @@ async def report_ad(callback: CallbackQuery, state: FSMContext):
                     await callback.answer("❌ Вы уже отправили жалобу на это объявление", show_alert=True)
                     return
         
+        # Получаем объявление
+        advertisement = await Abs.get_one(id=abs_id)
+        if not advertisement:
+            await callback.answer("❌ Объявление больше не актуально", show_alert=True)
+            return
+        
         # Создаем жалобу
         report = WorkerAndReport(worker_id=worker.id, abs_id=abs_id)
         await report.save()
         
-        # Уведомляем админов
-        import config
-        await bot.send_message(
-            chat_id=config.REPORT_LOG,
-            text=f"⚠️ Получена жалоба на объявление #{abs_id}\n"
-                 f"От исполнителя: {worker.tg_id} ({worker.public_id})"
-        )
+        # Получаем информацию о заказчике
+        customer = await Customer.get_customer(id=advertisement.customer_id)
+        
+        # Формируем детальный текст жалобы
+        text = f'Заказчик ID {customer.tg_id}\nОбъявление {advertisement.id}\n\n' + help_defs.read_text_file(advertisement.text_path)
         
         kbc = KeyboardCollection()
-        await state.set_state(WorkStates.worker_menu)
         
-        # Используем безопасную функцию для редактирования сообщения
-        await safe_edit_message(
-            callback=callback,
-            text="✅ Жалоба отправлена администрации.\n"
-                 "Мы проверим объявление в ближайшее время.",
-            reply_markup=kbc.menu()
-        )
+        # Отправляем детальную информацию админам с кнопками управления
+        if advertisement.photo_path and isinstance(advertisement.photo_path, dict) and '0' in advertisement.photo_path:
+            # photo_path может быть словарем с несколькими фотографиями
+            first_photo = advertisement.photo_path['0']
+            if 'https' in first_photo:
+                await bot.send_photo(chat_id=config.REPORT_LOG,
+                                     photo=first_photo,
+                                     caption=text,
+                                     reply_markup=kbc.block_abs(abs_id), 
+                                     protect_content=False)
+            else:
+                await bot.send_photo(chat_id=config.REPORT_LOG,
+                                     photo=FSInputFile(first_photo),
+                                     caption=text,
+                                     reply_markup=kbc.block_abs(abs_id), 
+                                     protect_content=False)
+        else:
+            await bot.send_message(chat_id=config.REPORT_LOG,
+                                   text=text,
+                                   reply_markup=kbc.block_abs(abs_id), 
+                                   protect_content=False)
+        
+        # Показываем всплывающее окно с подтверждением
+        await callback.answer("✅ Ваша жалоба успешно отправлена!", show_alert=True)
+        
+        # Возвращаемся в раздел объявлений
+        from app.handlers.worker import menu_worker
+        await menu_worker(callback, state)
         
     except Exception as e:
         logger.error(f"Error in report_ad: {e}")

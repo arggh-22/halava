@@ -71,9 +71,9 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
         return
 
     # Удаляем клавиатуры
-    msg = await message.answer(f'Удаляю клавиатуры',
-                               reply_markup=ReplyKeyboardRemove())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    # msg = await message.answer(f'Удаляю клавиатуры',
+    #                            reply_markup=ReplyKeyboardRemove())
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
     await state.clear()
     kbc = KeyboardCollection()
@@ -238,9 +238,9 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
         await message.answer('Пользоваться ботом можно только из ЛС')
         return
 
-    msg = await message.answer(f'Удаляю клавиатуры',
-                               reply_markup=ReplyKeyboardRemove())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    # msg = await message.answer(f'Удаляю клавиатуры',
+    #                            reply_markup=ReplyKeyboardRemove())
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
     await state.clear()
     kbc = KeyboardCollection()
@@ -373,9 +373,9 @@ async def user_change_role(message: Message, state: FSMContext) -> None:
             return
     if await Worker.get_worker(tg_id=message.chat.id) or await Customer.get_customer(
             tg_id=message.chat.id) or await Admin.get_by_tg_id(tg_id=message.chat.id):
-        msg = await message.answer(f'Удаляю клавиатуры',
-                                   reply_markup=ReplyKeyboardRemove())
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+        # msg = await message.answer(f'Удаляю клавиатуры',
+        #                            reply_markup=ReplyKeyboardRemove())
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
         await state.set_state(UserStates.menu)
         if await Admin.get_by_tg_id(tg_id=message.chat.id):
@@ -447,9 +447,9 @@ async def user_look_info(message: Message, state: FSMContext) -> None:
         await message.answer('Пользоваться ботом можно только из ЛС')
         return
 
-    msg = await message.answer(f'Удаляю клавиатуры',
-                               reply_markup=ReplyKeyboardRemove())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    # msg = await message.answer(f'Удаляю клавиатуры',
+    #                            reply_markup=ReplyKeyboardRemove())
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
     kbc = KeyboardCollection()
     await state.set_state(UserStates.user_info)
@@ -589,9 +589,9 @@ async def user_ask_support(message: Message, state: FSMContext) -> None:
         await message.answer('Пользоваться ботом можно только из ЛС')
         return
 
-    msg = await message.answer(f'Удаляю клавиатуры',
-                               reply_markup=ReplyKeyboardRemove())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    # msg = await message.answer(f'Удаляю клавиатуры',
+    #                            reply_markup=ReplyKeyboardRemove())
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
     kbc = KeyboardCollection()
 
@@ -671,7 +671,7 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
 
     msg = await message.answer('Прикрепите фото или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
     await state.update_data(msg_id=msg.message_id)
-    await bot.delete_message(chat_id=message.from_user.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.from_user.id, message_id=msg_id)
 
 
 @router.callback_query(F.data == 'skip_it', UserStates.ask_support_photo)
@@ -750,7 +750,7 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
     for ask_answer in ask_answers:
         if await checks.levenshtein_distance_check_faq(phrase=ask, words=ask_answer.questions):
             answer = f'Ответ от поддержки: "{ask_answer.answer}"'
-            await bot.delete_message(chat_id=message.from_user.id, message_id=msg, )
+            # await bot.delete_message(chat_id=message.from_user.id, message_id=msg, )
             await message.answer('Ваш вопрос отправлен', reply_markup=kbc.menu_btn())
             await message.answer(text=answer, reply_markup=kbc.support_btn())
             await state.set_state(UserStates.menu)
@@ -768,7 +768,7 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
                                                     admin_messages=user_and_support_queue.admin_messages, turn=False)
             return
 
-    await bot.delete_message(chat_id=message.from_user.id, message_id=msg, )
+    # await bot.delete_message(chat_id=message.from_user.id, message_id=msg, )
 
     await state.set_state(UserStates.menu)
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=message.chat.id):

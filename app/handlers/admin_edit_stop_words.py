@@ -302,7 +302,7 @@ async def stop_words_profanity_delite_text(message: Message, state: FSMContext) 
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     profanity_words = await ProfanityWord.get_all()
 
@@ -320,7 +320,7 @@ async def stop_words_profanity_delite_text(message: Message, state: FSMContext) 
 
     await state.set_state(AdminStates.edit_stop_words_profanity)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_long_message_delite))
@@ -329,7 +329,7 @@ async def stop_words_long_message_delite_text(message: Message, state: FSMContex
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     profanity_words = await BlockWordMessage.get_all()
 
@@ -347,7 +347,7 @@ async def stop_words_long_message_delite_text(message: Message, state: FSMContex
 
     await state.set_state(AdminStates.edit_stop_words_long_message)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_personal_stop_words_delite))
@@ -356,7 +356,7 @@ async def stop_words_long_message_delite_text(message: Message, state: FSMContex
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     profanity_words = await BlockWordPersonal.get_all()
 
@@ -374,7 +374,7 @@ async def stop_words_long_message_delite_text(message: Message, state: FSMContex
 
     await state.set_state(AdminStates.edit_personal_stop_words)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_short_message_delite))
@@ -383,7 +383,7 @@ async def stop_words_short_message_delite_text(message: Message, state: FSMConte
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     profanity_words = await BlockWordShortMessage.get_all()
 
@@ -401,7 +401,7 @@ async def stop_words_short_message_delite_text(message: Message, state: FSMConte
 
     await state.set_state(AdminStates.edit_stop_words_short_message)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_short_delite))
@@ -410,7 +410,7 @@ async def stop_words_short_delite_text(message: Message, state: FSMContext) -> N
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     short_words = await BlockWordShort.get_all()
 
@@ -428,7 +428,7 @@ async def stop_words_short_delite_text(message: Message, state: FSMContext) -> N
 
     await state.set_state(AdminStates.edit_stop_words_short)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_long_delite))
@@ -437,7 +437,7 @@ async def stop_words_long_delite_text(message: Message, state: FSMContext) -> No
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     long_words = await BlockWord.get_all()
 
@@ -455,7 +455,7 @@ async def stop_words_long_delite_text(message: Message, state: FSMContext) -> No
 
     await state.set_state(AdminStates.edit_stop_words_long)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_white_words_delite))
@@ -464,7 +464,7 @@ async def stop_white_words_delite_text(message: Message, state: FSMContext) -> N
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     white_words_list = await WhiteWord.get_all()
 
@@ -482,7 +482,7 @@ async def stop_white_words_delite_text(message: Message, state: FSMContext) -> N
 
     await state.set_state(AdminStates.edit_white_words)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_short_personal_delite))
@@ -491,7 +491,7 @@ async def stop_words_short_message_delite_text(message: Message, state: FSMConte
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     profanity_words = await BlockWordShortPersonal.get_all()
 
@@ -509,7 +509,7 @@ async def stop_words_short_message_delite_text(message: Message, state: FSMConte
 
     await state.set_state(AdminStates.edit_stop_words_short_personal)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_photo_stop_words_delite))
@@ -518,7 +518,7 @@ async def stop_words_long_message_delite_text(message: Message, state: FSMContex
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     profanity_words = await BlockWordPhoto.get_all()
 
@@ -536,7 +536,7 @@ async def stop_words_long_message_delite_text(message: Message, state: FSMContex
 
     await state.set_state(AdminStates.edit_photo_stop_words)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_short_photo_delite))
@@ -545,7 +545,7 @@ async def stop_words_short_message_delite_text(message: Message, state: FSMConte
     kbc = KeyboardCollection()
     word_to_delite = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     profanity_words = await BlockWordShortPhoto.get_all()
 
@@ -563,7 +563,7 @@ async def stop_words_short_message_delite_text(message: Message, state: FSMConte
 
     await state.set_state(AdminStates.edit_stop_words_short_photo)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.callback_query(F.data == 'insert', StateFilter(AdminStates.edit_stop_words_profanity))
@@ -692,7 +692,7 @@ async def stop_words_profanity_insert_text(message: Message, state: FSMContext) 
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     profanity_words = await ProfanityWord.get_all()
 
@@ -711,7 +711,7 @@ async def stop_words_profanity_insert_text(message: Message, state: FSMContext) 
 
     await state.set_state(AdminStates.edit_stop_words_profanity)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_short_insert))
@@ -720,7 +720,7 @@ async def stop_words_short_insert_text(message: Message, state: FSMContext) -> N
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     short_words = await BlockWordShort.get_all()
 
@@ -739,7 +739,7 @@ async def stop_words_short_insert_text(message: Message, state: FSMContext) -> N
 
     await state.set_state(AdminStates.edit_stop_words_short)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_long_message_insert))
@@ -748,7 +748,7 @@ async def stop_words_long_message_insert_text(message: Message, state: FSMContex
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     short_words = await BlockWordMessage.get_all()
 
@@ -767,7 +767,7 @@ async def stop_words_long_message_insert_text(message: Message, state: FSMContex
 
     await state.set_state(AdminStates.edit_stop_words_long_message)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_personal_stop_words_insert))
@@ -776,7 +776,7 @@ async def stop_words_long_message_insert_text(message: Message, state: FSMContex
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     short_words = await BlockWordPersonal.get_all()
 
@@ -795,7 +795,7 @@ async def stop_words_long_message_insert_text(message: Message, state: FSMContex
 
     await state.set_state(AdminStates.edit_personal_stop_words)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_short_message_insert))
@@ -804,7 +804,7 @@ async def stop_stop_words_short_message_insert_text(message: Message, state: FSM
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     short_words = await BlockWordShortMessage.get_all()
 
@@ -823,7 +823,7 @@ async def stop_stop_words_short_message_insert_text(message: Message, state: FSM
 
     await state.set_state(AdminStates.edit_stop_words_short_message)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_short_personal_insert))
@@ -832,7 +832,7 @@ async def stop_stop_words_short_personal_insert_text(message: Message, state: FS
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     short_words = await BlockWordShortPersonal.get_all()
 
@@ -851,7 +851,7 @@ async def stop_stop_words_short_personal_insert_text(message: Message, state: FS
 
     await state.set_state(AdminStates.edit_stop_words_short_personal)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_long_insert))
@@ -860,7 +860,7 @@ async def stop_words_long_look_text(message: Message, state: FSMContext) -> None
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     long_words = await BlockWord.get_all()
 
@@ -879,7 +879,7 @@ async def stop_words_long_look_text(message: Message, state: FSMContext) -> None
 
     await state.set_state(AdminStates.edit_stop_words_long)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_white_words_insert))
@@ -888,7 +888,7 @@ async def stop_words_long_look_text(message: Message, state: FSMContext) -> None
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     white_words_list = await WhiteWord.get_all()
 
@@ -907,7 +907,7 @@ async def stop_words_long_look_text(message: Message, state: FSMContext) -> None
 
     await state.set_state(AdminStates.edit_white_words)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_photo_stop_words_insert))
@@ -916,7 +916,7 @@ async def stop_words_long_message_insert_text(message: Message, state: FSMContex
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     short_words = await BlockWordPhoto.get_all()
 
@@ -935,7 +935,7 @@ async def stop_words_long_message_insert_text(message: Message, state: FSMContex
 
     await state.set_state(AdminStates.edit_photo_stop_words)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.message(F.text, StateFilter(AdminStates.edit_stop_words_short_photo_insert))
@@ -944,7 +944,7 @@ async def stop_stop_words_short_photo_insert_text(message: Message, state: FSMCo
     kbc = KeyboardCollection()
     word_to_insert = message.text
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
 
     short_words = await BlockWordShortPhoto.get_all()
 
@@ -963,4 +963,4 @@ async def stop_stop_words_short_photo_insert_text(message: Message, state: FSMCo
 
     await state.set_state(AdminStates.edit_stop_words_short_photo)
     await message.answer(text=text, reply_markup=kbc.admin_edit_chose())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)

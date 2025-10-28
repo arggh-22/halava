@@ -31,17 +31,17 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
     message_to_worker = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
     await state.set_state(AdminStates.msg_to_worker_photo)
     await state.update_data(msg=msg.message_id)
     await state.update_data(message_to_worker=message_to_worker)
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.callback_query(F.data == 'skip_it', AdminStates.msg_to_worker_photo)
@@ -52,7 +52,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
     state_data = await state.get_data()
     message_to_worker = str(state_data.get('message_to_worker'))
 
-    msg = await callback.message.answer('Подождите, идет отправка')
+    msg = await call/back.message.answer('Подождите, идет отправка')
 
     workers = await Worker.get_all()
     if workers:
@@ -62,7 +62,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
             except Exception:
                 pass
 
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text='Сообщение отправлено всем исполнителям!', reply_markup=kbc.menu_btn())
 
@@ -75,10 +75,10 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1].file_id
 
     state_data = await state.get_data()
-    msg = int(state_data.get('msg'))
+    # msg = int(state_data.get('msg'))
     message_to_worker = str(state_data.get('message_to_worker'))
 
-    await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+    # await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
     msg = await message.answer('Подождите, идет отправка')
 
     file_path_photo = await help_defs.save_photo(id=message.from_user.id,
@@ -96,7 +96,10 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
 
     help_defs.delete_file(file_path_photo)
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await message.answer(text='Сообщение отправлено всем исполнителям!', reply_markup=kbc.menu_btn())
 
@@ -116,10 +119,10 @@ async def msg_to_customer_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
     message_to_customer = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
@@ -145,8 +148,10 @@ async def msg_to_customer_skip(callback: CallbackQuery, state: FSMContext) -> No
                 await bot.send_message(chat_id=customer.tg_id, text=message_to_customer)
             except Exception:
                 pass
-
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text='Сообщение отправлено всем заказчикам!', reply_markup=kbc.menu_btn())
 
@@ -159,10 +164,10 @@ async def msg_to_customer_photo(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1].file_id
 
     state_data = await state.get_data()
-    msg = int(state_data.get('msg'))
+    # msg = int(state_data.get('msg'))
     message_to_customer = str(state_data.get('message_to_customer'))
 
-    await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+    # await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
     msg = await message.answer('Подождите, идет отправка')
 
     file_path_photo = await help_defs.save_photo(id=message.from_user.id,
@@ -180,7 +185,10 @@ async def msg_to_customer_photo(message: Message, state: FSMContext) -> None:
 
     help_defs.delete_file(file_path_photo)
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await message.answer(text='Сообщение отправлено всем заказчикам!', reply_markup=kbc.menu_btn())
 
@@ -200,10 +208,10 @@ async def msg_to_all_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
     message_to_all = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
@@ -241,8 +249,10 @@ async def msg_to_all_skip(callback: CallbackQuery, state: FSMContext) -> None:
                     await bot.send_message(chat_id=worker.tg_id, text=message_to_all)
                 except Exception:
                     pass
-
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text='Сообщение отправлено всем пользователям!', reply_markup=kbc.menu_btn())
 
@@ -291,7 +301,10 @@ async def msg_to_all_photo(message: Message, state: FSMContext) -> None:
 
     help_defs.delete_file(file_path_photo)
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await message.answer(text='Сообщение отправлено всем пользователям!', reply_markup=kbc.menu_btn())
 
@@ -365,11 +378,11 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
     city_id = str(state_data.get('city_id'))
     message_to_worker = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
@@ -400,7 +413,10 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
 
     city = await City.get_city(id=city_id)
 
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=f'Сообщение отправлено всем исполнителям из {city.city}!',
                                   reply_markup=kbc.menu_btn())
@@ -414,11 +430,11 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1].file_id
 
     state_data = await state.get_data()
-    msg = int(state_data.get('msg'))
+    # msg = int(state_data.get('msg'))
     message_to_worker = str(state_data.get('message_to_worker'))
     city_id = int(state_data.get('city_id'))
 
-    await bot.delete_message(chat_id=message.сhat.id, message_id=msg)
+    # await bot.delete_message(chat_id=message.сhat.id, message_id=msg)
     msg = await message.answer('Подождите, идет отправка')
 
     file_path_photo = await help_defs.save_photo(id=message.from_user.id,
@@ -438,7 +454,10 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
 
     city = await City.get_city(id=city_id)
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await message.answer(text=f'Сообщение отправлено всем исполнителям из {city.city}!', reply_markup=kbc.menu_btn())
 
@@ -512,11 +531,11 @@ async def msg_to_customer_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
     city_id = int(state_data.get('city_id'))
     message_to_customer = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
@@ -547,7 +566,10 @@ async def msg_to_customer_skip(callback: CallbackQuery, state: FSMContext) -> No
 
     city = await City.get_city(id=city_id)
 
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=f'Сообщение отправлено всем заказчикам! из {city.city}',
                                   reply_markup=kbc.menu_btn())
@@ -561,11 +583,11 @@ async def msg_to_customer_photo(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1].file_id
 
     state_data = await state.get_data()
-    msg = int(state_data.get('msg'))
+    # msg = int(state_data.get('msg'))
     message_to_customer = str(state_data.get('message_to_customer'))
     city_id = int(state_data.get('city_id'))
 
-    await bot.delete_message(chat_id=message.сhat.id, message_id=msg)
+    # await bot.delete_message(chat_id=message.сhat.id, message_id=msg)
     msg = await message.answer('Подождите, идет отправка')
 
     file_path_photo = await help_defs.save_photo(id=message.from_user.id,
@@ -584,7 +606,10 @@ async def msg_to_customer_photo(message: Message, state: FSMContext) -> None:
     help_defs.delete_file(file_path_photo)
     city = await City.get_city(id=city_id)
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await message.answer(text=f'Сообщение отправлено всем заказчикам из {city.city}!', reply_markup=kbc.menu_btn())
 
@@ -658,11 +683,11 @@ async def msg_to_all_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
     city_id = int(state_data.get('city_id'))
     message_to_all = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
@@ -705,7 +730,10 @@ async def msg_to_all_skip(callback: CallbackQuery, state: FSMContext) -> None:
 
     city = await City.get_city(id=city_id)
 
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=f'Сообщение отправлено всем пользователям из {city.city}!',
                                   reply_markup=kbc.menu_btn())
@@ -719,11 +747,11 @@ async def msg_to_all_photo(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1].file_id
 
     state_data = await state.get_data()
-    msg = int(state_data.get('msg'))
+    # msg = int(state_data.get('msg'))
     message_to_all = str(state_data.get('message_to_all'))
     city_id = int(state_data.get('city_id'))
 
-    await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+    # await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
     msg = await message.answer('Подождите, идет отправка')
 
     file_path_photo = await help_defs.save_photo(id=message.from_user.id,
@@ -756,6 +784,9 @@ async def msg_to_all_photo(message: Message, state: FSMContext) -> None:
 
     city = await City.get_city(id=city_id)
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await message.answer(text=f'Сообщение отправлено всем пользователям! из {city.city}', reply_markup=kbc.menu_btn())

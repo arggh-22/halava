@@ -313,7 +313,7 @@ class KeyboardCollection:
         return builder.as_markup()
 
     def choose_obj_with_out_list(self, id_now: int, btn_next: bool, btn_back: bool, btn_close: bool = False,
-                                 btn_apply: bool = False, step: int = 1, abs_id: int = None, report_btn: bool = False,
+                                 btn_apply: bool = False, step: int = 1, abs_id: int = None,
                                  btn_close_name: 'str' = 'Закрыть', btn_responses: bool = False, count_photo: int = 0, idk_photo: int = None) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         if count_photo > 1:
@@ -329,10 +329,7 @@ class KeyboardCollection:
         if btn_apply:
             builder.add(self._inline(button_text=f'Откликнуться',
                                      callback_data=f'apply-it-first_{abs_id}'))
-        if report_btn:
-            if btn_apply:
-                builder.add(self._inline(button_text=f'Пожаловаться',
-                                         callback_data=f'report-it_{abs_id}'))
+        # Старые кнопки report-it_ удалены - теперь используется единая система report_ad
         if btn_responses:
             builder.add(self._inline(button_text=f'Просмотреть отклики',
                                      callback_data=f'customer-responses_{abs_id}_{id_now}'))
@@ -565,7 +562,7 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def apply_btn(self, abs_id, report_btn: bool = True, send_btn: bool = False, photo_num=None, photo_len=0):
+    def apply_btn(self, abs_id, send_btn: bool = False, photo_num=None, photo_len=0):
         builder = InlineKeyboardBuilder()
         if photo_len > 1:
             builder.add(self._inline(button_text=f'<',
@@ -579,9 +576,7 @@ class KeyboardCollection:
         if send_btn:
             builder.add(self._inline(button_text=f'Ответить заказчику',
                                      callback_data=f'answer-obj_{abs_id}'))
-        if report_btn:
-            builder.add(self._inline(button_text=f'Пожаловаться',
-                                     callback_data=f'report-it_{abs_id}'))
+        # Старые кнопки report-it_ удалены - теперь используется единая система report_ad
 
         if photo_len > 1:
 
@@ -695,49 +690,49 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def apply_final_btn(self, idk, role: str, name: str = None, id_now: int = None, skip_btn: bool = True, send_btn: bool = False, send_btn_name: str = f'Написать исполнителю', skip_btn_name: str = 'Отклонить отклик', btn_back: bool = False, abs_id: int = None, buy_btn: bool = False, portfolio: bool = False, send_contacts_btn: bool = False, request_contacts_btn: bool = False, chat_closed: bool = False):
-        builder = InlineKeyboardBuilder()
-        if name:
-            builder.add(self._inline(button_text=f'{name}',
-                                     callback_data=f'apply-final-it_{idk}'))
-        # Если чат закрыт для заказчика, скрываем кнопки отправки сообщений и отклонения
-        if not chat_closed:
-            if send_btn:
-                builder.add(self._inline(button_text=send_btn_name,
-                                         callback_data=f'answer-obj-{role}_{idk}'))
-            if buy_btn:
-                # Показываем кнопки для покупки контакта после обмена контактами
-                builder.add(self._inline(button_text='💰 Купить контакт',
-                                         callback_data=f'buy-contact_{idk}_{abs_id}'))
-            if skip_btn:
-                # Для работников после обмена контактами показываем "Отклонить отклик"
-                if role == 'worker' and buy_btn:
-                    builder.add(self._inline(button_text='❌ Отклонить отклик',
-                                             callback_data=f'hide-obj-{role}_{idk}'))
-                else:
-                    builder.add(self._inline(button_text=skip_btn_name,
-                                             callback_data=f'hide-obj-{role}_{idk}'))
-
-        if portfolio:
-            builder.add(self._inline(button_text='Портфолио исполнителя',
-                                     callback_data=f'worker-portfolio_{idk}_{abs_id}'))
-        if send_contacts_btn:
-            builder.add(self._inline(button_text='📞 Отправить контакты',
-                                     callback_data=f'send-contacts_{idk}_{abs_id}'))
-        
-        if request_contacts_btn:
-            builder.add(self._inline(button_text='📞 Запросить контакты',
-                                     callback_data=f'request-contacts_{idk}_{abs_id}'))
-
-        if btn_back:
-            if role == 'worker':
-                builder.add(self._inline(button_text='Назад',
-                                         callback_data=f'my_responses'))
-            else:
-                builder.add(self._inline(button_text='Назад',
-                                         callback_data=f'customer-responses_{abs_id}_{id_now}'))
-        builder.adjust(1)
-        return builder.as_markup()
+    # def apply_final_btn(self, idk, role: str, name: str = None, id_now: int = None, skip_btn: bool = True, send_btn: bool = False, send_btn_name: str = f'Написать исполнителю', skip_btn_name: str = 'Отклонить отклик', btn_back: bool = False, abs_id: int = None, buy_btn: bool = False, portfolio: bool = False, send_contacts_btn: bool = False, request_contacts_btn: bool = False, chat_closed: bool = False):
+    #     builder = InlineKeyboardBuilder()
+    #     if name:
+    #         builder.add(self._inline(button_text=f'{name}',
+    #                                  callback_data=f'apply-final-it_{idk}'))
+    #     # Если чат закрыт для заказчика, скрываем кнопки отправки сообщений и отклонения
+    #     if not chat_closed:
+    #         if send_btn:
+    #             builder.add(self._inline(button_text=send_btn_name,
+    #                                      callback_data=f'answer-obj-{role}_{idk}'))
+    #         if buy_btn:
+    #             # Показываем кнопки для покупки контакта после обмена контактами
+    #             builder.add(self._inline(button_text='💰 Купить контакт',
+    #                                      callback_data=f'buy-contact_{idk}_{abs_id}'))
+    #         if skip_btn:
+    #             # Для работников после обмена контактами показываем "Отклонить отклик"
+    #             if role == 'worker' and buy_btn:
+    #                 builder.add(self._inline(button_text='❌ Отклонить отклик',
+    #                                          callback_data=f'hide-obj-{role}_{idk}'))
+    #             else:
+    #                 builder.add(self._inline(button_text=skip_btn_name,
+    #                                          callback_data=f'hide-obj-{role}_{idk}'))
+    #
+    #     if portfolio:
+    #         builder.add(self._inline(button_text='Портфолио исполнителя',
+    #                                  callback_data=f'worker-portfolio_{idk}_{abs_id}'))
+    #     if send_contacts_btn:
+    #         builder.add(self._inline(button_text='📞 Отправить контакты',
+    #                                  callback_data=f'send-contacts_{idk}_{abs_id}'))
+    #
+    #     if request_contacts_btn:
+    #         builder.add(self._inline(button_text='📞 Запросить контакты',
+    #                                  callback_data=f'request-contacts_{idk}_{abs_id}'))
+    #
+    #     if btn_back:
+    #         if role == 'worker':
+    #             builder.add(self._inline(button_text='Назад',
+    #                                      callback_data=f'my_responses'))
+    #         else:
+    #             builder.add(self._inline(button_text='Назад',
+    #                                      callback_data=f'customer-responses_{abs_id}_{id_now}'))
+    #     builder.adjust(1)
+    #     return builder.as_markup()
 
     def back_to_responses(self, abs_id, id_now):
         builder = InlineKeyboardBuilder()
@@ -797,6 +792,14 @@ class KeyboardCollection:
         else:
             builder.add(self._inline(button_text="✅ Закрыть", callback_data=f"close_advertisement_{abs_id}"))
         
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def confirm_close_advertisement(self, abs_id):
+        """Клавиатура подтверждения закрытия объявления вручную"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Подтвердить закрытие", callback_data=f"confirm-close_{abs_id}"))
+        builder.add(self._inline(button_text="❌ Отменить", callback_data=f"cancel-close_{abs_id}"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -969,15 +972,15 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def customer_response_to_contact_request(self, worker_id: int, abs_id: int):
-        """Кнопки для ответа заказчика на запрос контактов от исполнителя"""
-        builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="✅ Отправить контакты", 
-                                 callback_data=f"send-contacts-to-worker_{worker_id}_{abs_id}"))
-        builder.add(self._inline(button_text="❌ Отклонить запрос", 
-                                 callback_data=f"reject-contact-request_{worker_id}_{abs_id}"))
-        builder.adjust(1)
-        return builder.as_markup()
+    # def customer_response_to_contact_request(self, worker_id: int, abs_id: int):
+    #     """Кнопки для ответа заказчика на запрос контактов от исполнителя"""
+    #     builder = InlineKeyboardBuilder()
+    #     builder.add(self._inline(button_text="✅ Отправить контакты",
+    #                              callback_data=f"send-contacts-to-worker_{worker_id}_{abs_id}"))
+    #     builder.add(self._inline(button_text="❌ Отклонить запрос",
+    #                              callback_data=f"reject-contact-request_{worker_id}_{abs_id}"))
+    #     builder.adjust(1)
+    #     return builder.as_markup()
 
     def contact_purchase_tariffs(self):
         """Тарифы на покупку контактов"""
@@ -994,15 +997,15 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def send_contacts_request(self, worker_id: int, abs_id: int):
-        """Кнопки для запроса контактов от заказчика"""
-        builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="📞 Отправить контакты", 
-                                 callback_data=f"send-contacts_{worker_id}_{abs_id}"))
-        builder.add(self._inline(button_text="⬅️ Назад к откликам", 
-                                 callback_data=f"back-to-responses_{abs_id}"))
-        builder.adjust(1)
-        return builder.as_markup()
+    # def send_contacts_request(self, worker_id: int, abs_id: int):
+    #     """Кнопки для запроса контактов от заказчика"""
+    #     builder = InlineKeyboardBuilder()
+    #     builder.add(self._inline(button_text="📞 Отправить контакты",
+    #                              callback_data=f"send-contacts_{worker_id}_{abs_id}"))
+    #     builder.add(self._inline(button_text="⬅️ Назад к откликам",
+    #                              callback_data=f"back-to-responses_{abs_id}"))
+    #     builder.adjust(1)
+    #     return builder.as_markup()
 
     def contact_request_response(self, worker_id: int, abs_id: int):
         """Кнопки ответа на запрос контактов для исполнителя"""

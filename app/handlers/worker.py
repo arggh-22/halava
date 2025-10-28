@@ -243,7 +243,7 @@ async def choose_city_main(message: Message, state: FSMContext) -> None:
 
     state_data = await state.get_data()
 
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     cities = await City.get_all(sort=False)
     city_names = [city.city for city in cities]
@@ -268,7 +268,7 @@ async def choose_city_main(message: Message, state: FSMContext) -> None:
         reply_markup=kbc.choose_obj(id_now=0, ids=city_ids, names=city_names,
                                     btn_next=True, btn_back=False, btn_next_name='Отменить результаты поиска'))
     await state.update_data(msg_id=msg.message_id)
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.callback_query(lambda c: c.data.startswith('go_'), WorkStates.registration_enter_city)
@@ -403,7 +403,15 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
     
     # Активность
     activity_level = user_worker.activity_level if hasattr(user_worker, 'activity_level') else 100
-    activity_emoji = "🔥" if activity_level >= 80 else "⚡" if activity_level >= 50 else "💤"
+    # Используем правильные цветные круги вместо огня
+    if activity_level >= 74:
+        activity_emoji = "🟢"
+    elif activity_level >= 48:
+        activity_emoji = "🟡"
+    elif activity_level >= 9:
+        activity_emoji = "🟠"
+    else:
+        activity_emoji = "🔴"
     
     # Статус (ИП/ООО/СЗ)
     worker_status_obj = await WorkerStatus.get_by_worker(user_worker.id)
@@ -546,7 +554,15 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
     
     # Активность
     activity_level = user_worker.activity_level if hasattr(user_worker, 'activity_level') else 100
-    activity_emoji = "🔥" if activity_level >= 80 else "⚡" if activity_level >= 50 else "💤"
+    # Используем правильные цветные круги вместо огня
+    if activity_level >= 74:
+        activity_emoji = "🟢"
+    elif activity_level >= 48:
+        activity_emoji = "🟡"
+    elif activity_level >= 9:
+        activity_emoji = "🟠"
+    else:
+        activity_emoji = "🔴"
     
     # Статус (ИП/ООО/СЗ)
     worker_status_obj = await WorkerStatus.get_by_worker(user_worker.id)
@@ -1013,26 +1029,20 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
         album = data.get('album', [])
 
         if len(album) == 10:
-            msg = str(data.get('msg'))
-            try:
-                await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
-                msg = await message.answer(text='Больше фото загрузить нельзя\nНажмите, чтобы закончить загрузку',
-                                           reply_markup=kbc.done_btn())
-                await state.update_data(msg=msg.message_id)
-            except TelegramBadRequest:
-                pass
+            # msg = str(data.get('msg'))
+            # await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+            msg = await message.answer(text='Больше фото загрузить нельзя\nНажмите, чтобы закончить загрузку',
+                                       reply_markup=kbc.done_btn())
+            await state.update_data(msg=msg.message_id)
             return
 
         album.append(message)
         await state.update_data(album=album)
-        msg = str(data.get('msg'))
+        # msg = str(data.get('msg'))
         
-        try:
-            await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
-            msg = await message.answer(text='Нажмите, чтобы закончить загрузку', reply_markup=kbc.done_btn())
-            await state.update_data(msg=msg.message_id)
-        except TelegramBadRequest:
-            pass
+        # await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+        msg = await message.answer(text='Нажмите, чтобы закончить загрузку', reply_markup=kbc.done_btn())
+        await state.update_data(msg=msg.message_id)
 
         if len(album) < 10:
             return
@@ -1053,7 +1063,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     
     try:
         state_data = await state.get_data()
-        msg = str(state_data.get('msg'))
+        # msg = str(state_data.get('msg'))
         album = state_data.get('album', [])
 
         # Проверяем, есть ли фото для загрузки
@@ -1061,22 +1071,22 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
             await callback.message.answer(text='❌ Нет фото для загрузки. Сначала загрузите фото.')
             return
 
-        try:
-            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg)
-        except TelegramBadRequest:
-            pass
+        # try:
+        #     await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg)
+        # except TelegramBadRequest:
+        #     pass
             
         msg = await callback.message.answer(text='Подождите идет проверка')
 
         photos = {}
-        photo_len = len(album)
+        # photo_len = len(album)
 
         worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
-        portfolio_len = 0
-
-        if worker.portfolio_photo:
-            portfolio_len = len(worker.portfolio_photo)
+        # portfolio_len = 0
+        #
+        # if worker.portfolio_photo:
+        #     portfolio_len = len(worker.portfolio_photo)
 
         # Мигрируем существующие фото в правильную структуру папок
         if worker.portfolio_photo:
@@ -1165,10 +1175,10 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         
     except Exception as e:
         logger.error(f"[PORTFOLIO_UPLOAD] Ошибка при загрузке фото: {e}")
-        try:
-            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
-        except TelegramBadRequest:
-            pass
+        # try:
+        #     await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+        # except TelegramBadRequest:
+        #     pass
         await callback.message.answer(text=f'❌ Произошла ошибка при загрузке фото. Попробуйте еще раз.\nОшибка: {str(e)}')
         await state.clear()
         await state.set_state(WorkStates.create_portfolio)
@@ -1540,10 +1550,10 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
 
     if await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=advertisement_now.id):
         btn_apply = False
-        report_btn = False
+        # report_btn удален - теперь используется единая система report_ad
     else:
         btn_apply = True
-        report_btn = True
+        # report_btn удален - теперь используется единая система report_ad
 
     await advertisement_now.update(views=1)
 
@@ -1820,10 +1830,10 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     if await WorkersAndAbs.get_by_worker_and_abs(worker_id=worker.id, abs_id=advertisement_now.id):
         btn_apply = False
-        report_btn = False
+        # report_btn удален - теперь используется единая система report_ad
     else:
         btn_apply = True
-        report_btn = True
+        # report_btn удален - теперь используется единая система report_ad
 
     await advertisement_now.update(views=1)
 
@@ -2906,61 +2916,7 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
 # Функция apply-it_ полностью удалена
 
 
-@router.callback_query(lambda c: c.data.startswith('report-it_'))
-async def report_order(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'report_order...')
-    if user_blocked := await Banned.get_banned(tg_id=callback.message.chat.id):
-        if user_blocked.ban_now or user_blocked.forever:
-            try:
-                await callback.message.delete()
-            except TelegramBadRequest:
-                pass
-            await callback.message.answer(text='Упс, вы заблокированы')
-            await state.set_state(BannedStates.banned)
-            return
-
-    kbc = KeyboardCollection()
-    await state.clear()
-    advertisement_id = int(callback.data.split('_')[1])
-    advertisement = await Abs.get_one(id=advertisement_id)
-
-    if not advertisement:
-        try:
-            await callback.message.delete()
-        except TelegramBadRequest:
-            pass
-        await callback.message.answer(text='Похоже объявление больше не актуально',
-                                      reply_markup=kbc.menu())
-        await state.set_state(WorkStates.worker_menu)
-        return
-
-    await state.set_state(WorkStates.worker_menu)
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-    await callback.message.answer(text='Ваша жалоба будет рассмотрена',
-                                  reply_markup=kbc.menu())
-
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-
-    if not await WorkerAndReport.get_by_worker_and_abs(worker_id=worker.id, abs_id=advertisement_id):
-        worker_and_report = WorkerAndReport(worker_id=worker.id, abs_id=advertisement_id)
-        await worker_and_report.save()
-
-    customer = await Customer.get_customer(id=advertisement.customer_id)
-
-    text = f'Заказчик ID {customer.tg_id}\nОбъявление {advertisement.id}\n\n' + help_defs.read_text_file(
-        advertisement.text_path)
-    if advertisement.photo_path:
-        await bot.send_photo(chat_id=config.REPORT_LOG,
-                             photo=FSInputFile(advertisement.photo_path),
-                             caption=text,
-                             reply_markup=kbc.block_abs(advertisement_id), protect_content=False)
-    else:
-        await bot.send_message(chat_id=config.REPORT_LOG,
-                               text=text,
-                               reply_markup=kbc.block_abs(advertisement_id), protect_content=False)
+# Старая функция report_order удалена - теперь используется единая система report_ad
 
 
 # Функция apply-final-it_ полностью удалена
@@ -3208,7 +3164,7 @@ async def process_ip_confirmation(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
     
     state_data = await state.get_data()
-    msg_id = state_data.get('msg_id')
+    # msg_id = state_data.get('msg_id')
     
     ogrnip = message.text.strip()
     
@@ -3234,11 +3190,11 @@ async def process_ip_confirmation(message: Message, state: FSMContext) -> None:
     from app.untils import help_defs
     result = help_defs.check_ip_status_by_ogrnip(ogrnip=ogrnip)
     
-    if msg_id:
-        try:
-            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-        except Exception:
-            pass
+    # if msg_id:
+    #     try:
+    #         await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    #     except Exception:
+    #         pass
     
     await state.set_state(WorkStates.worker_menu)
     
@@ -3277,7 +3233,7 @@ async def process_ooo_confirmation(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
     
     state_data = await state.get_data()
-    msg_id = state_data.get('msg_id')
+    # msg_id = state_data.get('msg_id')
     
     ogrn = message.text.strip()
     
@@ -3303,11 +3259,11 @@ async def process_ooo_confirmation(message: Message, state: FSMContext) -> None:
     from app.untils import help_defs
     result = help_defs.check_ooo(query=ogrn)
     
-    if msg_id:
-        try:
-            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-        except Exception:
-            pass
+    # if msg_id:
+    #     try:
+    #         await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    #     except Exception:
+    #         pass
     
     await state.set_state(WorkStates.worker_menu)
     
@@ -3419,12 +3375,12 @@ async def back_from_ip_confirmation(callback: CallbackQuery, state: FSMContext) 
     
     # Удаляем сообщение с запросом ОГРНИП
     state_data = await state.get_data()
-    msg_id = state_data.get('msg_id')
-    if msg_id:
-        try:
-            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
-        except Exception:
-            pass
+    # msg_id = state_data.get('msg_id')
+    # if msg_id:
+    #     try:
+    #         await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
+    #     except Exception:
+    #         pass
     
     # Возвращаемся в меню статусов
     await state.set_state(WorkStates.worker_menu)
@@ -3438,12 +3394,12 @@ async def back_from_ooo_confirmation(callback: CallbackQuery, state: FSMContext)
     
     # Удаляем сообщение с запросом ОГРН
     state_data = await state.get_data()
-    msg_id = state_data.get('msg_id')
-    if msg_id:
-        try:
-            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
-        except Exception:
-            pass
+    # msg_id = state_data.get('msg_id')
+    # if msg_id:
+    #     try:
+    #         await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
+    #     except Exception:
+    #         pass
     
     # Возвращаемся в меню статусов
     await state.set_state(WorkStates.worker_menu)
@@ -3457,13 +3413,13 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
     
     # Удаляем сообщение с запросом ИНН
     state_data = await state.get_data()
-    msg_id = state_data.get('msg_id')
-    if msg_id:
-        try:
-            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
-        except Exception:
-            pass
-    
+    # msg_id = state_data.get('msg_id')
+    # if msg_id:
+    #     try:
+    #         await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
+    #     except Exception:
+    #         pass
+
     # Возвращаемся в меню статусов
     await state.set_state(WorkStates.worker_menu)
     await worker_status(callback, state)
@@ -4973,7 +4929,7 @@ async def change_main_city_search(message: Message, state: FSMContext) -> None:
     worker = await Worker.get_worker(tg_id=message.from_user.id)
     city_input = message.text
     state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     # Получаем ВСЕ города для поиска
     all_cities = await City.get_all()
@@ -5005,7 +4961,7 @@ async def change_main_city_search(message: Message, state: FSMContext) -> None:
         parse_mode='Markdown'
     )
     await state.update_data(msg_id=msg.message_id)
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.callback_query(lambda c: c.data.startswith('obj-id_'), WorkStates.worker_change_main_city)
@@ -5102,7 +5058,7 @@ async def choose_city_search_worker(message: Message, state: FSMContext) -> None
 
     city_input = message.text
     state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     cities = await City.get_all()
     city_names = [city.city for city in cities]
@@ -5129,7 +5085,7 @@ async def choose_city_search_worker(message: Message, state: FSMContext) -> None
         parse_mode='Markdown'
     )
     await state.update_data(msg_id=msg.message_id)
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 @router.callback_query(lambda c: c.data.startswith('obj-id_'), WorkStates.worker_choose_city)
@@ -5361,58 +5317,58 @@ async def continue_subscription_cities(callback: CallbackQuery, state: FSMContex
 
 
 # @router.message(F.text, WorkStates.worker_change_city)
-async def choose_city_main(message: Message, state: FSMContext) -> None:
-    logger.debug(f'choose_city_main...')
-    kbc = KeyboardCollection()
-
-    city_input = message.text
-
-    state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
-    cites = state_data.get('cites')
-
-    cities = await City.get_all(sort=False)
-    city_names = [city.city for city in cities]
-
-    worker = await Worker.get_worker(tg_id=message.chat.id)
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-    subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-
-    city_find = await checks.levenshtein_distance_check_city(phrase=city_input, words=city_names)
-    if not city_find:
-        await message.answer(text=f'Город не найден, попробуйте еще раз или воспользуйтесь кнопками')
-        return
-
-    cities = []
-
-    for city_id in city_find:
-        city = await City.get_city(id=city_id)
-        cities.append(city)
-
-    city_names = [city.city for city in cities]
-    city_ids = [city.id for city in cities]
-
-    if cites is None:
-        cites = []
-    else:
-        cites = [int(x) for x in cites.split(' | ')]
-        for city_id in cites:
-            city = await City.get_city(id=city_id)
-            try:
-                city_names.remove(city.city)
-                city_ids.remove(city.id)
-            except ValueError:
-                pass
-
-    msg = await message.answer(
-        text=f'Результаты поиска по: {city_input}\n'
-             f'Выберите город или напишите его текстом\n\n'
-             f'По вашей подписке доступно количество городов: {subscription.count_cites}, выбрано {len(cites)}',
-        reply_markup=kbc.choose_obj(id_now=0, ids=city_ids, names=city_names,
-                                    btn_next=True, btn_back=False, menu_btn=True,
-                                    btn_next_name='Отменить результаты поиска'))
-    await state.update_data(msg_id=msg.message_id)
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+# async def choose_city_main(message: Message, state: FSMContext) -> None:
+#     logger.debug(f'choose_city_main...')
+#     kbc = KeyboardCollection()
+#
+#     city_input = message.text
+#
+#     state_data = await state.get_data()
+#     # msg_id = int(state_data.get('msg_id'))
+#     cites = state_data.get('cites')
+#
+#     cities = await City.get_all(sort=False)
+#     city_names = [city.city for city in cities]
+#
+#     worker = await Worker.get_worker(tg_id=message.chat.id)
+#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+#     subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
+#
+#     city_find = await checks.levenshtein_distance_check_city(phrase=city_input, words=city_names)
+#     if not city_find:
+#         await message.answer(text=f'Город не найден, попробуйте еще раз или воспользуйтесь кнопками')
+#         return
+#
+#     cities = []
+#
+#     for city_id in city_find:
+#         city = await City.get_city(id=city_id)
+#         cities.append(city)
+#
+#     city_names = [city.city for city in cities]
+#     city_ids = [city.id for city in cities]
+#
+#     if cites is None:
+#         cites = []
+#     else:
+#         cites = [int(x) for x in cites.split(' | ')]
+#         for city_id in cites:
+#             city = await City.get_city(id=city_id)
+#             try:
+#                 city_names.remove(city.city)
+#                 city_ids.remove(city.id)
+#             except ValueError:
+#                 pass
+#
+#     msg = await message.answer(
+#         text=f'Результаты поиска по: {city_input}\n'
+#              f'Выберите город или напишите его текстом\n\n'
+#              f'По вашей подписке доступно количество городов: {subscription.count_cites}, выбрано {len(cites)}',
+#         reply_markup=kbc.choose_obj(id_now=0, ids=city_ids, names=city_names,
+#                                     btn_next=True, btn_back=False, menu_btn=True,
+#                                     btn_next_name='Отменить результаты поиска'))
+#     await state.update_data(msg_id=msg.message_id)
+#     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
 # @router.callback_query(lambda c: c.data.startswith('go_'), WorkStates.worker_change_city)

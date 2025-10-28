@@ -477,11 +477,11 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
 
     state_data = await state.get_data()
     worker_id = int(state_data.get('worker_id'))
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     msg_to_send = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     await message.answer(text='Сообщение пользователю отправлено')
     try:
@@ -506,19 +506,35 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     msg_id = int(state_data.get('msg_id'))
 
     customer = await Customer.get_customer(tg_id=customer_id)
-
     msg_to_send = message.text
 
     banned = await Banned.get_banned(tg_id=customer.tg_id)
-    await banned.update(ban_reason=msg_to_send)
-
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-
-    await message.answer(text='Сообщение пользователю отправлено')
-    try:
-        await bot.send_message(chat_id=customer.tg_id, text=f'Сообщение от администрации бота: "{msg_to_send}"')
-    except TelegramBadRequest:
-        pass
+    if banned:
+        await banned.update(ban_reason=msg_to_send)
+        
+        # Удаляем сообщение с запросом комментария
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+            logger.debug(f'Deleted message with ID: {msg_id}')
+        except TelegramBadRequest as e:
+            logger.error(f'Error deleting message: {e}')
+            pass
+        
+        # Очищаем состояние
+        await state.clear()
+        logger.debug('State cleared')
+        
+        await message.answer(text='Сообщение пользователю отправлено')
+        try:
+            await bot.send_message(chat_id=customer.tg_id, text=f'Сообщение от администрации бота: "{msg_to_send}"')
+            logger.debug(f'Message sent to customer {customer.tg_id}')
+        except TelegramBadRequest as e:
+            logger.error(f'Error sending message to customer: {e}')
+            pass
+    else:
+        logger.error(f'Banned user not found for customer_id: {customer.tg_id}')
+        await message.answer(text='Ошибка: пользователь не найден в списке заблокированных')
+        await state.clear()
 
 
 @router.callback_query(lambda c: c.data.startswith('answer-it_'))
@@ -576,7 +592,7 @@ async def send_worker_with_msg(message: Message, state: FSMContext) -> None:
 
     state_data = await state.get_data()
     user_tg_id = int(state_data.get('user_tg_id'))
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     await state.clear()
 
@@ -596,4 +612,4 @@ async def send_worker_with_msg(message: Message, state: FSMContext) -> None:
             await message.answer(text=f'Ответ пользователю ID {user_tg_id} успешно отправлен!', reply_markup=kbc.support_unban(user_tg_id))
     else:
         await message.answer(text=f'Ответ пользователю ID {user_tg_id} успешно отправлен!')
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)

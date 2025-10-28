@@ -231,7 +231,7 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
     
     state_data = await state.get_data()
-    msg_id = state_data.get('msg_id')
+    # msg_id = state_data.get('msg_id')
     
     try:
         new_price = int(message.text)
@@ -242,7 +242,7 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
         admin = await Admin.get_by_tg_id(message.chat.id)
         await admin.update(order_price=new_price)
         
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
             text=f'✅ **Цена объявлений успешно изменена!**\n\n'
                  f'💰 Новая цена: {new_price}₽',
@@ -252,7 +252,7 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
         await state.set_state(AdminStates.menu)
         
     except ValueError as e:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
             text=f'❌ **Ошибка!**\n\n'
                  f'Пожалуйста, введите корректную цену (положительное число).\n'
@@ -263,7 +263,7 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
         await state.set_state(AdminStates.edit_order_price)
     except Exception as e:
         logger.error(f"Ошибка при изменении цены объявлений: {e}")
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
             text='❌ **Произошла ошибка!**\n\n'
                  'Попробуйте еще раз или обратитесь к разработчику.',
@@ -339,12 +339,12 @@ async def edit_price_subscription(message: Message, state: FSMContext) -> None:
 
     state_data = await state.get_data()
     subscription_id = int(state_data.get('subscription_id'))
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     try:
         price = int(message.text)
     except Exception:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id)
         return
@@ -353,7 +353,7 @@ async def edit_price_subscription(message: Message, state: FSMContext) -> None:
     await subscription.update(price=price)
 
     await state.set_state(AdminStates.menu)
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer('Цена изменена!', reply_markup=kbc.admin_back_btn('edit_subscription'))
 
 
@@ -379,12 +379,12 @@ async def edit_price_subscription(message: Message, state: FSMContext) -> None:
 
     state_data = await state.get_data()
     subscription_id = int(state_data.get('subscription_id'))
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     try:
         orders = int(message.text)
     except Exception:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id)
         return
@@ -394,7 +394,7 @@ async def edit_price_subscription(message: Message, state: FSMContext) -> None:
         await subscription.update(count_guaranteed_orders=orders)
 
     await state.set_state(AdminStates.menu)
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer('Количество откликов изменено!', reply_markup=kbc.admin_back_btn('edit_subscription'))
 
 
@@ -603,12 +603,12 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     try:
         banned_id = int(message.text)
     except Exception:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
@@ -616,7 +616,7 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
     banned = await Banned.get_banned(tg_id=banned_id)
 
     if banned is None:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer('Пользователь не был заблокирован', reply_markup=kbc.admin_back_btn('menu'))
         return
 
@@ -633,7 +633,7 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
                                 ban_now=False,
                                 ban_end=None)
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer('Пользователь разблокирован', reply_markup=kbc.admin_back_btn('menu'))
     await bot.send_message(chat_id=banned_id,
                            text='Вы были разблокированы.\nВызовите команду /menu чтобы продолжить работу')
@@ -645,7 +645,7 @@ async def send_to_user(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
     user_id = int(state_data.get('user_id'))
 
     msg_to_send = message.text
@@ -655,11 +655,11 @@ async def send_to_user(message: Message, state: FSMContext) -> None:
     worker = await Worker.get_worker(tg_id=user_id)
 
     if banned is None and customer is None and worker is None:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer('Пользователь не найден', reply_markup=kbc.admin_back_btn('menu'))
         return
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer('Сообщение пользователю отправлено', reply_markup=kbc.admin_back_btn('menu'))
     await bot.send_message(chat_id=user_id, text=f'Сообщение от администрации бота: "{msg_to_send}"')
     await state.set_state(AdminStates.menu)
@@ -671,12 +671,12 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     try:
         banned_id = int(message.text)
     except Exception:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз', reply_markup=kbc.admin_back_btn('menu'))
         await state.update_data(msg_id=msg.message_id)
         return
@@ -689,7 +689,7 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
         await banned.save()
     else:
         if banned.forever:
-            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+            # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
             await message.answer('Пользователь уже заблокирован на всегда', reply_markup=kbc.admin_back_btn('menu'))
             return
         else:
@@ -697,7 +697,7 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
                                 ban_now=True,
                                 ban_end=str(datetime.now() + timedelta(days=30)))
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer('Пользователь заблокирован', reply_markup=kbc.admin_back_btn('menu'))
     await bot.send_message(chat_id=banned_id,
                            text='Вы были заблокированы.\nПо решению администрации', reply_markup=kbc.support_btn())
@@ -709,12 +709,12 @@ async def get_customer(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     try:
         customer_id = int(message.text)
     except Exception:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
@@ -722,7 +722,7 @@ async def get_customer(message: Message, state: FSMContext) -> None:
     customer = await Customer.get_customer(id=customer_id)
 
     if customer is None:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer('Заказчик с таким ID не существует', reply_markup=kbc.admin_back_btn('menu'))
         return
 
@@ -742,7 +742,7 @@ async def get_customer(message: Message, state: FSMContext) -> None:
             f'\n'
             f'Заблокирован: {"Да" if ban_now else "Нет"}')
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer(text=text, reply_markup=kbc.admin_get_customer(callback_data='menu', customer_id=customer_id),
                          protect_content=False)
 
@@ -753,12 +753,12 @@ async def get_user(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     try:
         user_id = int(message.text)
     except Exception:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
@@ -819,7 +819,7 @@ async def get_user(message: Message, state: FSMContext) -> None:
             customer_id = False
         await message.answer(text=text, protect_content=False,
                              reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id))
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await state.update_data(user_id=user_id)
         return
     else:
@@ -1143,12 +1143,12 @@ async def get_worker(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     try:
         worker_id = int(message.text)
     except Exception:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
@@ -1156,7 +1156,7 @@ async def get_worker(message: Message, state: FSMContext) -> None:
     worker = await Worker.get_worker(id=worker_id)
 
     if worker is None:
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer('Исполнитель с таким ID не существует', reply_markup=kbc.admin_back_btn('menu'))
         return
 
@@ -1181,7 +1181,7 @@ async def get_worker(message: Message, state: FSMContext) -> None:
             f'Зарегистрирован с {worker.registration_data}\n'
             f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n')
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'), protect_content=False)
 
 
@@ -1338,11 +1338,11 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
     city_id = str(state_data.get('city_id'))
     message_to_worker = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
@@ -1376,7 +1376,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
 
     city = await City.get_city(id=city_id)
 
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=f'Сообщение отправлено всем исполнителям из {city.city}!',
                                   reply_markup=kbc.menu_btn())
@@ -1441,10 +1441,10 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    msg_id = str(state_data.get('msg_id'))
+    # msg_id = str(state_data.get('msg_id'))
     message_to_worker = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
@@ -1461,7 +1461,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
     state_data = await state.get_data()
     message_to_worker = str(state_data.get('message_to_worker'))
 
-    msg = await callback.message.answer('Подождите, идет отправка')
+    # msg = await callback.message.answer('Подождите, идет отправка')
 
     workers = await Worker.get_all()
     if workers:
@@ -1474,7 +1474,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
                     pass
                 message_to_worker = str(state_data.get('message_to_worker'))
 
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=f'Сообщение отправлено всем исполнителям!',
                                   reply_markup=kbc.menu_btn())
@@ -1488,10 +1488,10 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1].file_id
 
     state_data = await state.get_data()
-    msg = str(state_data.get('msg'))
+    # msg = str(state_data.get('msg'))
     message_to_worker = str(state_data.get('message_to_worker'))
 
-    await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+    # await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
     msg = await message.answer('Подождите, идет отправка')
 
     file_path_photo = await help_defs.save_photo(id=message.from_user.id,
@@ -1510,8 +1510,10 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
             message_to_worker = str(state_data.get('message_to_worker'))
 
     help_defs.delete_file(file_path_photo)
-
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    except Exception:
+        pass
     await state.set_state(AdminStates.menu)
     await message.answer(text=f'Сообщение отправлено всем исполнителя!', reply_markup=kbc.menu_btn())
 
@@ -1856,13 +1858,13 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
 
     state_data = await state.get_data()
     customer_id = int(state_data.get('customer_id'))
-    msg_id = int(state_data.get('msg_id'))
+    # msg_id = int(state_data.get('msg_id'))
 
     customer = await Customer.get_customer(id=customer_id)
 
     msg_to_send = message.text
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     banned = await Banned.get_banned(tg_id=customer.tg_id)
     await banned.update(ban_reason=msg_to_send)
