@@ -899,10 +899,53 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def support_btn(self):
+    def support_btn_simple(self):
+        """Простая кнопка поддержки без истории запросов"""
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text='Поддержка 24/7', callback_data='support'))
         builder.adjust(1)
+        return builder.as_markup()
+
+    def support_btn(self):
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text='Поддержка 24/7', callback_data='support'))
+        builder.add(self._inline(button_text='История запросов', callback_data='support_history'))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def support_blocking_question_buttons(self):
+        """Кнопки для вопроса о блокировке"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text='Да', callback_data='support_blocking_yes'))
+        builder.add(self._inline(button_text='Нет', callback_data='support_blocking_no'))
+        builder.adjust(2)
+        return builder.as_markup()
+
+    def support_after_blocking_info_buttons(self):
+        """Кнопки после показа информации о блокировке"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text='Задать вопрос', callback_data='support_ask_question'))
+        builder.add(self._inline(button_text='В меню', callback_data='menu'))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def support_admin_buttons(self, user_tg_id: int):
+        """Кнопки для админов в чате поддержки"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text='Заблокировать или удалить', callback_data=f'admin_block_user_{user_tg_id}'))
+        builder.add(self._inline(button_text='Ответить', callback_data=f'answer-it_{user_tg_id}'))
+        builder.add(self._inline(button_text='Удалить', callback_data=f'admin_delete_dialog_{user_tg_id}'))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def support_admin_block_buttons(self, user_tg_id: int):
+        """Кнопки для выбора причины блокировки"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text='Реклама', callback_data=f'admin_block_reason_ad_{user_tg_id}'))
+        builder.add(self._inline(button_text='Вакансия', callback_data=f'admin_block_reason_job_{user_tg_id}'))
+        builder.add(self._inline(button_text='Правила', callback_data=f'admin_block_reason_rules_{user_tg_id}'))
+        builder.add(self._inline(button_text='Стоп слова', callback_data=f'admin_block_reason_stopwords_{user_tg_id}'))
+        builder.adjust(2)
         return builder.as_markup()
 
     def admin_answer_user(self, tg_id: int):

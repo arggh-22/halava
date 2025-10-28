@@ -7,6 +7,9 @@ class UserStates(StatesGroup):
     registration_end = State()
     menu = State()
     ask_support = State()
+    support_blocking_question = State()
+    support_ask_question = State()
+    support_waiting_answer = State()
     user_info = State()
 
 

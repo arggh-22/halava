@@ -324,26 +324,83 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
         return
 
 
-@router.callback_query(F.data == 'menu', StateFilter(UserStates.menu, UserStates.user_info))
-async def menu(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'menu_cmd...')
-    print("ssssxxxccvvvvv")
-
+@router.callback_query(F.data == 'menu')
+async def menu_universal(callback: CallbackQuery, state: FSMContext) -> None:
+    """Универсальный обработчик кнопки 'В меню' - работает как команда /menu"""
+    logger.debug(f'menu_universal...')
+    print(f"[DEBUG] menu_universal called for user {callback.message.chat.id}")
+    
     await state.clear()
     kbc = KeyboardCollection()
+    
+    # Проверяем, заблокирован ли пользователь
     if user_baned := await Banned.get_banned(tg_id=callback.message.chat.id):
         if user_baned.ban_now or user_baned.forever:
             await callback.message.answer(text='Упс, вы заблокированы', reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
-    if await Worker.get_worker(tg_id=callback.message.chat.id) or Customer.get_customer(
-            tg_id=callback.message.chat.id) or await Admin.get_by_tg_id(tg_id=callback.message.chat.id):
+    
+    # Используем ту же логику, что и команда /menu
+    await state.set_state(UserStates.menu)
+    
+    if worker := await Worker.get_worker(tg_id=callback.message.chat.id):
+        if worker.active:
+            print(f"[DEBUG] User {callback.message.chat.id} is an active Worker")
+            # Импортируем функцию отображения меню из worker.py
+            from app.handlers.worker import show_worker_menu_for_callback
+            await show_worker_menu_for_callback(callback, state, worker)
+        else:
+            print(f"[DEBUG] User {callback.message.chat.id} is an inactive Worker")
+            customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+            if customer is None:
+                await state.set_state(UserStates.menu)
+                await callback.message.answer(
+                    text=f'Меню\n\nВыберите интересующий вас пункт',
+                    reply_markup=kbc.command_menu_keyboard(),
+                )
+                return
+            
+            # Показываем меню заказчика для неактивного исполнителя
+            user_abs = await Abs.get_all_by_customer(customer.id)
+            city = await City.get_city(id=int(customer.city_id))
+
+            text = ('Ваш профиль\n\n'
+                    f'ID: {customer.id}\n'
+                    f'Ваш город: {city.city}\n'
+                    f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+                    f'Осталось объявлений на сегодня: {customer.abs_count}')
+
+            await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
+            await state.set_state(CustomerStates.customer_menu)
+    elif customer := await Customer.get_customer(tg_id=callback.message.chat.id):
+        print(f"[DEBUG] User {callback.message.chat.id} is a Customer")
+        user_abs = await Abs.get_all_by_customer(customer.id)
+        city = await City.get_city(id=int(customer.city_id))
+
+        text = ('Ваш профиль\n\n'
+                f'ID: {customer.id}\n'
+                f'Ваш город: {city.city}\n'
+                f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+                f'Осталось объявлений на сегодня: {customer.abs_count}')
+
+        await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
+        await state.set_state(CustomerStates.customer_menu)
+    elif await Admin.get_by_tg_id(tg_id=callback.message.chat.id):
+        print(f"[DEBUG] User {callback.message.chat.id} is an Admin")
+        await state.set_state(AdminStates.menu)
+        await callback.message.answer(
+            text='Меню администратора',
+            reply_markup=kbc.admin_menu_keyboard()
+        )
+    else:
+        print(f"[DEBUG] User {callback.message.chat.id} is a regular user")
         await state.set_state(UserStates.menu)
         await callback.message.answer(
             text=f'Меню\n\nВыберите интересующий вас пункт',
             reply_markup=kbc.command_menu_keyboard(),
         )
-        return
+
+
 
 
 @router.callback_query(F.data == 'role', StateFilter(UserStates.menu))
@@ -545,20 +602,174 @@ async def check_abs(callback: CallbackQuery) -> None:
         )
 
 
+async def show_blocking_info_message(message: Message, state: FSMContext, banned: 'Banned') -> None:
+    """Показывает информацию о блокировке пользователю через сообщение"""
+    kbc = KeyboardCollection()
+    
+    # Формируем текст с информацией о блокировке
+    if banned.forever:
+        ban_text = "Вы заблокированы навсегда"
+    else:
+        # Форматируем дату без секунд
+        ban_end_formatted = banned.ban_end.strftime('%Y-%m-%d %H:%M') if banned.ban_end else "неизвестно"
+        ban_text = f"Вы заблокированы до {ban_end_formatted}"
+    
+    text = f"🚫 {ban_text}\n\n"
+    text += f"Причина: {banned.ban_reason}\n\n"
+    
+    if not banned.forever:
+        text += f"Срок блокировки: 24 часа\n\n"
+    
+    text += "Если вы считаете, что блокировка была ошибочной, можете задать вопрос поддержке."
+    
+    await message.answer(
+        text=text,
+        reply_markup=kbc.support_after_blocking_info_buttons()
+    )
+    await state.clear()
+
+
+async def show_blocking_info(callback: CallbackQuery, state: FSMContext, banned: 'Banned') -> None:
+    """Показывает информацию о блокировке пользователю"""
+    kbc = KeyboardCollection()
+    
+    # Формируем текст с информацией о блокировке
+    if banned.forever:
+        ban_text = "Вы заблокированы навсегда"
+    else:
+        # Форматируем дату без секунд
+        ban_end_formatted = banned.ban_end.strftime('%Y-%m-%d %H:%M') if banned.ban_end else "неизвестно"
+        ban_text = f"Вы заблокированы до {ban_end_formatted}"
+    
+    text = f"🚫 {ban_text}\n\n"
+    text += f"Причина: {banned.ban_reason}\n\n"
+    
+    if not banned.forever:
+        text += f"Срок блокировки: 24 часа\n\n"
+    
+    text += "Если вы считаете, что блокировка была ошибочной, можете задать вопрос поддержке."
+    
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.support_after_blocking_info_buttons()
+    )
+    await state.clear()
+
+
+@router.callback_query(F.data == 'support_blocking_yes')
+async def support_blocking_yes(callback: CallbackQuery, state: FSMContext) -> None:
+    """Пользователь выбрал 'Да' на вопрос о блокировке"""
+    logger.debug(f'support_blocking_yes...')
+    
+    kbc = KeyboardCollection()
+    
+    # Проверяем, заблокирован ли пользователь
+    banned = await Banned.get_banned(tg_id=callback.message.chat.id)
+    
+    if banned and (banned.ban_now or banned.forever):
+        await show_blocking_info(callback, state, banned)
+    else:
+        await callback.message.answer(
+            "Вы не заблокированы. Если у вас есть другие вопросы, можете задать их поддержке.",
+            reply_markup=kbc.support_after_blocking_info_buttons()
+        )
+        await state.clear()
+
+
+@router.callback_query(F.data == 'support_blocking_no')
+async def support_blocking_no(callback: CallbackQuery, state: FSMContext) -> None:
+    """Пользователь выбрал 'Нет' на вопрос о блокировке"""
+    logger.debug(f'support_blocking_no...')
+    
+    kbc = KeyboardCollection()
+    
+    # Переходим к заданию вопроса
+    await state.set_state(UserStates.support_ask_question)
+    msg = await callback.message.answer(
+        'Напишите ваш вопрос',
+        reply_markup=kbc.support_btn()
+    )
+    await state.update_data(msg_id=msg.message_id)
+
+
+@router.callback_query(F.data == 'support_ask_question')
+async def support_ask_question(callback: CallbackQuery, state: FSMContext) -> None:
+    """Пользователь хочет задать вопрос"""
+    logger.debug(f'support_ask_question...')
+    
+    kbc = KeyboardCollection()
+    
+    await state.set_state(UserStates.support_ask_question)
+    msg = await callback.message.answer(
+        'Напишите ваш вопрос',
+        reply_markup=kbc.support_btn()
+    )
+    await state.update_data(msg_id=msg.message_id)
+
+
+@router.callback_query(F.data == 'support_history')
+async def support_history(callback: CallbackQuery, state: FSMContext) -> None:
+    """Показывает историю запросов пользователя в поддержку"""
+    logger.debug(f'support_history...')
+    
+    kbc = KeyboardCollection()
+    
+    # Получаем историю запросов
+    if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=callback.message.chat.id):
+        if user_and_support_queue.user_messages or user_and_support_queue.admin_messages:
+            text = "📋 **История ваших запросов в поддержку:**\n\n"
+            
+            # Показываем сообщения пользователя и ответы админов
+            for i, user_msg in enumerate(user_and_support_queue.user_messages):
+                text += f"**Ваш вопрос {i+1}:**\n{user_msg}\n\n"
+                
+                # Показываем ответ админа, если есть
+                if i < len(user_and_support_queue.admin_messages):
+                    admin_msg = user_and_support_queue.admin_messages[i]
+                    text += f"**Ответ поддержки:**\n{admin_msg}\n\n"
+                else:
+                    text += "**Ответ поддержки:** Ожидается ответ\n\n"
+                
+                text += "─" * 30 + "\n\n"
+            
+            await callback.message.answer(
+                text=text,
+                reply_markup=kbc.menu_btn(),
+                parse_mode='Markdown'
+            )
+        else:
+            await callback.message.answer(
+                "У вас пока нет запросов в поддержку.",
+                reply_markup=kbc.menu_btn()
+            )
+    else:
+        await callback.message.answer(
+            "У вас пока нет запросов в поддержку.",
+            reply_markup=kbc.menu_btn()
+        )
+
+
 @router.callback_query(F.data == 'support', StateFilter(UserStates.menu, BannedStates.banned))
 async def user_ask_support(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'user_ask_support...')
 
     kbc = KeyboardCollection()
 
+    # Проверяем, ожидает ли пользователь ответа от поддержки через таблицу
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=callback.message.chat.id):
         if user_and_support_queue.turn:
-            await callback.message.answer('Ваш вопрос принят, ожидайте пожалуйста ответа.',
-                                             reply_markup=kbc.menu_btn())
+            await callback.message.answer(
+                'Вы уже отправили вопрос в поддержку. Ожидайте ответа.',
+                reply_markup=kbc.menu_btn()
+            )
             return
 
-    await state.set_state(UserStates.ask_support)
-    msg = await callback.message.answer('Напишите ваш вопрос')
+    # Всегда задаем вопрос о блокировке (независимо от статуса блокировки)
+    await state.set_state(UserStates.support_blocking_question)
+    msg = await callback.message.answer(
+        'Ваш вопрос связан с блокировкой профиля?',
+        reply_markup=kbc.support_blocking_question_buttons()
+    )
     await state.update_data(msg_id=msg.message_id)
     return
 
@@ -569,14 +780,21 @@ async def user_ask_support(callback: CallbackQuery, state: FSMContext) -> None:
 
     kbc = KeyboardCollection()
 
+    # Проверяем, ожидает ли пользователь ответа от поддержки через таблицу
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=callback.message.chat.id):
         if user_and_support_queue.turn:
-            await callback.message.answer('Ваш вопрос принят, ожидайте пожалуйста ответа.',
-                                             reply_markup=kbc.menu_btn())
+            await callback.message.answer(
+                'Вы уже отправили вопрос в поддержку. Ожидайте ответа.',
+                reply_markup=kbc.menu_btn()
+            )
             return
 
-    await state.set_state(UserStates.ask_support)
-    msg = await callback.message.answer('Напишите ваш вопрос')
+    # Всегда задаем вопрос о блокировке (независимо от статуса блокировки)
+    await state.set_state(UserStates.support_blocking_question)
+    msg = await callback.message.answer(
+        'Ваш вопрос связан с блокировкой профиля?',
+        reply_markup=kbc.support_blocking_question_buttons()
+    )
     await state.update_data(msg_id=msg.message_id)
     return
 
@@ -589,36 +807,36 @@ async def user_ask_support(message: Message, state: FSMContext) -> None:
         await message.answer('Пользоваться ботом можно только из ЛС')
         return
 
-    # msg = await message.answer(f'Удаляю клавиатуры',
-    #                            reply_markup=ReplyKeyboardRemove())
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-
     kbc = KeyboardCollection()
 
+    # Проверяем, ожидает ли пользователь ответа от поддержки через таблицу
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=message.chat.id):
         if user_and_support_queue.turn:
-            await message.answer('Ваш вопрос принят, ожидайте пожалуйста ответа.', reply_markup=kbc.menu_btn())
+            await message.answer(
+                'Вы уже отправили вопрос в поддержку. Ожидайте ответа.',
+                reply_markup=kbc.menu_btn()
+            )
             return
 
-    await state.set_state(UserStates.ask_support)
-    msg = await message.answer('Напишите ваш вопрос')
+    # Всегда задаем вопрос о блокировке (независимо от статуса блокировки)
+    await state.set_state(UserStates.support_blocking_question)
+    msg = await message.answer(
+        'Ваш вопрос связан с блокировкой профиля?',
+        reply_markup=kbc.support_blocking_question_buttons()
+    )
     await state.update_data(msg_id=msg.message_id)
     return
 
 
-@router.message(F.text, StateFilter(UserStates.ask_support))
+@router.message(F.text, StateFilter(UserStates.ask_support, UserStates.support_ask_question))
 async def user_ask_support_text(message: Message, state: FSMContext) -> None:
     logger.debug(f'user_ask_support_text...')
 
     kbc = KeyboardCollection()
     msg_to_send = message.text
 
-    state_data = await state.get_data()
-    msg_id = int(state_data.get('msg_id'))
-
     if worker := await Worker.get_worker(tg_id=message.chat.id):
         if worker.active:
-
             worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
             subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
 
@@ -666,12 +884,49 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
     else:
         text = f'Сообщение от пользователя #{message.chat.id}\n\n'
 
-    await state.set_state(UserStates.ask_support_photo)
-    await state.update_data(text=text, ask=msg_to_send)
+    text += f'Вопрос: "{msg_to_send}"'
 
-    msg = await message.answer('Прикрепите фото или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
-    await state.update_data(msg_id=msg.message_id)
-    # await bot.delete_message(chat_id=message.from_user.id, message_id=msg_id)
+    # Добавляем историю переписки
+    if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=message.chat.id):
+        if user_and_support_queue.user_messages or user_and_support_queue.admin_messages:
+            text += '\n\n📋 **История переписки:**\n'
+            
+            # Показываем все предыдущие сообщения
+            for i, user_msg in enumerate(user_and_support_queue.user_messages):
+                if user_msg != msg_to_send:  # Не показываем текущий вопрос дважды
+                    text += f'\n**Вопрос {i+1}:**\n{user_msg}\n'
+                    
+                    # Показываем ответ админа, если есть
+                    if i < len(user_and_support_queue.admin_messages):
+                        admin_msg = user_and_support_queue.admin_messages[i]
+                        text += f'**Ответ поддержки:**\n{admin_msg}\n'
+                    else:
+                        text += '**Ответ поддержки:** Ожидается ответ\n'
+                    
+                    text += '─' * 20 + '\n'
+
+    # Убираем автоответы - сразу отправляем в чат поддержки
+    await bot.send_message(chat_id=config.SUPPORT_CHAT, text=text,
+                           reply_markup=kbc.support_admin_buttons(message.chat.id))
+
+    # Создаем или обновляем запись в таблице поддержки
+    if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=message.chat.id):
+        # Обновляем существующую запись
+        user_and_support_queue.user_messages.append(msg_to_send)
+        await user_and_support_queue.update(user_messages=user_and_support_queue.user_messages, turn=True)
+    else:
+        # Создаем новую запись
+        new_support_queue = UserAndSupportQueue(
+            id=None, 
+            user_tg_id=message.chat.id, 
+            user_messages=msg_to_send,
+            turn=True
+        )
+        await new_support_queue.save()
+    
+    await message.answer('Ваш вопрос принят, ожидайте пожалуйста ответа.',
+                         reply_markup=kbc.menu_btn())
+    await state.clear()
 
 
 @router.callback_query(F.data == 'skip_it', UserStates.ask_support_photo)

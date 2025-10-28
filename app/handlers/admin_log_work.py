@@ -604,6 +604,12 @@ async def send_worker_with_msg(message: Message, state: FSMContext) -> None:
 
     try:
         await bot.send_message(chat_id=user_tg_id, text=text, reply_markup=kbc.support_btn())
+        
+        # Обновляем таблицу поддержки - сбрасываем turn в False
+        queue = await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=user_tg_id)
+        if queue:
+            await queue.update(turn=False)
+        
     except TelegramForbiddenError:
         await message.answer('К сожалению пользователь заблокировал бота, сообщение не отправлено')
         return
