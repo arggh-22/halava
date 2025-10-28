@@ -1024,15 +1024,12 @@ async def decline_ad(callback: CallbackQuery, state: FSMContext):
         bad_response = WorkerAndBadResponse(worker_id=worker.id, abs_id=abs_id)
         await bad_response.save()
         
-        kbc = KeyboardCollection()
-        await state.set_state(WorkStates.worker_menu)
+        # Показываем всплывающее окно с подтверждением
+        await callback.answer("✅ Объявление успешно скрыто и больше не будет отображаться!", show_alert=True)
         
-        # Используем безопасную функцию для редактирования сообщения
-        await safe_edit_message(
-            callback=callback,
-            text="✅ Объявление скрыто и больше не будет показываться",
-            reply_markup=kbc.menu()
-        )
+        # Возвращаемся в раздел объявлений исполнителя
+        from app.handlers.worker import abs_in_city
+        await abs_in_city(callback, state)
         
     except Exception as e:
         logger.error(f"Error in decline_ad: {e}")

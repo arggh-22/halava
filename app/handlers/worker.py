@@ -5516,7 +5516,8 @@ async def worker_rank(callback: CallbackQuery, state: FSMContext) -> None:
         # Используем метод get_rank_description() для получения полного описания
         text = rank.get_rank_description()
         text += f"\n\n📊 **Статистика:**\n"
-        text += f"• Всего выполнено заказов: {rank.completed_orders_count}"
+        text += f"• Всего выполнено заказов: {rank.completed_orders_count}\n"
+        text += f"• Выполнено заказов за 30 дней: {rank.orders_this_month}"
         
         # Кнопка назад
         builder = InlineKeyboardBuilder()
