@@ -64,7 +64,7 @@ from aiogram.fsm.context import FSMContext
 import config
 import aiosqlite
 from app.data.database.models import (
-    Customer, Worker, City, SubscriptionType, WorkerAndSubscription, WorkType, Banned, Abs, WorkersAndAbs, Admin,
+    Customer, Worker, City, WorkerAndSubscription, WorkType, Banned, Abs, WorkersAndAbs, Admin,
     WorkerAndRefsAssociation, WorkerAndReport, WorkerAndBadResponse, WorkerCitySubscription
 )
 from app.keyboards import KeyboardCollection
@@ -2785,7 +2785,7 @@ async def choose_work_types_old(callback: CallbackQuery, state: FSMContext) -> N
         if work_type.id not in work_type_id_list:
             new_work_types.append(work_type)
 
-    subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
+    # subscription = await SubscriptionType.get_subscription_type(id=subscription_id)  # УДАЛЕНО: SubscriptionType больше не используется
 
     names = [work_type.work_type for work_type in new_work_types]
     ids = [work_type.id for work_type in new_work_types]
@@ -2794,7 +2794,7 @@ async def choose_work_types_old(callback: CallbackQuery, state: FSMContext) -> N
     btn_back = True  # Всегда показываем кнопку назад
 
     await callback.message.answer(
-        text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)} из {subscription.count_work_types}",
+        text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)}",
         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=btn_back, name_btn_back='Назад')
     )
 
@@ -2835,7 +2835,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
         if work_type.id not in work_type_id_list:
             new_work_types.append(work_type)
 
-    subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
+    # subscription = await SubscriptionType.get_subscription_type(id=subscription_id)  # УДАЛЕНО: SubscriptionType больше не используется
 
     names = [work_type.work_type for work_type in new_work_types]
     ids = [work_type.id for work_type in new_work_types]
@@ -2844,7 +2844,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
     btn_back = True  # Всегда показываем кнопку назад
 
     await callback.message.answer(
-        text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)} из {subscription.count_work_types}",
+        text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)}",
         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=btn_back, name_btn_back='Назад')
     )
 
@@ -2889,7 +2889,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
         if work_type.id not in work_type_id_list:
             new_work_types.append(work_type)
 
-    subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
+    # subscription = await SubscriptionType.get_subscription_type(id=subscription_id)  # УДАЛЕНО: SubscriptionType больше не используется
 
     names = [work_type.work_type for work_type in new_work_types]
     ids = [work_type.id for work_type in new_work_types]
@@ -2898,7 +2898,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
     btn_back = True  # Всегда показываем кнопку назад
 
     await callback.message.answer(
-        text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)} из {subscription.count_work_types}",
+        text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)}",
         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=btn_back, name_btn_back='Назад')
     )
 

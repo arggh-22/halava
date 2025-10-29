@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta
 
 from app.data.database.models import Customer, Worker, Banned, WorkerAndSubscription, Abs, WorkersAndAbs, \
-    SubscriptionType, BannedAbs, City, WorkerAndRefsAssociation
+    BannedAbs, City, WorkerAndRefsAssociation
 from app.keyboards import KeyboardCollection
 from app.untils import help_defs
 from loaders import bot

@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message, InputMediaPhoto
 
 # Импорт вспомогательных модулей и компонентов из приложения
 from app.data.database.models import Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, \
-    SubscriptionType, UserAndSupportQueue, WorkType
+    UserAndSupportQueue, WorkType
 from app.keyboards import KeyboardCollection
 from app.states import AdminStates
 from app.untils import help_defs

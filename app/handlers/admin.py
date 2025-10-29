@@ -12,7 +12,7 @@ from aiogram.utils.markdown import link
 
 # Импорт вспомогательных модулей и компонентов из приложения
 from app.data.database.models import (
-    Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, SubscriptionType, City,
+    Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, City,
     WorkerAndRefsAssociation, WorkType, Admin, WorkerAndBadResponse, WorkerAndReport
 )
 from app.keyboards import KeyboardCollection

@@ -4,7 +4,7 @@ from aiogram.exceptions import TelegramForbiddenError
 
 import config
 from app.data.database.models import Banned, WorkType, Customer, BannedAbs, Worker, WorkerAndSubscription, \
-    SubscriptionType, City, WorkerAndCustomer, WorkerAndRefsAssociation
+    City, WorkerAndCustomer, WorkerAndRefsAssociation
 from app.keyboards import KeyboardCollection
 from app.untils import help_defs, checks
 from loaders import bot

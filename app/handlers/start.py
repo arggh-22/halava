@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 
 import config
 from app.data.database.models import Admin, Customer, Worker, City, Banned, Abs, InfoHaltura, UserAndSupportQueue, \
-    WorkerAndRefsAssociation, BannedAbs, AskAnswer, WorkerAndSubscription, SubscriptionType, WorkType
+    WorkerAndRefsAssociation, BannedAbs, AskAnswer, WorkerAndSubscription, WorkType
 from app.keyboards import KeyboardCollection
 from app.states import WorkStates, UserStates, BannedStates, CustomerStates, AdminStates
 from app.untils import help_defs, checks, message_utils
