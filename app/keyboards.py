@@ -208,6 +208,7 @@ class KeyboardCollection:
         
         # Профиль
         builder.add(self._inline(button_text="Фото профиля", callback_data="create_photo_profile"))
+        builder.add(self._inline(button_text="Изменить имя", callback_data="worker_change_name"))
         builder.add(self._inline(button_text="Портфолио", callback_data="my_portfolio"))
         
         builder.adjust(1)
@@ -910,6 +911,13 @@ class KeyboardCollection:
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text='Поддержка 24/7', callback_data='support'))
         builder.add(self._inline(button_text='История запросов', callback_data='support_history'))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def change_name_button(self):
+        """Кнопка для изменения имени исполнителя"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✏️ Изменить имя", callback_data="worker_change_name"))
         builder.adjust(1)
         return builder.as_markup()
 

@@ -2521,6 +2521,107 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
         )
     )
 
+
+@router.callback_query(lambda c: c.data.startswith('admin_delete_worker_name_'))
+async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -> None:
+    """Удаление имени исполнителя администратором с системой предупреждений"""
+    logger.debug(f'admin_delete_worker_name...')
+    
+    try:
+        if not callback.data:
+            await callback.answer("❌ Неверный формат данных", show_alert=True)
+            return
+            
+        parts = callback.data.split('_')
+        logger.debug(f'admin_delete_worker_name callback.data: {callback.data}, parts: {parts}, len: {len(parts)}')
+        
+        if len(parts) < 6:
+            await callback.answer("❌ Неверный формат данных", show_alert=True)
+            return
+        
+        try:
+            worker_id = int(parts[4])
+            worker_tg_id = int(parts[5])
+        except (ValueError, IndexError) as e:
+            logger.error(f"Ошибка при парсинге ID из callback.data: {callback.data}, parts: {parts}, error: {e}")
+            await callback.answer("❌ Неверный формат данных", show_alert=True)
+            return
+        
+        worker = await Worker.get_worker(id=worker_id)
+        if not worker:
+            await callback.answer("❌ Исполнитель не найден", show_alert=True)
+            return
+        
+        # Увеличиваем счетчик нарушений
+        new_violations_count = (worker.name_violations_count or 0) + 1
+        await worker.update_name_violations_count(new_violations_count)
+        
+        # Обнуляем имя
+        await worker.update_profile_name(profile_name="")
+        
+        # Удаляем сообщение
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        
+        # Система предупреждений и блокировок
+        from app.data.database.models import Banned
+        
+        if new_violations_count == 3:
+            # 3-й раз - блокировка навсегда
+            banned = await Banned.get_banned(tg_id=worker_tg_id)
+            ban_reason = "Повторные нарушения правил платформы (имя)"
+            
+            if banned:
+                await banned.update(forever=True, ban_now=True, ban_reason=ban_reason)
+            else:
+                banned = Banned(
+                    id=None,
+                    tg_id=worker_tg_id,
+                    ban_counter=3,
+                    ban_end=None,
+                    ban_now=True,
+                    forever=True,
+                    ban_reason=ban_reason
+                )
+                await banned.save()
+            
+            # Отправляем уведомление исполнителю
+            try:
+                await bot.send_message(
+                    chat_id=worker_tg_id,
+                    text="🚫 Ваш аккаунт заблокирован за повторные нарушения правил платформы!",
+                    reply_markup=KeyboardCollection().support_btn_simple()
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при отправке уведомления о блокировке: {e}")
+            
+            await callback.message.answer(f"✅ Имя удалено. Исполнитель #{worker_id} заблокирован навсегда (3 нарушения)")
+        
+        elif new_violations_count == 1 or new_violations_count == 2:
+            # 1-й или 2-й раз - предупреждение и перенаправление
+            try:
+                kbc = KeyboardCollection()
+                
+                warning_text = f"⚠️ Укажите своё настоящее имя — рекламные или выдуманные имена не допускаются. ({new_violations_count}/3)"
+                
+                await bot.send_message(
+                    chat_id=worker_tg_id,
+                    text=warning_text,
+                    reply_markup=kbc.change_name_button(),
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при отправке предупреждения: {e}")
+            
+            await callback.message.answer(f"✅ Имя удалено. Исполнителю #{worker_id} отправлено предупреждение ({new_violations_count}/3)")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в admin_delete_worker_name: {e}")
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |
 # | |  | |  ___ | |__    | |    ___   ___ | |__

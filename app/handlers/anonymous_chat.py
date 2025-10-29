@@ -23,6 +23,7 @@ from app.data.database.models import (
 )
 from loaders import bot
 from app.untils.contact_filter import check_message_for_contacts
+from app.untils.checks import fool_check
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -94,6 +95,30 @@ async def get_response_status_indicator(response, user_type: str) -> str:
         logger.error(f"Error in get_response_status_indicator: {e}")
         return "💬"  # По умолчанию активный чат
 
+
+def get_sender_name(sender_type: str, user_type: str, worker, customer) -> str:
+    """
+    Возвращает правильное имя отправителя в зависимости от того, кто читает чат
+    
+    Args:
+        sender_type: 'worker' или 'customer' - кто отправил сообщение
+        user_type: 'worker' или 'customer' - кто читает чат
+        worker: объект Worker
+        customer: объект Customer
+    
+    Returns:
+        str: имя отправителя для отображения
+    """
+    if sender_type == user_type:
+        return "Вы"
+    elif sender_type == "worker" and user_type == "customer":
+        # Заказчик читает, исполнитель отправил
+        return worker.profile_name or worker.tg_name or "Исполнитель"
+    elif sender_type == "customer" and user_type == "worker":
+        # Исполнитель читает, заказчик отправил
+        return "Заказчик"
+    else:
+        return "Неизвестно"
 
 async def format_chat_history_for_display(user_type: str, abs_id: int, worker, customer) -> str:
     """
@@ -233,18 +258,8 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                 # Добавляем индикатор неотвеченного сообщения
                 unread_indicator = " • " if show_indicator else ""
                 
-                if user_type == "customer":
-                    # Заказчик видит свои сообщения как "Вы"
-                    if msg_sender == "customer":
-                        chat_history += f"{unread_indicator} **Вы:** {msg_text}\n"
-                    else:
-                        chat_history += f" **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
-                else:  # worker
-                    # Исполнитель видит свои сообщения как "Вы"
-                    if msg_sender == "worker":
-                        chat_history += f"{unread_indicator} **Вы:** {msg_text}\n"
-                    else:
-                        chat_history += f" **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
+                sender_name = get_sender_name(msg_sender, user_type, worker, customer)
+                chat_history += f"{unread_indicator} **{sender_name}:** {msg_text}\n"
         
         return chat_history
         
@@ -394,9 +409,10 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
         
         # Формируем заголовок
         if user_type == "customer":
-            header = f"💬 **Чат с исполнителем**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n"
+            worker_name = worker.profile_name or worker.tg_name or "Исполнитель"
+            header = f"💬 **Чат с исполнителем**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker_name}\n\n"
         else:  # worker
-            header = f"💬 **Чат с заказчиком**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+            header = f"💬 **Чат с заказчиком**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: ID#{customer.id}\n\n"
         
         # Проверяем, есть ли вообще сообщения
         if not ordered_messages:
@@ -420,18 +436,8 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                     msg_text = msg_data['text']
                     msg_sender = msg_data['sender']
 
-                    if user_type == "customer":
-                        # Заказчик видит свои сообщения как "Вы"
-                        if msg_sender == "customer":
-                            chat_history += f" **Вы:** {msg_text}\n"
-                        else:
-                            chat_history += f" **{worker.public_id or f'ID#{worker.id}'}:** {msg_text}\n"
-                    else:  # worker
-                        # Исполнитель видит свои сообщения как "Вы"
-                        if msg_sender == "worker":
-                            chat_history += f" **Вы:** {msg_text}\n"
-                        else:
-                            chat_history += f" **{customer.public_id or f'ID#{customer.id}'}:** {msg_text}\n"
+                    sender_name = get_sender_name(msg_sender, user_type, worker, customer)
+                    chat_history += f" **{sender_name}:** {msg_text}\n"
                 
                 # Формируем полный текст
                 full_text = header + "📝 **История переписки:**\n" + chat_history
@@ -558,34 +564,34 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                     await contact_exchange.update(contacts_purchased=True)
 
                     # Передаем контакты исполнителю с учетом нового функционала
-                    contacts_text = f"📞 **Контакты заказчика:**\n\n"
+                    contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n"
                     
                     # Формируем контакты в зависимости от настроек заказчика
                     if customer.contact_type == "telegram_only":
-                        contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                        contacts_text += f"🆔 **ID:** {customer.tg_id}"
+                        contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                        contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
                     elif customer.contact_type == "phone_only":
-                        contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+                        contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
                     elif customer.contact_type == "both":
-                        contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                        contacts_text += f"🆔 **ID:** {customer.tg_id}\n"
-                        contacts_text += f"📞 **Номер телефона:** [{customer.phone_number}](tel:{customer.phone_number})"
+                        contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                        contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}\n"
+                        contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
                     else:
                         # Fallback - показываем только Telegram если контакты не настроены
-                        contacts_text += f"📱 **Telegram:** [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                        contacts_text += f"🆔 **ID:** {customer.tg_id}"
+                        contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
+                        contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
 
                     await bot.send_message(
                         chat_id=worker.tg_id,
-                        text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n{contacts_text}",
-                        parse_mode='Markdown'
+                        text=f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n{contacts_text}",
+                        parse_mode='HTML'
                     )
 
                     # Уведомляем заказчика
                     await bot.send_message(
                         chat_id=customer.tg_id,
-                        text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
-                        parse_mode='Markdown'
+                        text=f"✅ <b>Контакты переданы исполнителю!</b>\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
+                        parse_mode='HTML'
                     )
 
                     # Закрываем чат
@@ -598,12 +604,12 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                         # Получаем исходный текст сообщения
                         original_text = "Запрос контакта от исполнителя\n\n"
                         original_text += f"Объявление: #{abs_id}\n"
-                        original_text += f"ID: {worker.public_id or f'W{worker.id}'}\n"
+                        original_text += f"ID: {worker.id}\n"
                         original_text += f"Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}/5 ({worker.count_ratings} оценок)\n"
                         original_text += f"Статус: {'ИП ✅' if worker.individual_entrepreneur else 'Не подтвержден ⚠️'}\n"
                         original_text += f"Выполнено заказов: {worker.order_count}\n"
                         original_text += f"Зарегистрирован: {worker.registration_data}\n\n"
-                        original_text += "✅ **Контакты переданы исполнителю!**"
+                        original_text += "✅ <b>Контакты переданы исполнителю!</b>"
 
                         # Проверяем, есть ли фото в сообщении
                         if callback.message.photo:
@@ -617,7 +623,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                                     contact_sent=True,
                                     contacts_purchased=True
                                 ),
-                                parse_mode='Markdown'
+                                parse_mode='HTML'
                             )
                         else:
                             # Если нет фото, редактируем текст
@@ -630,12 +636,12 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                                     contact_sent=True,
                                     contacts_purchased=True
                                 ),
-                                parse_mode='Markdown'
+                                parse_mode='HTML'
                             )
                     except Exception as edit_error:
                         # Если не можем отредактировать, отправляем новое сообщение
                         await callback.message.answer(
-                            text="✅ **Контакты переданы исполнителю!**",
+                            text="✅ <b>Контакты переданы исполнителю!</b>",
                             reply_markup=kbc.anonymous_chat_customer_buttons(
                                 worker_id=worker_id,
                                 abs_id=abs_id,
@@ -643,7 +649,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                                 contact_sent=True,
                                 contacts_purchased=True
                             ),
-                            parse_mode='Markdown'
+                            parse_mode='HTML'
                         )
 
                     await callback.answer("✅ Контакты переданы исполнителю!")
@@ -679,14 +685,14 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
 
             await bot.send_message(
                 chat_id=worker.tg_id,
-                text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n{contacts_text}",
+                text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n{contacts_text}",
                 parse_mode='Markdown'
             )
 
             # Уведомляем заказчика
             await bot.send_message(
                 chat_id=customer.tg_id,
-                text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
+                text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
                 parse_mode='Markdown'
             )
 
@@ -700,7 +706,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                 # Получаем исходный текст сообщения
                 original_text = "Запрос контакта от исполнителя\n\n"
                 original_text += f"Объявление: #{abs_id}\n"
-                original_text += f"ID: {worker.public_id or f'W{worker.id}'}\n"
+                original_text += f"ID: {worker.id}\n"
                 original_text += f"Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}/5 ({worker.count_ratings} оценок)\n"
                 original_text += f"Статус: {'ИП ✅' if worker.individual_entrepreneur else 'Не подтвержден ⚠️'}\n"
                 original_text += f"Выполнено заказов: {worker.order_count}\n"
@@ -756,7 +762,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
         notification_text = (
             f"🔔 **Заказчик подтвердил передачу контактов!**\n\n"
             f"📋 Объявление: #{abs_id}\n"
-            f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+            f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
             f"💰 У вас нет купленных контактов.\n"
             f"Для получения контактов вам необходимо купить контакты."
         )
@@ -781,7 +787,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
             # Получаем исходный текст сообщения
             original_text = "Запрос контакта от исполнителя\n\n"
             original_text += f"Объявление: #{abs_id}\n"
-            original_text += f"ID: {worker.public_id or f'W{worker.id}'}\n"
+            original_text += f"ID: {worker.id}\n"
             original_text += f"Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}/5 ({worker.count_ratings} оценок)\n"
             original_text += f"Статус: {'ИП ✅' if worker.individual_entrepreneur else 'Не подтвержден ⚠️'}\n"
             original_text += f"Выполнено заказов: {worker.order_count}\n"
@@ -902,14 +908,14 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
 
             await bot.send_message(
                 chat_id=worker.tg_id,
-                text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n{contacts_text}\n\n💰 Осталось контактов: {new_count}",
+                text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n{contacts_text}\n\n💰 Осталось контактов: {new_count}",
                 parse_mode='Markdown'
             )
 
             # Уведомляем заказчика
             await bot.send_message(
                 chat_id=customer.tg_id,
-                text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
+                text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
                 parse_mode='Markdown'
             )
 
@@ -993,7 +999,7 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
         # Уведомляем заказчика об отказе
         await bot.send_message(
             chat_id=customer.tg_id,
-            text=f"❌ **Исполнитель отказался от покупки контактов**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\nОтклик возвращен в обычный режим.",
+            text=f"❌ **Исполнитель отказался от покупки контактов**\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\nОтклик возвращен в обычный режим.",
             parse_mode='Markdown'
         )
 
@@ -1066,7 +1072,7 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
         notification_text = (
             f"❌ **Заказчик отклонил передачу контактов**\n\n"
             f"📋 Объявление: #{abs_id}\n"
-            f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+            f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
             f"К сожалению, заказчик не готов поделиться контактами.\n"
             f"Вы можете запросить контакт позже."
         )
@@ -1102,7 +1108,7 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
                     reply_markup=kbc.customer_responses_list_buttons(
                         responses_data=[{
                             'worker_id': worker_id,
-                            'worker_public_id': worker.public_id or f'ID#{worker.id}',
+                            'worker_public_id': f'ID#{worker.id}',
                             'active': True
                         }],
                         abs_id=abs_id
@@ -1116,7 +1122,7 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
                     reply_markup=kbc.customer_responses_list_buttons(
                         responses_data=[{
                             'worker_id': worker_id,
-                            'worker_public_id': worker.public_id or f'ID#{worker.id}',
+                            'worker_public_id': f'ID#{worker.id}',
                             'active': True
                         }],
                         abs_id=abs_id
@@ -1134,7 +1140,7 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
                 reply_markup=kbc.customer_responses_list_buttons(
                     responses_data=[{
                         'worker_id': worker_id,
-                        'worker_public_id': worker.public_id or f'ID#{worker.id}',
+                        'worker_public_id': f'ID#{worker.id}',
                         'active': True
                     }],
                     abs_id=abs_id
@@ -1198,7 +1204,7 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
         notification_text = (
             f"🔔 **Заказчик предлагает передать контакты!**\n\n"
             f"📋 Объявление: #{abs_id}\n"
-            f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+            f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
             f"Хотите получить контакты заказчика?"
         )
 
@@ -1328,7 +1334,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                 chat_id=customer.tg_id,
                 text=f"✅ **Исполнитель получил ваши контакты!**\n\n"
                      f"📋 Объявление: #{abs_id}\n"
-                     f"👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n"
+                     f"👤 Исполнитель: {f'ID#{worker.id}'}\n\n"
                      f"🔒 **Чат закрыт** - контакты переданы.",
                 parse_mode='Markdown'
             )
@@ -1336,7 +1342,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
             # Отправляем контакты исполнителю с учетом нового функционала
             contacts_text = f"📞 **Контакты заказчика получены!**\n\n"
             contacts_text += f"📋 Объявление: #{abs_id}\n"
-            contacts_text += f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+            contacts_text += f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
             
             # Формируем контакты в зависимости от настроек заказчика
             if customer.contact_type == "telegram_only":
@@ -1376,7 +1382,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                 await callback.message.answer(
                     text=f"💰 **Для получения контактов необходимо оплатить**\n\n"
                          f"📋 Объявление: #{abs_id}\n"
-                         f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+                         f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
                          f"Выберите тариф:",
                     reply_markup=kbc.buy_tokens_tariffs(),
                     parse_mode='Markdown'
@@ -1386,7 +1392,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                 await callback.message.answer(
                     text=f"💰 **Для получения контактов необходимо оплатить**\n\n"
                          f"📋 Объявление: #{abs_id}\n"
-                         f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+                         f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
                          f"Выберите тариф:",
                     reply_markup=kbc.buy_tokens_tariffs(),
                     parse_mode='Markdown'
@@ -1430,7 +1436,7 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
             chat_id=customer.tg_id,
             text=f"❌ **Исполнитель отклонил получение контактов**\n\n"
                  f"📋 Объявление: #{abs_id}\n"
-                 f"👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n"
+                 f"👤 Исполнитель: {f'ID#{worker.id}'}\n\n"
                  f"Исполнитель не готов получить контакты в данный момент.",
             parse_mode='Markdown'
         )
@@ -1469,10 +1475,20 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         is_valid, error_message = check_message_for_contacts(message.text)
         if not is_valid:
             await message.answer(
-                f"🚫 **Сообщение заблокировано!**\n\n"
+                f"🚫 <b>Сообщение заблокировано!</b>\n\n"
                 f"{error_message}\n\n"
                 "Используйте кнопку 'Запросить контакт' для получения контактов заказчика.",
-                parse_mode='Markdown'
+                parse_mode='HTML'
+            )
+            return
+
+        # Проверяем на стоп-слова (для сообщений в чате)
+        if ban_reason := await fool_check(message.text, is_message=True):
+            await message.answer(
+                f"🚫 <b>Сообщение заблокировано!</b>\n\n"
+                f"Причина: {ban_reason}\n\n"
+                "Пожалуйста, переформулируйте сообщение.",
+                parse_mode='HTML'
             )
             return
 
@@ -1580,10 +1596,20 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
         is_valid, error_message = check_message_for_contacts(message.text)
         if not is_valid:
             await message.answer(
-                f"🚫 **Сообщение заблокировано!**\n\n"
+                f"🚫 <b>Сообщение заблокировано!</b>\n\n"
                 f"{error_message}\n\n"
                 "Используйте кнопку 'Предложить контакты' для передачи контактов исполнителю.",
-                parse_mode='Markdown'
+                parse_mode='HTML'
+            )
+            return
+
+        # Проверяем на стоп-слова (для сообщений в чате)
+        if ban_reason := await fool_check(message.text, is_message=True):
+            await message.answer(
+                f"🚫 <b>Сообщение заблокировано!</b>\n\n"
+                f"Причина: {ban_reason}\n\n"
+                "Пожалуйста, переформулируйте сообщение.",
+                parse_mode='HTML'
             )
             return
 
@@ -1708,7 +1734,7 @@ async def reply_in_worker_chat(callback: CallbackQuery, state: FSMContext):
             callback=callback,
             text=f"💬 **Чат с заказчиком**\n\n"
                  f"📋 Объявление: #{abs_id}\n"
-                 f"👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n"
+                 f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
                  f"Напишите сообщение заказчику:",
             parse_mode='Markdown'
         )
@@ -2217,9 +2243,19 @@ async def worker_chat_message(message: Message, state: FSMContext):
         if not is_valid:
             kbc = KeyboardCollection()
             await message.answer(
-                text=f"🚫 **Сообщение заблокировано!**\n\n{error_message}",
+                text=f"🚫 <b>Сообщение заблокировано!</b>\n\n{error_message}",
                 reply_markup=kbc.menu(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
+            )
+            return
+
+        # Проверяем на стоп-слова (для сообщений в чате)
+        if ban_reason := await fool_check(message.text, is_message=True):
+            kbc = KeyboardCollection()
+            await message.answer(
+                text=f"🚫 <b>Сообщение заблокировано!</b>\n\nПричина: {ban_reason}",
+                reply_markup=kbc.menu(),
+                parse_mode='HTML'
             )
             return
 
@@ -2275,7 +2311,7 @@ async def worker_chat_message(message: Message, state: FSMContext):
 
         # ID и имя
         worker_name = worker.profile_name or worker.tg_name
-        notification_text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'} {worker_name}\n"
+        notification_text += f"👤 **ID:** {worker.id} {worker_name}\n"
 
         # Рейтинг
         if worker.count_ratings > 0:
@@ -2373,7 +2409,7 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
 
         # ID и имя
         worker_name = worker.profile_name or worker.tg_name
-        notification_text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'} {worker_name}\n"
+        notification_text += f"👤 **ID:** {worker.id} {worker_name}\n"
 
         # Рейтинг
         if worker.count_ratings > 0:
@@ -2630,14 +2666,14 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
 
                     await bot.send_message(
                         chat_id=worker.tg_id,
-                        text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{target_abs_id}\n👤 Заказчик: {customer.public_id or f'ID#{customer.id}'}\n\n{contacts_text}",
+                        text=f"🎉 **Контакты получены!**\n\n📋 Объявление: #{target_abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n{contacts_text}",
                         parse_mode='Markdown'
                     )
 
                     # Уведомляем заказчика
                     await bot.send_message(
                         chat_id=customer.tg_id,
-                        text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{target_abs_id}\n👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
+                        text=f"✅ **Контакты переданы исполнителю!**\n\n📋 Объявление: #{target_abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
                         parse_mode='Markdown'
                     )
 
@@ -2755,7 +2791,7 @@ async def cancel_contact_request(callback: CallbackQuery):
         notification_text = (
             f"ℹ️ **Исполнитель отменил запрос контакта**\n\n"
             f"📋 Объявление: #{abs_id}\n"
-            f"👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n"
+            f"👤 Исполнитель: {f'ID#{worker.id}'}\n\n"
             f"Запрос на передачу контакта отменен."
         )
 

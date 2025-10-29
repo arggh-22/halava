@@ -313,6 +313,69 @@ def contains_gibberish(text: str) -> bool:
     return is_random_string(text) and bool(re.search(r'(.)\1{2,}.*(.)\2{2,}', text))
 
 
+async def validate_worker_name(name: str) -> tuple[bool, str]:
+    """
+    Валидация имени исполнителя:
+    - Только русские буквы (без цифр, символов, латиницы)
+    - Максимум символов берется из config.MAX_WORKER_NAME_LENGTH
+    - Проверка стоп-слов
+    - Минимум символов берется из config.MIN_WORKER_NAME_LENGTH
+    
+    Returns:
+        (is_valid, error_message)
+    """
+    import config
+    
+    if not name or not name.strip():
+        return False, "❌ Имя не может быть пустым"
+    
+    name = name.strip()
+    
+    # Проверка длины (из config)
+    max_length = getattr(config, 'MAX_WORKER_NAME_LENGTH', 15)
+    min_length = getattr(config, 'MIN_WORKER_NAME_LENGTH', 2)
+    
+    if len(name) > max_length:
+        return False, f"❌ Имя слишком длинное. Максимум {max_length} символов (ваше: {len(name)})"
+    
+    if len(name) < min_length:
+        return False, f"❌ Имя слишком короткое. Минимум {min_length} символа"
+    
+    # Проверка на только русские буквы и пробелы
+    # Разрешаем: А-Я, а-я, ё, Ё, пробелы, дефис
+    russian_pattern = r'^[А-Яа-яЁё\s\-]+$'
+    if not re.match(russian_pattern, name):
+        return False, "❌ Имя должно содержать только русские буквы (без цифр, латиницы и символов)"
+    
+    # Проверка на цифры
+    if re.search(r'\d', name):
+        return False, "❌ Имя не должно содержать цифры"
+    
+    # Проверка на латиницу (дополнительная проверка)
+    if re.search(r'[A-Za-z]', name):
+        return False, "❌ Имя не должно содержать латинские буквы"
+    
+    # Проверка стоп-слов (используем те же стоп-слова что и для сообщений)
+    stop_words_check = await fool_check(name, is_message=True)
+    if stop_words_check:
+        return False, f"❌ Имя содержит запрещенные слова: {stop_words_check}"
+    
+    # Проверка на телефонные номера
+    if phone_finder(name):
+        return False, "❌ Имя не должно содержать номер телефона"
+    
+    # Проверка на ссылки
+    links = await find_links_emails_and_telegram(name)
+    if links:
+        return False, "❌ Имя не должно содержать ссылки или email"
+    
+    # Проверка на количество пробелов (не должно быть много подряд)
+    if re.search(r'\s{3,}', name):
+        return False, "❌ В имени слишком много пробелов подряд"
+    
+    return True, ""
+
+
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |
 # | |  | |  ___ | |__    | |    ___   ___ | |__

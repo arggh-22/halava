@@ -41,6 +41,7 @@ class WorkStates(StatesGroup):
     worker_request_contact = State()  # Запрос контакта
     worker_buy_tokens = State()  # Покупка жетонов
     worker_choose_subscription_cities = State()  # Выбор городов для подписки
+    worker_change_name = State()  # Изменение имени исполнителя
 
 
 class CustomerStates(StatesGroup):

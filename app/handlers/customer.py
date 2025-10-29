@@ -3116,7 +3116,7 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
                 
                 responses_data.append({
                     'worker_id': response.worker_id,
-                    'worker_public_id': worker.public_id or f'ID#{worker.id}',
+                    'worker_public_id': f'ID#{worker.id}',
                     'worker_name': worker.profile_name or worker.tg_name,
                     'worker_stars': worker.stars,
                     'worker_ratings': worker.count_ratings,
@@ -3231,7 +3231,7 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
                 
                 responses_data.append({
                     'worker_id': response.worker_id,
-                    'worker_public_id': worker.public_id or f'ID#{worker.id}',
+                    'worker_public_id': f'ID#{worker.id}',
                     'worker_name': worker.profile_name or worker.tg_name,
                     'worker_stars': worker.stars,
                     'worker_ratings': worker.count_ratings,
@@ -3755,7 +3755,7 @@ async def customer_view_worker_portfolio(callback: CallbackQuery, state: FSMCont
         first_photo_path = worker.portfolio_photo[first_photo_key]
         
         text = f"📸 **Портфолио исполнителя**\n\n"
-        text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'}\n"
+        text += f"👤 **ID:** {worker.id}\n"
         text += f"📋 **Имя:** {worker.profile_name or worker.tg_name}\n"
         text += f"🖼️ **Фото в портфолио:** {photo_len}\n\n"
         text += f"Фото 1 из {photo_len}"
@@ -3845,7 +3845,7 @@ async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSM
         photo_path = worker.portfolio_photo[real_key]
         
         text = f"📸 **Портфолио исполнителя**\n\n"
-        text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'}\n"
+        text += f"👤 **ID:** {worker.id}\n"
         text += f"📋 **Имя:** {worker.profile_name or worker.tg_name}\n"
         text += f"🖼️ **Фото в портфолио:** {photo_len}\n\n"
         text += f"Фото {photo_num + 1} из {photo_len}"

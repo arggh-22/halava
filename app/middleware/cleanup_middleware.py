@@ -1,5 +1,5 @@
 """
-Middleware для автоматической очистки предыдущих сообщений
+Middleware для автоматической очистки предыдущих сообщений и проверки блокировок
 """
 import logging
 from typing import Callable, Dict, Any, Awaitable
@@ -31,6 +31,27 @@ class DeletePreviousMiddleware(BaseMiddleware):
         Основной метод middleware
         """
         logger.debug(f"Middleware called with event type: {type(event)}")
+        
+        # Проверка блокировок для CallbackQuery (кнопки)
+        if isinstance(event, CallbackQuery):
+            # Разрешенные callback_data (кнопка поддержки и другие исключения)
+            allowed_callbacks = ['support', 'support_history', 'support_ask_question', 'menu', 'support_blocking_yes', 'support_blocking_no']
+            
+            # Проверяем, не заблокирован ли пользователь навсегда
+            if event.data not in allowed_callbacks:
+                try:
+                    from app.data.database.models import Banned
+                    banned = await Banned.get_banned(tg_id=event.from_user.id)
+                    
+                    if banned and banned.forever and banned.ban_now:
+                        # Пользователь заблокирован навсегда
+                        await event.answer(
+                            "🚫 Ваш аккаунт заблокирован за повторные нарушения правил платформы!",
+                            show_alert=True
+                        )
+                        return  # Блокируем выполнение обработчика
+                except Exception as e:
+                    logger.error(f"Ошибка при проверке блокировки: {e}")
         
         # Получаем бота из данных
         bot = data.get("bot")

@@ -317,11 +317,22 @@ async def choose_city_end(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(F.text, WorkStates.registration_enter_name)
 async def enter_worker_name(message: Message, state: FSMContext) -> None:
-    """Обработка ввода имени исполнителя"""
+    """Обработка ввода имени исполнителя с валидацией и модерацией"""
     logger.debug(f'enter_worker_name...')
+    
+    from app.untils.checks import validate_worker_name
+    from loaders import bot
+    import config
     
     kbc = KeyboardCollection()
     worker_name = message.text.strip()
+    
+    # Валидация имени
+    is_valid, error_message = await validate_worker_name(worker_name)
+    
+    if not is_valid:
+        await message.answer(error_message)
+        return
     
     # Сохраняем имя и завершаем регистрацию
     await state.update_data(username=worker_name)
@@ -333,16 +344,41 @@ async def enter_worker_name(message: Message, state: FSMContext) -> None:
 
     new_worker = Worker(tg_id=message.chat.id,
                         city_id=[city_id],
-                        tg_name=worker_name,
-                        profile_name=worker_name,  # Добавляем profile_name
+                        tg_name=message.from_user.username or message.from_user.first_name or "Пользователь",
+                        profile_name=worker_name,
                         registration_data=registration_date,
                         stars=5)
 
     await new_worker.save()
     new_worker = await Worker.get_worker(tg_id=message.chat.id)
 
-    new_worker_and_subscription = WorkerAndSubscription(worker_id=new_worker.id)
-    await new_worker_and_subscription.save()
+    # Проверяем, существует ли уже запись для этого исполнителя
+    existing_subscription = await WorkerAndSubscription.get_by_worker(worker_id=new_worker.id)
+    if not existing_subscription:
+        new_worker_and_subscription = WorkerAndSubscription(worker_id=new_worker.id)
+        await new_worker_and_subscription.save()
+    
+    # Отправляем имя на модерацию в админ-чат
+    try:
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        builder = InlineKeyboardBuilder()
+        builder.add(kbc._inline("❌ Удалить", f"admin_delete_worker_name_{new_worker.id}_{new_worker.tg_id}"))
+        builder.adjust(1)
+        
+        admin_text = f"👤 **Новое имя исполнителя**\n\n"
+        admin_text += f"ID: {new_worker.id}\n"
+        admin_text += f"TG ID: {new_worker.tg_id}\n"
+        admin_text += f"Имя: {worker_name}\n"
+        admin_text += f"Город: {city_id}"
+        
+        await bot.send_message(
+            chat_id=config.NAME_MODERATION_CHAT,
+            text=admin_text,
+            reply_markup=builder.as_markup(),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при отправке имени на модерацию: {e}")
     
     # Показываем всплывающее окно с подтверждением
     await message.answer('✅ Вы успешно зарегистрированы!', show_alert=True)
@@ -476,7 +512,7 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
     
     # Формируем текст профиля
     text = f"**Ваш профиль**\n\n"
-    text += f"ID: {user_worker.id} {user_worker.profile_name}\n"
+    text += f"ID: {user_worker.id} {user_worker.profile_name or user_worker.tg_name}\n"
     text += f"{rating_text}\n"
     text += f"Ранг: {rank_name} {rank_emoji}\n"
     text += f"Активность: {activity_level} {activity_emoji}\n"
@@ -499,7 +535,7 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
                    (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
     choose_works = is_unlimited
 
-    profile_name = True if user_worker.profile_name else False
+    profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
     
     # has_status уже определен выше при формировании текста статуса
     has_status = False
@@ -627,7 +663,7 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
     
     # Формируем текст профиля
     text = f"**Ваш профиль**\n\n"
-    text += f"ID: {user_worker.id} {user_worker.profile_name}\n"
+    text += f"ID: {user_worker.id} {user_worker.profile_name or user_worker.tg_name}\n"
     text += f"{rating_text}\n"
     text += f"Ранг: {rank_name} {rank_emoji}\n"
     text += f"Активность: {activity_level} {activity_emoji}\n"
@@ -650,7 +686,7 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
                    (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
     choose_works = is_unlimited
 
-    profile_name = True if user_worker.profile_name else False
+    profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
     
     # has_status уже определен выше при формировании текста статуса
     has_status = False
@@ -777,7 +813,7 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
     
     # Формируем текст профиля
     text = f"**Ваш профиль**\n\n"
-    text += f"ID: {user_worker.id} {user_worker.profile_name}\n"
+    text += f"ID: {user_worker.id} {user_worker.profile_name or user_worker.tg_name}\n"
     text += f"{rating_text}\n"
     text += f"Ранг: {rank_name} {rank_emoji}\n"
     text += f"Активность: {activity_level} {activity_emoji}\n"
@@ -805,7 +841,7 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
     except TelegramBadRequest:
         pass
 
-    profile_name = True if user_worker.profile_name else False
+    profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
     
     # has_status уже определен выше при формировании текста статуса
     has_status = False
@@ -1444,10 +1480,33 @@ async def process_photos(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "add_worker_name", WorkStates.worker_menu)
 async def add_worker_name(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'create_photo_profile...')
+    """Старый обработчик - перенаправляем на новый"""
+    await worker_change_name_handler(callback, state)
+
+
+@router.callback_query(F.data == "worker_change_name")
+async def worker_change_name_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик для изменения имени исполнителя"""
+    logger.debug(f'worker_change_name_handler...')
+    
+    # Проверяем блокировку
+    from app.data.database.models import Banned
+    banned = await Banned.get_banned(tg_id=callback.from_user.id)
+    if banned and banned.forever:
+        await callback.answer("🚫 Ваш аккаунт заблокирован за повторные нарушения правил платформы!", show_alert=True)
+        return
+    
     kbc = KeyboardCollection()
 
-    text = f'Укажите ваше имя'
+    import config
+    
+    max_length = getattr(config, 'MAX_WORKER_NAME_LENGTH', 15)
+    
+    text = f'✏️ Укажите ваше имя\n\n'
+    text += f'⚠️ Требования:\n'
+    text += f'• Только русские буквы\n'
+    text += f'• Без цифр и символов\n'
+    text += f'• Максимум {max_length} символов'
 
     try:
         await callback.message.delete()
@@ -1462,33 +1521,81 @@ async def add_worker_name(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(F.text, WorkStates.create_name_profile)
-async def process_photos(message: Message, state: FSMContext):
-    logger.debug(f"process_photos")
+async def process_worker_name(message: Message, state: FSMContext):
+    """Обработка ввода имени с валидацией и модерацией"""
+    logger.debug(f"process_worker_name")
 
+    from app.untils.checks import validate_worker_name
+    from loaders import bot
+    import config
+    from datetime import timedelta, datetime
+    
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
     msg_id = state_data.get('msg_id')
 
-    name = message.text
+    name = message.text.strip()
 
-    if await checks.fool_check(name):
-        text = f'Упс, кажется Вы ввели не корректно свое имя, попробуйте пожалуйста еще раз.'
-
-        msg = await message.answer(
-            text=text
-        )
+    # Валидация имени
+    is_valid, error_message = await validate_worker_name(name)
+    
+    if not is_valid:
+        msg = await message.answer(text=error_message)
         await state.update_data(msg_id=msg.message_id)
-        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        except:
+            pass
         return
 
     worker = await Worker.get_worker(tg_id=message.chat.id)
+    if not worker:
+        await message.answer("❌ Исполнитель не найден")
+        await state.set_state(WorkStates.worker_menu)
+        return
+    
+    # Проверяем блокировку
+    from app.data.database.models import Banned
+    banned = await Banned.get_banned(tg_id=worker.tg_id)
+    if banned and banned.forever:
+        await message.answer("🚫 Ваш аккаунт заблокирован за повторные нарушения правил платформы!", show_alert=True)
+        await state.set_state(WorkStates.worker_menu)
+        return
+    
+    # Сохраняем имя
     await worker.update_profile_name(profile_name=name)
+    
+    # Отправляем имя на модерацию в админ-чат
+    try:
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        builder = InlineKeyboardBuilder()
+        builder.add(kbc._inline("❌ Удалить", f"admin_delete_worker_name_{worker.id}_{worker.tg_id}"))
+        builder.adjust(1)
+        
+        admin_text = f"✏️ **Исполнитель изменил имя**\n\n"
+        admin_text += f"ID: {worker.id}\n"
+        admin_text += f"TG ID: {worker.tg_id}\n"
+        admin_text += f"Новое имя: {name}\n"
+        if worker.name_violations_count > 0:
+            admin_text += f"⚠️ Нарушений имени: {worker.name_violations_count}"
+        
+        await bot.send_message(
+            chat_id=config.NAME_MODERATION_CHAT,
+            text=admin_text,
+            reply_markup=builder.as_markup(),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при отправке имени на модерацию: {e}")
 
     await state.set_state(WorkStates.worker_menu)
 
-    await message.answer(text='Ваше имя успешно загружено!', reply_markup=kbc.menu_btn())
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    await message.answer(text='✅ Ваше имя успешно изменено!\n\nИмя будет проверено модератором.', reply_markup=kbc.menu_btn())
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    except:
+        pass
 
 
 # Старые обработчики ИП удалены - заменены на новую систему подтверждения статусов

@@ -15,7 +15,7 @@ logger = logging.getLogger()
 
 class Customer:
     def __init__(self, id: int | None, tg_id: int, city_id: int, tg_name: str, abs_count: int = None,
-                 access_token: str = None, author_name: str = None, public_id: str = None,
+                 access_token: str = None, author_name: str = None,
                  contact_type: str = None, phone_number: str = None):
         self.id = id
         self.tg_id = tg_id
@@ -24,7 +24,6 @@ class Customer:
         self.abs_count = abs_count
         self.access_token = access_token
         self.author_name = author_name
-        self.public_id = public_id
         self.contact_type = contact_type
         self.phone_number = phone_number
 
@@ -56,13 +55,9 @@ class Customer:
                 access_token = f'customer_{self.tg_id}_default'
                 author_name = 'haltura customer'
 
-            # Генерируем public_id, если его нет
-            from app.untils.public_id_generator import generate_public_id
-            public_id = self.public_id or generate_public_id("C")
-
             cursor = await conn.execute(
-                'INSERT INTO customers (tg_id, city_id, tg_name, access_token, author_name, public_id) VALUES (?, ?, ?, ?, ?, ?)',
-                (self.tg_id, self.city_id, self.tg_name, access_token, author_name, public_id))
+                'INSERT INTO customers (tg_id, city_id, tg_name, access_token, author_name) VALUES (?, ?, ?, ?, ?)',
+                (self.tg_id, self.city_id, self.tg_name, access_token, author_name))
             await conn.commit()
             await cursor.close()
         finally:
@@ -81,9 +76,8 @@ class Customer:
             if record:
                 return cls(id=record[0], city_id=record[1], tg_id=record[2], tg_name=record[3], abs_count=record[4],
                            access_token=record[5], author_name=record[6],
-                           public_id=record[7] if len(record) > 7 else None,
-                           contact_type=record[8] if len(record) > 8 else None,
-                           phone_number=record[9] if len(record) > 9 else None)
+                           contact_type=record[7] if len(record) > 7 else None,
+                           phone_number=record[8] if len(record) > 8 else None)
             else:
                 return None
         finally:
@@ -112,9 +106,8 @@ class Customer:
             if records:
                 return [cls(id=record[0], city_id=record[1], tg_id=record[2], tg_name=record[3], abs_count=record[4],
                             access_token=record[5], author_name=record[6],
-                            public_id=record[7] if len(record) > 7 else None,
-                            contact_type=record[8] if len(record) > 8 else None,
-                            phone_number=record[9] if len(record) > 9 else None)
+                            contact_type=record[7] if len(record) > 7 else None,
+                            phone_number=record[8] if len(record) > 8 else None)
                         for record in records]
             else:
                 return None
@@ -130,9 +123,8 @@ class Customer:
             await cursor.close()
             return [cls(id=record[0], city_id=record[1], tg_id=record[2], tg_name=record[3], abs_count=record[4],
                         access_token=record[5], author_name=record[6],
-                        public_id=record[7] if len(record) > 7 else None,
-                        contact_type=record[8] if len(record) > 8 else None,
-                        phone_number=record[9] if len(record) > 9 else None) for
+                        contact_type=record[7] if len(record) > 7 else None,
+                        phone_number=record[8] if len(record) > 8 else None) for
                     record in records]
         finally:
             await conn.close()
@@ -236,8 +228,8 @@ class Worker:
                  portfolio_photo: dict = None,
                  purchased_contacts: int = 0,
                  unlimited_contacts_until: str = None,
-                 public_id: str = None,
-                 activity_level: int = 100):
+                 activity_level: int = 100,
+                 name_violations_count: int = 0):
         self.id = id
         self.tg_id = tg_id
         self.tg_name = tg_name
@@ -263,8 +255,8 @@ class Worker:
         self.portfolio_photo = portfolio_photo
         self.purchased_contacts = purchased_contacts
         self.unlimited_contacts_until = unlimited_contacts_until
-        self.public_id = public_id
         self.activity_level = activity_level
+        self.name_violations_count = name_violations_count
 
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
@@ -272,15 +264,11 @@ class Worker:
             city_id = [str(x) for x in self.city_id]
             city_id = ' | '.join(city_id)
 
-            # Генерируем public_id, если его нет
-            from app.untils.public_id_generator import generate_public_id
-            public_id = self.public_id or generate_public_id("W")
-
             cursor = await conn.execute(
-                'INSERT INTO workers (tg_id, tg_name, city_id, phone_number, confirmation_code, ref_code, registration_data, purchased_contacts, unlimited_contacts_until, public_id, activity_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO workers (tg_id, tg_name, city_id, phone_number, confirmation_code, ref_code, registration_data, profile_name, purchased_contacts, unlimited_contacts_until, activity_level, name_violations_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (self.tg_id, self.tg_name, city_id, self.phone_number, self.confirmation_code, self.tg_id,
-                 self.registration_data, self.purchased_contacts, self.unlimited_contacts_until, public_id,
-                 self.activity_level))
+                 self.registration_data, self.profile_name, self.purchased_contacts, self.unlimited_contacts_until,
+                 self.activity_level, self.name_violations_count))
             await conn.commit()
             await cursor.close()
         finally:
@@ -323,8 +311,8 @@ class Worker:
                         portfolio_photo=json.loads(record[19]) if record[19] else None,
                         purchased_contacts=record[20] if len(record) > 20 else 0,
                         unlimited_contacts_until=record[21] if len(record) > 21 else None,
-                        public_id=record[22] if len(record) > 22 else None,
-                        activity_level=record[23] if len(record) > 23 else 100
+                        activity_level=record[22] if len(record) > 22 else 100,
+                        name_violations_count=record[23] if len(record) > 23 else 0
                     )
                 else:
                     return None
@@ -370,8 +358,8 @@ class Worker:
                             portfolio_photo=json.loads(record[19]) if record[19] else None,
                             purchased_contacts=record[20] if len(record) > 20 else 0,
                             unlimited_contacts_until=record[21] if len(record) > 21 else None,
-                            public_id=record[22] if len(record) > 22 else None,
-                            activity_level=record[23] if len(record) > 23 else 100
+                            activity_level=record[22] if len(record) > 22 else 100,
+                            name_violations_count=record[23] if len(record) > 23 else 0
                         )
                         matching_records.append(worker)
 
@@ -497,8 +485,8 @@ class Worker:
                     portfolio_photo=json.loads(record[19]) if record[19] else None,
                     purchased_contacts=record[20] if len(record) > 20 else 0,
                     unlimited_contacts_until=record[21] if len(record) > 21 else None,
-                    public_id=record[22] if len(record) > 22 else None,
-                    activity_level=record[23] if len(record) > 23 else 100
+                    activity_level=record[22] if len(record) > 22 else 100,
+                    name_violations_count=record[23] if len(record) > 23 else 0
                 )
                 matching_workers.append(worker)
 
@@ -617,6 +605,19 @@ class Worker:
             cursor = await conn.execute(query, params)
             await conn.commit()
             await cursor.close()
+            self.profile_name = profile_name
+        finally:
+            await conn.close()
+    
+    async def update_name_violations_count(self, count: int) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            query = 'UPDATE workers SET name_violations_count = ? WHERE id = ?'
+            params = (count, self.id)
+            cursor = await conn.execute(query, params)
+            await conn.commit()
+            await cursor.close()
+            self.name_violations_count = count
         finally:
             await conn.close()
 

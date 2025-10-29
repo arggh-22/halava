@@ -201,7 +201,7 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
         
         # ID и имя
         worker_name = worker.profile_name or worker.tg_name
-        text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'} {worker_name}\n"
+        text += f"👤 **ID:** {worker.id} {worker_name}\n"
         
         # Рейтинг
         if worker.count_ratings > 0:
@@ -540,7 +540,7 @@ async def reply_in_chat(callback: CallbackQuery, state: FSMContext):
         
         text = f"💬 **Чат с исполнителем**\n\n"
         text += f"📋 Объявление: #{abs_id}\n"
-        text += f"👤 Исполнитель: {worker.public_id or f'ID#{worker.id}'}\n\n"
+        text += f"👤 Исполнитель: {worker.id}\n\n"
         text += f"Напишите сообщение исполнителю:"
         
         # Безопасное редактирование (может быть фото)
@@ -738,7 +738,7 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
         
         # ID и имя
         worker_name = worker.profile_name or worker.tg_name
-        notification_text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'} {worker_name}\n"
+        notification_text += f"👤 **ID:** {worker.id} {worker_name}\n"
         
         # Рейтинг
         if worker.count_ratings > 0:
@@ -952,7 +952,7 @@ async def process_response_text(message: Message, state: FSMContext):
         
         # ID и имя
         worker_name = worker.profile_name or worker.tg_name
-        notification_text += f"👤 **ID:** {worker.public_id or f'#{worker.id}'} {worker_name}\n"
+        notification_text += f"👤 **ID:** {worker.id} {worker_name}\n"
         
         # Рейтинг
         if worker.count_ratings > 0:
