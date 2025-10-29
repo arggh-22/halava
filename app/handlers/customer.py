@@ -2501,6 +2501,17 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
 _active_sends = set()
 _sent_messages = set()  # Отслеживаем уже отправленные сообщения
 
+# Глобальный семафор для ограничения параллельных отправок (Telegram лимит: 30 сообщений/сек)
+# Ленивая инициализация для совместимости
+_global_send_semaphore = None
+
+def get_global_semaphore():
+    """Получить глобальный семафор (инициализируется при первом вызове)"""
+    global _global_send_semaphore
+    if _global_send_semaphore is None:
+        _global_send_semaphore = asyncio.Semaphore(20)  # Максимум 20 параллельных отправок
+    return _global_send_semaphore
+
 async def send_to_workers_background(advertisement_id: int, city_id: int, work_type_id: int, text: str, photo_path: dict = None, photos_len: int = 0):
     """
     Фоновая рассылка объявлений исполнителям с батчингом и обработкой ошибок.
@@ -2544,25 +2555,28 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
         worker_ids = [worker.tg_id for worker in workers]
         logger.info(f'[DEBUG] Worker IDs: {worker_ids}')
         
-        # Отправляем по 5 сообщений в батче с паузой
-        batch_size = 5
+        # Отправляем по 3 сообщения в батче с паузой (оптимизировано для Telegram: макс 30 сообщений/сек)
+        # При множественных объявлениях это предотвратит превышение лимитов
+        batch_size = 3
         for i in range(0, len(workers), batch_size):
             batch = workers[i:i + batch_size]
             batch_worker_ids = [worker.tg_id for worker in batch]
             logger.info(f'[DEBUG] Processing batch {i//batch_size + 1}: workers {batch_worker_ids}')
             
-            # Создаем задачи для параллельной отправки
-            tasks = [
-                send_single_message_to_worker(worker, advertisement_id, text, photo_path, photos_len)
-                for worker in batch
-            ]
+            # Создаем задачи для параллельной отправки с использованием глобального семафора
+            semaphore = get_global_semaphore()
+            async def send_with_semaphore(worker):
+                async with semaphore:
+                    return await send_single_message_to_worker(worker, advertisement_id, text, photo_path, photos_len)
+            
+            tasks = [send_with_semaphore(worker) for worker in batch]
             
             # Выполняем батч параллельно
             await asyncio.gather(*tasks, return_exceptions=True)
             
-            # Пауза между батчами для соблюдения rate limits
+            # Пауза между батчами для соблюдения rate limits (увеличено до 1 сек для безопасности)
             if i + batch_size < len(workers):
-                await asyncio.sleep(0.5)  # 500ms пауза
+                await asyncio.sleep(1.0)  # 1 секунда пауза между батчами
         
         # Обновляем счетчик просмотров один раз для всего объявления
         advertisement = await Abs.get_one(advertisement_id)

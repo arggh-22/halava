@@ -5,6 +5,7 @@ import shutil
 import logging
 import requests
 import time
+import asyncio
 from datetime import datetime, date
 from bs4 import BeautifulSoup
 from PIL import Image, ImageEnhance
@@ -916,7 +917,7 @@ async def send_targeted_notifications_to_workers(advertisement_id: int, customer
         
         logger.info(f"Found {len(matching_workers)} matching workers for city {city.city} and work type {work_type.work_type}")
         
-        # Отправляем уведомления
+        # Отправляем уведомления с батчингом
         from loaders import bot
         notification_text = (
             f"🔔 Новое объявление в вашем городе!\n\n"
@@ -928,16 +929,43 @@ async def send_targeted_notifications_to_workers(advertisement_id: int, customer
             f"Нажмите /menu чтобы откликнуться!"
         )
         
+        # Отправляем по 3 сообщения в батче с паузой (оптимизировано для Telegram: макс 30 сообщений/сек)
+        batch_size = 3
         sent_count = 0
-        for worker in matching_workers:
-            try:
-                await bot.send_message(
-                    chat_id=worker.tg_id,
-                    text=notification_text
-                )
-                sent_count += 1
-            except Exception as e:
-                logger.error(f"Error sending notification to worker {worker.tg_id}: {e}")
+        
+        # Создаем локальный семафор для этой функции (можно использовать глобальный, если он доступен)
+        try:
+            from app.handlers.customer import get_global_semaphore
+            global_semaphore = get_global_semaphore()
+            use_global_semaphore = True
+        except ImportError:
+            use_global_semaphore = False
+            local_semaphore = asyncio.Semaphore(10)  # Локальный семафор, если глобальный недоступен
+        
+        for i in range(0, len(matching_workers), batch_size):
+            batch = matching_workers[i:i + batch_size]
+            logger.info(f'Processing batch {i//batch_size + 1}: {len(batch)} workers')
+            
+            # Создаем задачи для параллельной отправки
+            async def send_to_worker(w):
+                semaphore = global_semaphore if use_global_semaphore else local_semaphore
+                async with semaphore:
+                    try:
+                        await bot.send_message(chat_id=w.tg_id, text=notification_text)
+                        return True
+                    except Exception as e:
+                        logger.error(f"Error sending notification to worker {w.tg_id}: {e}")
+                        return False
+            
+            tasks = [send_to_worker(worker) for worker in batch]
+            
+            # Выполняем батч параллельно
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            sent_count += sum(1 for r in results if r is True)
+            
+            # Пауза между батчами для соблюдения rate limits (увеличено до 1 сек для безопасности)
+            if i + batch_size < len(matching_workers):
+                await asyncio.sleep(1.0)  # 1 секунда пауза между батчами
         
         logger.info(f"Sent notifications to {sent_count} workers")
         

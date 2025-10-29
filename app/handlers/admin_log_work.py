@@ -288,14 +288,31 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
                                                             'Вы заблокированы на 24 часа.\n'
                                                             'блокировка 1 из 3',
                                reply_markup=kbc.support_btn())
+    # Отправляем уведомление заказчику о блокировке объявления с текстом объявления
+    try:
+        from app.untils import help_defs
+        ad_text = help_defs.read_text_file(advertisement.text_path)
+        notification_text = (f'Ваше объявление {advertisement.id} помечено как неактуальное и '
+                             f'заблокировано администратором\n\n'
+                             f'📋 Текст объявления:\n{ad_text}')
+        await bot.send_message(chat_id=customer.tg_id, text=notification_text)
+    except Exception:
+        pass
+
     workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=advertisement.id)
     if workers_and_abs:
         for worker_and_abs in workers_and_abs:
             worker = await Worker.get_worker(id=worker_and_abs.worker_id)
-            worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-            sub = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-            if sub.notification:
-                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление{advertisement.id} неактуально')
+            if worker is None:
+                continue
+            
+            # Отправляем уведомление исполнителю только если он активен
+            # (исполнитель уже откликнулся, значит город и направление подходят)
+            if worker.active:
+                try:
+                    await bot.send_message(chat_id=worker.tg_id, text=f'Объявление {advertisement.id} неактуально')
+                except Exception:
+                    pass
             await worker_and_abs.delete()
 
     await callback.message.delete_reply_markup()
@@ -379,14 +396,21 @@ async def delite_advertisement(callback: CallbackQuery) -> None:
         await callback.message.answer(text=f'Объявление {advertisement_id}, было удалено')
         return
 
+    customer = await Customer.get_customer(id=advertisement.customer_id)
+    
     workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=advertisement.id)
     if workers_and_abs:
         for worker_and_abs in workers_and_abs:
             worker = await Worker.get_worker(id=worker_and_abs.worker_id)
-            worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-            sub = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-            if sub.notification:
-                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление{advertisement.id} неактуально')
+            if worker is None:
+                continue
+            
+            # Отправляем уведомление всем откликнувшимся исполнителям
+            # (исполнитель уже откликнулся, значит город и направление подходят)
+            try:
+                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление {advertisement.id} неактуально')
+            except Exception:
+                pass
             await worker_and_abs.delete()
 
     await callback.message.delete_reply_markup()

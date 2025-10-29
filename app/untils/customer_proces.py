@@ -105,19 +105,16 @@ async def close_task(workers_and_abs, advertisement_now, workers_for_assessments
         worker = await Worker.get_worker(id=worker_and_abs.worker_id)
         if worker is None:
             continue
-        worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        sub = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-        if sub.notification:
+        # Когда заказчик закрывает объявление - всегда отправляем уведомление всем откликнувшимся
+        city = await City.get_city(id=advertisement_now.city_id)
+        text = f'Заказчик закрыл объявление {advertisement_now.id}\nг. {city.city}\n' + help_defs.read_text_file(
+            advertisement_now.text_path)
 
-            city = await City.get_city(id=advertisement_now.city_id)
-            text = f'Заказчик закрыл объявление {advertisement_now.id}\nг. {city.city}\n' + help_defs.read_text_file(
-                advertisement_now.text_path)
-
-            try:
-                await bot.send_message(chat_id=worker.tg_id, text=text)
-            except TelegramForbiddenError:
-                await worker.delete()
-                pass
+        try:
+            await bot.send_message(chat_id=worker.tg_id, text=text)
+        except TelegramForbiddenError:
+            await worker.delete()
+            pass
         if worker_and_abs.applyed:
             if await WorkerAndCustomer.get_by_worker_and_customer(worker_id=worker.id, customer_id=customer.id):
                 await worker_and_abs.delete()

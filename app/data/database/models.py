@@ -448,7 +448,7 @@ class Worker:
                     continue
 
                 # Проверяем тип работы (work_type_ids из таблицы worker_and_subscription)
-                # w.* дает 24 поля (0-23), ws.work_type_ids это поле 24
+                # w.* дает 24 поля (0-23), ws.work_type_ids это поле 24 (теперь поле 2 в новой структуре, но индекс в JOIN остается 24)
                 logger.info(
                     f'[DEBUG] Worker {worker_tg_id}: record length={len(record)}, record[24]={record[24] if len(record) > 24 else "N/A"}')
                 try:
@@ -2068,29 +2068,22 @@ class Abs:
 
 
 class WorkerAndSubscription:
-    def __init__(self, worker_id: int, id: int = None, subscription_id: int = None,
-                 guaranteed_orders: int = None, subscription_end: str = None, work_type_ids: list = None,
-                 unlimited_orders: bool = None, unlimited_work_types: bool = None, notification: bool = False):
+    def __init__(self, worker_id: int, id: int = None, work_type_ids: list = None):
         self.id = id
         self.worker_id = worker_id
-        self.subscription_id = subscription_id
-        self.guaranteed_orders = guaranteed_orders
-        self.date_end = datetime.strptime(subscription_end, "%Y-%m-%d") if subscription_end else None
-        self.subscription_end = self.date_end.strftime("%d.%m.%Y") if subscription_end else None
         self.work_type_ids = work_type_ids
-        self.unlimited_orders = unlimited_orders
-        self.unlimited_work_types = unlimited_work_types
-        self.notification = notification
 
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db',
                                        detect_types=sqlite3.PARSE_DECLTYPES |
                                                     sqlite3.PARSE_COLNAMES)
         try:
+            work_type_ids_str = '|'.join(map(str, self.work_type_ids)) if self.work_type_ids else None
             cursor = await conn.execute(
-                'INSERT INTO worker_and_subscription (worker_id) VALUES (?)',
-                [self.worker_id])
+                'INSERT INTO worker_and_subscription (worker_id, work_type_ids) VALUES (?, ?)',
+                [self.worker_id, work_type_ids_str])
             await conn.commit()
+            self.id = cursor.lastrowid
             await cursor.close()
         finally:
             await conn.close()
@@ -2104,10 +2097,7 @@ class WorkerAndSubscription:
         finally:
             await conn.close()
 
-    async def update(self, subscription_id: int = None, guaranteed_orders: int = None,
-                     subscription_end: date = None, work_type_ids: list = None,
-                     unlimited_orders: bool = None, unlimited_work_types: bool = None,
-                     notification: bool = None) -> None:
+    async def update(self, work_type_ids: list = None) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db',
                                        detect_types=sqlite3.PARSE_DECLTYPES |
                                                     sqlite3.PARSE_COLNAMES)
@@ -2115,34 +2105,10 @@ class WorkerAndSubscription:
             updates = []
             params = []
 
-            if subscription_id is not None:
-                updates.append('subscription_id = ?')
-                params.append(subscription_id)
-
-            if guaranteed_orders is not None:
-                updates.append('guaranteed_orders = ?')
-                params.append(guaranteed_orders)
-
-            if subscription_end is not None:
-                updates.append('subscription_end = ?')
-                params.append(subscription_end)
-
             if work_type_ids is not None:
                 updates.append('work_type_ids = ?')
-                work_type_ids = '|'.join(work_type_ids)
-                params.append(work_type_ids)
-
-            if unlimited_orders is not None:
-                updates.append('unlimited_orders = ?')
-                params.append(unlimited_orders)
-
-            if unlimited_work_types is not None:
-                updates.append('unlimited_work_types = ?')
-                params.append(unlimited_work_types)
-
-            if notification is not None:
-                updates.append('notification = ?')
-                params.append(notification)
+                work_type_ids_str = '|'.join(map(str, work_type_ids)) if work_type_ids else None
+                params.append(work_type_ids_str)
 
             if updates:
                 params.append(self.id)
@@ -2163,12 +2129,7 @@ class WorkerAndSubscription:
             await cursor.close()
             return [cls(id=record[0],
                         worker_id=record[1],
-                        subscription_id=record[2],
-                        guaranteed_orders=record[3],
-                        subscription_end=record[4],
-                        work_type_ids=record[5].split('|') if record[5] else None,
-                        unlimited_orders=record[6],
-                        unlimited_work_types=record[7])
+                        work_type_ids=record[2].split('|') if record[2] else None)
                     for record in records]
         finally:
             await conn.close()
@@ -2205,12 +2166,7 @@ class WorkerAndSubscription:
             
             return cls(id=latest_record[0],
                        worker_id=latest_record[1],
-                       subscription_id=latest_record[2],
-                       guaranteed_orders=latest_record[3],
-                       subscription_end=latest_record[4],
-                       work_type_ids=latest_record[5].split('|') if latest_record[5] else None,
-                       unlimited_orders=latest_record[6],
-                       unlimited_work_types=latest_record[7])
+                       work_type_ids=latest_record[2].split('|') if latest_record[2] else None)
         finally:
             await conn.close()
 
@@ -2225,12 +2181,7 @@ class WorkerAndSubscription:
             await cursor.close()
             return cls(id=record[0][0],
                        worker_id=record[0][1],
-                       subscription_id=record[0][2],
-                       guaranteed_orders=record[0][3],
-                       subscription_end=record[0][4],
-                       work_type_ids=record[0][5].split('|') if record[0][5] else None,
-                       unlimited_orders=record[0][6],
-                       unlimited_work_types=record[0][7])
+                       work_type_ids=record[0][2].split('|') if record[0][2] else None)
         finally:
             await conn.close()
 
@@ -3161,7 +3112,8 @@ class WorkerCitySubscription:
 
     def __init__(self, id: int | None, worker_id: int, city_ids: list,
                  subscription_start: str, subscription_end: str,
-                 subscription_months: int, price: int, active: bool = True):
+                 subscription_months: int, price: int, active: bool = True,
+                 purchased_city_count: int = None):
         self.id = id
         self.worker_id = worker_id
         self.city_ids = city_ids
@@ -3170,14 +3122,23 @@ class WorkerCitySubscription:
         self.subscription_months = subscription_months
         self.price = price
         self.active = active
+        # purchased_city_count обязателен
+        if purchased_city_count is None:
+            raise ValueError("purchased_city_count is required")
+        self.purchased_city_count = purchased_city_count
 
     @classmethod
     async def create_table_if_not_exists(cls) -> None:
-        """Создает таблицу если она не существует"""
+        """Создает таблицу если она не существует (удаляет старую и создает новую)"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
+            # Удаляем старую таблицу
+            await conn.execute('DROP TABLE IF EXISTS worker_city_subscriptions')
+            await conn.commit()
+            
+            # Создаем новую таблицу
             await conn.execute('''
-                               CREATE TABLE IF NOT EXISTS worker_city_subscriptions
+                               CREATE TABLE worker_city_subscriptions
                                (
                                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                                    worker_id           INTEGER NOT NULL,
@@ -3186,7 +3147,8 @@ class WorkerCitySubscription:
                                    subscription_end    TEXT    NOT NULL,
                                    subscription_months INTEGER NOT NULL,
                                    price               INTEGER NOT NULL,
-                                   active              INTEGER DEFAULT 1
+                                   active              INTEGER DEFAULT 1,
+                                   purchased_city_count INTEGER NOT NULL
                                )
                                ''')
             await conn.commit()
@@ -3199,9 +3161,9 @@ class WorkerCitySubscription:
         try:
             city_ids_str = '|'.join(map(str, self.city_ids))
             cursor = await conn.execute(
-                'INSERT INTO worker_city_subscriptions (worker_id, city_ids, subscription_start, subscription_end, subscription_months, price, active) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO worker_city_subscriptions (worker_id, city_ids, subscription_start, subscription_end, subscription_months, price, active, purchased_city_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [self.worker_id, city_ids_str, self.subscription_start, self.subscription_end,
-                 self.subscription_months, self.price, self.active])
+                 self.subscription_months, self.price, self.active, self.purchased_city_count])
             await conn.commit()
             self.id = cursor.lastrowid
             await cursor.close()
@@ -3229,7 +3191,8 @@ class WorkerCitySubscription:
                     subscription_end=record[4],
                     subscription_months=record[5],
                     price=record[6],
-                    active=bool(record[7])
+                    active=bool(record[7]),
+                    purchased_city_count=record[8]
                 ))
             return subscriptions
         finally:
@@ -3258,7 +3221,8 @@ class WorkerCitySubscription:
                     subscription_end=record[4],
                     subscription_months=record[5],
                     price=record[6],
-                    active=bool(record[7])
+                    active=bool(record[7]),
+                    purchased_city_count=record[8]
                 ))
             return subscriptions
         finally:

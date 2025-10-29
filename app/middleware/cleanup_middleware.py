@@ -50,6 +50,8 @@ class DeletePreviousMiddleware(BaseMiddleware):
                 "WorkStates:create_photo_profile",    # Загрузка фото профиля
                 "WorkStates:create_portfolio",        # Просмотр портфолио
                 "CustomerStates:customer_create_abs_add_photo",  # Загрузка фото в объявления
+                "WorkStates:worker_choose_work_types",  # Выбор направлений работы (редактирование сообщений)
+                "WorkStates:worker_choose_subscription_cities",  # Выбор городов для подписки (редактирование сообщений)
                 # "CustomerStates:customer_create_abs_personal_add_photo",  # Загрузка фото в личные объявления
                 # "CustomerStates:customer_create_abs_task",  # Создание объявления - ввод задачи
                 # "CustomerStates:customer_create_abs_choose_time",  # Создание объявления - выбор времени

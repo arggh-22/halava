@@ -371,7 +371,7 @@ async def choose_work_types_start(callback: CallbackQuery, state: FSMContext) ->
     from app.data.database.models import WorkType
     work_types = await WorkType.get_all()
     
-    await callback.message.answer(
+    msg = await callback.message.answer(
         text='🎯 Выберите направления работы',
         reply_markup=kbc.choose_work_types_improved(
             all_work_types=work_types,
@@ -381,6 +381,7 @@ async def choose_work_types_start(callback: CallbackQuery, state: FSMContext) ->
             btn_back=False
         )
     )
+    await state.update_data(msg_id=msg.message_id)
 
 # Верификация убрана согласно ТЗ
 
@@ -432,7 +433,7 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
     conn = await aiosqlite.connect(database='app/data/database/database.db')
     try:
         cursor = await conn.execute(
-            'SELECT city_ids, active, price FROM worker_city_subscriptions WHERE worker_id = ?',
+            'SELECT city_ids, active, purchased_city_count FROM worker_city_subscriptions WHERE worker_id = ?',
             [user_worker.id])
         all_subscriptions = await cursor.fetchall()
         await cursor.close()
@@ -443,16 +444,12 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
     total_purchased_cities = 1  # Основной город
     total_selected_cities = 1   # Основной город
     
-    # Словарь соответствия цены и количества купленных городов
-    prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
-    
     for sub_data in all_subscriptions:
         city_ids_str = sub_data[0]
         is_active = bool(sub_data[1])
-        price = sub_data[2]
+        purchased_count = sub_data[2] if sub_data[2] is not None else 1  # Используем purchased_city_count из БД
         
-        # Определяем КУПЛЕННОЕ количество городов по цене
-        purchased_count = prices.get(price, 1)
+        # Определяем КУПЛЕННОЕ количество городов
         total_purchased_cities += purchased_count
         
         # Определяем ВЫБРАННОЕ количество городов
@@ -497,7 +494,10 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
     text += f"Выполненных заказов: {user_worker.order_count}\n"
     text += f"Зарегистрирован: {user_worker.registration_data}"
 
-    choose_works = True if worker_sub.unlimited_work_types else False
+    # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
+    is_unlimited = (not worker_sub.work_type_ids or 
+                   (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
+    choose_works = is_unlimited
 
     profile_name = True if user_worker.profile_name else False
     
@@ -584,7 +584,7 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
     conn = await aiosqlite.connect(database='app/data/database/database.db')
     try:
         cursor = await conn.execute(
-            'SELECT city_ids, active, price FROM worker_city_subscriptions WHERE worker_id = ?',
+            'SELECT city_ids, active, purchased_city_count FROM worker_city_subscriptions WHERE worker_id = ?',
             [user_worker.id])
         all_subscriptions = await cursor.fetchall()
         await cursor.close()
@@ -595,16 +595,12 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
     total_purchased_cities = 1  # Основной город
     total_selected_cities = 1   # Основной город
     
-    # Словарь соответствия цены и количества купленных городов
-    prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
-    
     for sub_data in all_subscriptions:
         city_ids_str = sub_data[0]
         is_active = bool(sub_data[1])
-        price = sub_data[2]
+        purchased_count = sub_data[2] if sub_data[2] is not None else 1  # Используем purchased_city_count из БД
         
-        # Определяем КУПЛЕННОЕ количество городов по цене
-        purchased_count = prices.get(price, 1)
+        # Определяем КУПЛЕННОЕ количество городов
         total_purchased_cities += purchased_count
         
         # Определяем ВЫБРАННОЕ количество городов
@@ -649,7 +645,10 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
     text += f"Выполненных заказов: {user_worker.order_count}\n"
     text += f"Зарегистрирован: {user_worker.registration_data}"
 
-    choose_works = True if worker_sub.unlimited_work_types else False
+    # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
+    is_unlimited = (not worker_sub.work_type_ids or 
+                   (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
+    choose_works = is_unlimited
 
     profile_name = True if user_worker.profile_name else False
     
@@ -735,7 +734,7 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
     conn = await aiosqlite.connect(database='app/data/database/database.db')
     try:
         cursor = await conn.execute(
-            'SELECT city_ids, active, price FROM worker_city_subscriptions WHERE worker_id = ?',
+            'SELECT city_ids, active, purchased_city_count FROM worker_city_subscriptions WHERE worker_id = ?',
             [user_worker.id])
         all_subscriptions = await cursor.fetchall()
         await cursor.close()
@@ -746,16 +745,12 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
     total_purchased_cities = 1  # Основной город
     total_selected_cities = 1   # Основной город
     
-    # Словарь соответствия цены и количества купленных городов
-    prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
-    
     for sub_data in all_subscriptions:
         city_ids_str = sub_data[0]
         is_active = bool(sub_data[1])
-        price = sub_data[2]
+        purchased_count = sub_data[2] if sub_data[2] is not None else 1  # Используем purchased_city_count из БД
         
-        # Определяем КУПЛЕННОЕ количество городов по цене
-        purchased_count = prices.get(price, 1)
+        # Определяем КУПЛЕННОЕ количество городов
         total_purchased_cities += purchased_count
         
         # Определяем ВЫБРАННОЕ количество городов
@@ -800,7 +795,10 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
     text += f"Выполненных заказов: {user_worker.order_count}\n"
     text += f"Зарегистрирован: {user_worker.registration_data}"
 
-    choose_works = True if worker_sub.unlimited_work_types else False
+    # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
+    is_unlimited = (not worker_sub.work_type_ids or 
+                   (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
+    choose_works = is_unlimited
 
     try:
         await callback.message.delete()
@@ -1563,22 +1561,16 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
             print(f"[ABS_FILTER] Skipping already responded ad: {advertisement.id}")
             continue
         # Проверяем, подходит ли объявление по типу работы
-        # Если нет направлений и нет безлимитного доступа - пропускаем
-        if not worker_sub.work_type_ids and not worker_sub.unlimited_work_types:
+        # Если нет направлений - пропускаем
+        if not worker_sub.work_type_ids:
             continue
             
-        is_unlimited = (worker_sub.unlimited_work_types or 
-                       (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
+        # Проверяем безлимит (work_type_ids == ['0']) или конкретный тип
+        is_unlimited = (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0')
         
         if is_unlimited or (worker_sub.work_type_ids and str(advertisement.work_type_id) in worker_sub.work_type_ids):
-                if advertisement.relevance:
-                    advertisements_final.append(advertisement)
-        elif worker_sub.unlimited_work_types:
-            logger.debug(f'worker_sub.unlimited_work_types')
             if advertisement.relevance:
                 advertisements_final.append(advertisement)
-        else:
-            logger.debug(f'no one')
 
     print(f"[ABS_FILTER] Total ads found: {len(advertisements)}, after filtering: {len(advertisements_final)}")
     
@@ -2166,167 +2158,6 @@ async def navigate_photo_worker(callback: CallbackQuery, state: FSMContext) -> N
         )
 
 
-@router.callback_query(lambda c: c.data.startswith('subscription_'), WorkStates.worker_check_subscription)
-async def check_subscription(callback: CallbackQuery) -> None:
-    logger.debug(f'check_subscription...')
-    sub_id = int(callback.data.split('_')[1])
-    kbc = KeyboardCollection()
-    subscription = await SubscriptionType.get_subscription_type(id=sub_id)
-    subscriptions = await SubscriptionType.get_all()
-    subscriptions_ids = [sub.id for sub in subscriptions[1::]]
-    subscriptions_ids.remove(sub_id)
-    subscriptions_names = [sub.subscription_type for sub in subscriptions[1::]]
-    subscriptions_names.remove(subscription.subscription_type)
-
-    text = (f'Тариф <b>{subscription.subscription_type}</b>\n\n'
-            f'Количество откликов: {"неограниченно" if subscription.unlimited else subscription.count_guaranteed_orders}\n'
-            f'Доступные направления: {"неограниченно" if subscription.count_work_types == 100 else str(subscription.count_work_types) + " из 20"}\n'
-            f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-            f'Доступно количество городов: {subscription.count_cites}\n'
-            f'Цена: {subscription.price} ₽\n')
-
-    await callback.message.answer(text=text,
-                                     reply_markup=kbc.choose_worker_subscription_and_buy(
-                                         cur_sub_id=subscription.id,
-                                         cur_sub_name=subscription.subscription_type,
-                                         subscriptions_ids=subscriptions_ids,
-                                         subscriptions_names=subscriptions_names),
-                                     parse_mode='HTML'
-                                     )
-
-
-@router.callback_query(lambda c: c.data.startswith('subscription-buy_'), WorkStates.worker_check_subscription)
-async def send_invoice_buy_subscription(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'send_invoice_buy_subscription...')
-    sub_id = int(callback.data.split('_')[1])
-    kbc = KeyboardCollection()
-    subscription = await SubscriptionType.get_subscription_type(id=sub_id)
-    if not subscription:
-        logger.debug('Error: subscription not found')
-        return
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-
-    prices = [LabeledPrice(label=f"{subscription.subscription_type}",
-                           amount=int(subscription.price * 100))]
-
-    text = f"Активация доступа на отклики на 1 месяц по тарифу {subscription.subscription_type}"
-
-    await state.set_state(WorkStates.worker_buy_subscription)
-
-    await callback.message.answer_invoice(
-        title=f"Тариф {subscription.subscription_type}",
-        description=text,
-        provider_token=config.PAYMENTS,
-        currency="RUB",  # Валюта в верхнем регистре
-        prices=prices,
-        start_parameter="one-month-subscription",
-        payload="invoice-payload",
-        reply_markup=kbc.worker_buy_subscription(),
-        need_email=True,
-        send_email_to_provider=True
-    )
-    await state.update_data(worker_id=str(worker.id),
-                            subscription_id=str(subscription.id))
-
-
-@router.pre_checkout_query(lambda query: True, WorkStates.worker_buy_subscription)
-async def pre_checkout_handler(pre_checkout_query: PreCheckoutQuery) -> None:
-    logger.debug(f'pre_checkout_handler...')
-    await pre_checkout_query.answer(ok=True)
-
-
-@router.callback_query(F.data == 'use-bonus')
-async def success_payment_handler(callback: CallbackQuery, state: FSMContext):
-    logger.debug(f'success_payment_handler...')
-    kbc = KeyboardCollection()
-
-    subscription_id = 6
-
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-
-    if worker_and_ref := await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id):
-        if worker_and_ref.worker_bonus:
-            await worker_and_ref.update(worker_bonus=False)
-        else:
-            return
-    elif worker_and_ref := await WorkerAndRefsAssociation.get_by_ref(ref_id=worker.tg_id):
-        if worker_and_ref.ref_bonus:
-            await worker_and_ref.update(ref_bonus=False)
-        else:
-            return
-    else:
-        return
-
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-    subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-
-    await worker_sub.update(
-        guaranteed_orders=subscription.count_guaranteed_orders,
-        subscription_end=datetime.date.today() + datetime.timedelta(days=30),
-        subscription_id=subscription_id,
-        unlimited_orders=True if subscription.count_guaranteed_orders == 10000 else False,
-        unlimited_work_types=True if subscription.count_work_types == 18 else False
-    )
-
-    work_types = await WorkType.get_all()
-
-    names = [work_type.work_type for work_type in work_types]
-    ids = [work_type.id for work_type in work_types]
-
-    btn_back = True
-
-    await callback.message.answer(
-        text=f"Бонус успешно использован!\n\nВыберите направления!\nВыбрано 0 из {subscription.count_work_types}",
-        reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=btn_back, name_btn_back='Назад')
-    )
-    await state.set_state(WorkStates.worker_choose_work_types)
-    await state.update_data(subscription_id=str(subscription_id))
-    await state.update_data(count_work_types=str(subscription.count_work_types))
-    await state.update_data(work_type_ids='')
-
-
-@router.message(F.successful_payment, WorkStates.worker_buy_subscription)
-async def success_payment_handler(message: Message, state: FSMContext):
-    logger.debug(f'success_payment_handler...')
-    kbc = KeyboardCollection()
-
-    state_data = await state.get_data()
-    worker_id = int(state_data.get('worker_id'))
-    subscription_id = int(state_data.get('subscription_id'))
-
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker_id)
-    subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-
-    await worker_sub.update(
-        guaranteed_orders=subscription.count_guaranteed_orders,
-        subscription_end=datetime.date.today() + datetime.timedelta(days=30),
-        subscription_id=subscription_id,
-        unlimited_orders=True if subscription.count_guaranteed_orders == 10000 else False,
-        unlimited_work_types=True if subscription.count_work_types == 20 else False
-    )
-
-    work_types = await WorkType.get_all()
-
-    names = [work_type.work_type for work_type in work_types]
-    ids = [work_type.id for work_type in work_types]
-
-    btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False
-
-    await message.answer(
-        text=f"Спасибо, ваш платеж на сумму {subscription.price}₽ успешно выполнен!\n\nВыберите направления!\nВыбрано 0 из {subscription.count_work_types}",
-        reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=btn_back, name_btn_back='Назад')
-    )
-    await state.set_state(WorkStates.worker_choose_work_types)
-    await state.update_data(subscription_id=str(subscription_id))
-    await state.update_data(count_work_types=str(subscription.count_work_types))
-    await state.update_data(work_type_ids='')
-
-
 async def get_worker_selected_work_types(worker_sub) -> List[WorkType]:
     """Получить список выбранных направлений работы исполнителя"""
     if worker_sub.work_type_ids:
@@ -2420,7 +2251,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
 
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-    subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
+    # subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
 
     # ИЗМЕНЕНО: Убраны лимиты на изменения направлений
     # Исполнители могут менять направления без ограничений
@@ -2469,7 +2300,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     elif selected_count == available_count:
         text += f"🎉 Выбрано максимальное количество направлений!"
 
-    await callback.message.answer(
+    msg = await callback.message.answer(
         text=text,
         reply_markup=kbc.choose_work_types_improved(
             all_work_types=work_types,
@@ -2488,10 +2319,13 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
 
     # Сохраняем исходные направления для сравнения при выходе
     await state.update_data(original_work_types=selected_ids.copy())
+    
+    # Сохраняем msg_id для редактирования сообщения при выборе направлений
+    await state.update_data(msg_id=msg.message_id)
 
     await state.set_state(WorkStates.worker_choose_work_types)
-    await state.update_data(subscription_id=str(subscription.id))
-    await state.update_data(count_work_types=str(subscription.count_work_types))
+    # await state.update_data(subscription_id=str(subscription.id))  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+    # await state.update_data(count_work_types=str(subscription.count_work_types))  # ЗАКОММЕНТИРОВАНО: Используется ранг
     await state.update_data(work_type_ids='|'.join(selected_ids))
     await state.update_data(current_page=0)
 
@@ -2740,20 +2574,59 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
     # Исполнители могут удалять направления без ограничений
     removal_blocked = False
 
-    # Обновляем сообщение
-    await callback.message.answer(
-        text=text,
-        reply_markup=kbc.choose_work_types_improved(
-            all_work_types=work_types,
-            selected_ids=selected_ids,
-            count_work_types=available_count,
-            page=page,
-            btn_back=True,
-            name_btn_back='Сохранить',
-            removal_blocked=removal_blocked
-        ),
-        parse_mode='Markdown'
-    )
+    # Редактируем сообщение вместо создания нового
+    msg_id = state_data.get('msg_id')
+    try:
+        if msg_id:
+            from loaders import bot
+            await bot.edit_message_text(
+                chat_id=callback.message.chat.id,
+                message_id=msg_id,
+                text=text,
+                reply_markup=kbc.choose_work_types_improved(
+                    all_work_types=work_types,
+                    selected_ids=selected_ids,
+                    count_work_types=available_count,
+                    page=page,
+                    btn_back=True,
+                    name_btn_back='Сохранить',
+                    removal_blocked=removal_blocked
+                ),
+                parse_mode='Markdown'
+            )
+        else:
+            # Первый раз отправляем сообщение и сохраняем ID
+            msg = await callback.message.answer(
+                text=text,
+                reply_markup=kbc.choose_work_types_improved(
+                    all_work_types=work_types,
+                    selected_ids=selected_ids,
+                    count_work_types=available_count,
+                    page=page,
+                    btn_back=True,
+                    name_btn_back='Сохранить',
+                    removal_blocked=removal_blocked
+                ),
+                parse_mode='Markdown'
+            )
+            await state.update_data(msg_id=msg.message_id)
+    except Exception as e:
+        # Если не удалось отредактировать, отправляем новое сообщение
+        logger.debug(f"Could not edit message: {e}")
+        msg = await callback.message.answer(
+            text=text,
+            reply_markup=kbc.choose_work_types_improved(
+                all_work_types=work_types,
+                selected_ids=selected_ids,
+                count_work_types=available_count,
+                page=page,
+                btn_back=True,
+                name_btn_back='Сохранить',
+                removal_blocked=removal_blocked
+            ),
+            parse_mode='Markdown'
+        )
+        await state.update_data(msg_id=msg.message_id)
 
 
 # Старый обработчик (оставляем для совместимости)
@@ -2810,7 +2683,8 @@ async def choose_work_types_old(callback: CallbackQuery, state: FSMContext) -> N
     names = [work_type.work_type for work_type in new_work_types]
     ids = [work_type.id for work_type in new_work_types]
 
-    btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False
+    # btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
+    btn_back = True  # Всегда показываем кнопку назад
 
     await callback.message.answer(
         text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)} из {subscription.count_work_types}",
@@ -2859,7 +2733,8 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
     names = [work_type.work_type for work_type in new_work_types]
     ids = [work_type.id for work_type in new_work_types]
 
-    btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False
+    # btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
+    btn_back = True  # Всегда показываем кнопку назад
 
     await callback.message.answer(
         text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)} из {subscription.count_work_types}",
@@ -2912,7 +2787,8 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
     names = [work_type.work_type for work_type in new_work_types]
     ids = [work_type.id for work_type in new_work_types]
 
-    btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False
+    # btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
+    btn_back = True  # Всегда показываем кнопку назад
 
     await callback.message.answer(
         text=f"Вам нужно выбрать направления!\nВыбрано {len(work_type_id_list)} из {subscription.count_work_types}",
@@ -4183,7 +4059,8 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
             subscription_start=start_date.strftime('%Y-%m-%d'),
             subscription_end=end_date.strftime('%Y-%m-%d'),
             subscription_months=months,
-            price=price
+            price=price,
+            purchased_city_count=city_count  # Сохраняем количество купленных городов
         )
         await subscription.save()
         
@@ -4229,6 +4106,8 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
             
             # Переходим к выбору городов
             await state.set_state(WorkStates.worker_choose_subscription_cities)
+            # Сохраняем msg_id для редактирования сообщения
+            await state.update_data(msg_id=None)  # Сбрасываем msg_id для нового сообщения
             await choose_subscription_cities(callback, state)
         
     except Exception as e:
@@ -4320,11 +4199,32 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
     builder.add(kbc._inline("🏠 В меню", "worker_menu"))
     builder.adjust(1)
     
-    await callback.message.answer(
-        text=text,
-        reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
-    )
+    # Редактируем сообщение вместо создания нового
+    msg_id = data.get('msg_id')
+    try:
+        if msg_id:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=builder.as_markup(),
+                parse_mode='Markdown'
+            )
+        else:
+            # Первый раз отправляем сообщение и сохраняем ID
+            msg = await callback.message.answer(
+                text=text,
+                reply_markup=builder.as_markup(),
+                parse_mode='Markdown'
+            )
+            await state.update_data(msg_id=msg.message_id)
+    except Exception as e:
+        # Если не удалось отредактировать, отправляем новое сообщение
+        logger.debug(f"Could not edit message: {e}")
+        msg = await callback.message.answer(
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode='Markdown'
+        )
+        await state.update_data(msg_id=msg.message_id)
 
 
 @router.callback_query(lambda c: c.data.startswith('subscription_city_select_'))
@@ -4689,9 +4589,8 @@ async def send_city_subscription_expiry_notifications():
                 if city:
                     city_names.append(city.city)
             
-            # Вычисляем количество городов из цены
-            prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
-            city_count = prices.get(subscription.price, 1)
+            # Используем purchased_city_count вместо вычисления из цены
+            city_count = subscription.purchased_city_count
             
             text = f"⚠️ **Завтра истекает срок подписки**\n\n"
             text += f"🏙️ **+{city_count} city**\n"
@@ -5377,8 +5276,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
     # Проверяем незавершенные подписки
     incomplete_subscriptions = []
     for subscription in active_subscriptions:
-        prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
-        purchased_cities = prices.get(subscription.price, 1)
+        purchased_cities = subscription.purchased_city_count
         if len(subscription.city_ids) < purchased_cities:
             incomplete_subscriptions.append(subscription)
     
@@ -5386,9 +5284,8 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
     if active_subscriptions:
         text += "🏷️ **Активные подписки на города:**\n\n"
         for subscription in active_subscriptions:
-            # Вычисляем количество купленных городов из цены
-            prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
-            total_count = prices.get(subscription.price, 1)
+            # Используем purchased_city_count вместо вычисления из цены
+            total_count = subscription.purchased_city_count
             selected_count = len(subscription.city_ids)
             remaining = total_count - selected_count
             
@@ -5416,8 +5313,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
     if incomplete_subscriptions:
         text += "⚠️ **У вас есть незавершенные подписки:**\n"
         for subscription in incomplete_subscriptions:
-            prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
-            total_count = prices.get(subscription.price, 1)
+            total_count = subscription.purchased_city_count
             selected_count = len(subscription.city_ids)
             remaining = total_count - selected_count
             text += f"• Осталось выбрать {remaining} из {total_count} городов\n"
@@ -5428,8 +5324,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
     # Если есть незавершенные подписки, показываем кнопку для их завершения
     if incomplete_subscriptions:
         for subscription in incomplete_subscriptions:
-            prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
-            total_count = prices.get(subscription.price, 1)
+            total_count = subscription.purchased_city_count
             selected_count = len(subscription.city_ids)
             remaining = total_count - selected_count
             
@@ -5469,9 +5364,8 @@ async def continue_subscription_cities(callback: CallbackQuery, state: FSMContex
         await callback.answer("❌ Подписка не найдена", show_alert=True)
         return
     
-    # Вычисляем количество купленных городов
-    prices = {90: 1, 180: 2, 270: 3, 360: 4, 450: 5, 900: 10, 1800: 20}
-    purchased_cities = prices.get(target_subscription.price, 1)
+    # Используем purchased_city_count вместо вычисления из цены
+    purchased_cities = target_subscription.purchased_city_count
     remaining_cities = purchased_cities - len(target_subscription.city_ids)
     
     # Получаем все города из других активных подписок (кроме текущей)
@@ -5485,7 +5379,8 @@ async def continue_subscription_cities(callback: CallbackQuery, state: FSMContex
         subscription_id=subscription_id,
         city_count=remaining_cities,  # Количество городов, которые еще нужно выбрать
         selected_cities=target_subscription.city_ids.copy(),  # Уже выбранные города в текущей подписке
-        excluded_cities=other_subscription_cities  # Города из других подписок
+        excluded_cities=other_subscription_cities,  # Города из других подписок
+        msg_id=None  # Сбрасываем msg_id для нового сообщения
     )
     
     # Переходим к выбору городов
@@ -5548,107 +5443,6 @@ async def continue_subscription_cities(callback: CallbackQuery, state: FSMContex
 #     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
 
-# @router.callback_query(lambda c: c.data.startswith('go_'), WorkStates.worker_change_city)
-async def change_city_next(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'change_city_next...')
-
-    kbc = KeyboardCollection()
-
-    id_now = int(callback.data.split('_')[1])
-
-    state_data = await state.get_data()
-    cites = state_data.get('cites')
-
-    cities = await City.get_all()
-    city_names = [city.city for city in cities]
-    city_ids = [city.id for city in cities]
-
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-    subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-
-    if cites is None:
-        cites = []
-    else:
-        cites = [int(x) for x in cites.split(' | ')]
-        for city_id in cites:
-            city = await City.get_city(id=city_id)
-            city_names.remove(city.city)
-            city_ids.remove(city.id)
-
-    count_cities = len(city_names)
-
-    btn_next = True if count_cities > 5 + id_now else False
-    btn_back = True if id_now >= 5 else False
-
-    city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
-                                                                 id_now=id_now)
-
-    try:
-        msg = await callback.message.answer(
-            text=f'Выберите город или напишите его текстом\n\n'
-                 f' Показано {id_now + len(city_names)} из {count_cities}\n\n'
-                 f'По вашей подписке доступно количество городов: {subscription.count_cites} городов, выбрано {len(cites)}\n',
-            reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
-                                        btn_next=btn_next, btn_back=btn_back, menu_btn=True))
-        await state.update_data(msg_id=msg.message_id)
-    except TelegramBadRequest:
-        pass
-
-
-# @router.callback_query(lambda c: c.data.startswith('obj-id_'), WorkStates.worker_change_city)
-async def change_city_end(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'change_city_end...')
-    kbc = KeyboardCollection()
-
-    city_id = int(callback.data.split('_')[1])
-
-    state_data = await state.get_data()
-    cites = state_data.get('cites')
-    if cites is None:
-        cites_list = [city_id]
-    else:
-        cites_list = [int(x) for x in cites.split(' | ')]
-        cites_list.append(city_id)
-
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-    subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-
-    if len(cites_list) >= subscription.count_cites:
-        await worker.update_city(city_id=cites_list)
-        await callback.message.answer('Вы успешно сменили город!', reply_markup=kbc.menu())
-        await state.set_state(WorkStates.worker_menu)
-        return
-
-    id_now = int(callback.data.split('_')[2])
-
-    cities = await City.get_all()
-    city_names = [city.city for city in cities]
-    city_ids = [city.id for city in cities]
-
-    for city_id in cites_list:
-        city = await City.get_city(id=city_id)
-        city_names.remove(city.city)
-        city_ids.remove(city.id)
-
-    count_cities = len(city_names)
-
-    btn_next = True if count_cities > 5 + id_now else False
-    btn_back = True if id_now >= 5 else False
-
-    city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
-                                                                 id_now=id_now)
-
-    msg = await callback.message.answer(
-        text=f'Выберите город или напишите его текстом\n\n'
-             f'Показано {id_now + len(city_names)} из {count_cities}\n\n'
-             f'По вашей подписке доступно количество городов: {subscription.count_cites} городов, выбрано {len(cites_list)}\n',
-        reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
-                                    btn_next=btn_next, btn_back=btn_back, menu_btn=True))
-    await state.update_data(msg_id=msg.message_id)
-    cites_list = [str(x) for x in cites_list]
-    await state.update_data(cites=' | '.join(cites_list))
 
 
 # Функции обмена контактами удалены

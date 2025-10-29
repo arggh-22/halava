@@ -273,129 +273,131 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
         await state.set_state(AdminStates.menu)
 
 
-@router.callback_query(F.data == 'edit_subscription', StateFilter(AdminStates.menu))
-async def edit_subscription(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug('block_user...')
-    kbc = KeyboardCollection()
+# ЗАКОММЕНТИРОВАНО: Админские функции для управления SubscriptionType
+# TODO: Удалить после рефакторинга или реализовать новую систему
+# @router.callback_query(F.data == 'edit_subscription', StateFilter(AdminStates.menu))
+# async def edit_subscription(callback: CallbackQuery, state: FSMContext) -> None:
+#     logger.debug('block_user...')
+#     kbc = KeyboardCollection()
+# 
+#     text = f'Выберите подписку:'
+# 
+#     await state.set_state(AdminStates.check_subscription)
+# 
+#     subscriptions = await SubscriptionType.get_all()
+#     subscriptions_ids = [sub.id for sub in subscriptions[1::]]
+#     subscriptions_names = [sub.subscription_type for sub in subscriptions[1::]]
+#     await callback.message.answer(text=text,
+#                                      reply_markup=kbc.choose_worker_subscription(
+#                                          subscriptions_ids=subscriptions_ids,
+#                                          subscriptions_names=subscriptions_names)
+#                                      )
+# 
+# 
+# @router.callback_query(lambda c: c.data.startswith('subscription_'), AdminStates.check_subscription)
+# async def check_subscription(callback: CallbackQuery) -> None:
+#     logger.debug(f'check_subscription...')
+#     sub_id = int(callback.data.split('_')[1])
+#     kbc = KeyboardCollection()
+#     subscription = await SubscriptionType.get_subscription_type(id=sub_id)
+#     subscriptions = await SubscriptionType.get_all()
+#     subscriptions_ids = [sub.id for sub in subscriptions[1::]]
+#     subscriptions_ids.remove(sub_id)
+#     subscriptions_names = [sub.subscription_type for sub in subscriptions[1::]]
+#     subscriptions_names.remove(subscription.subscription_type)
+# 
+#     text = (f'Тариф <b>{subscription.subscription_type.capitalize()}</b>\n'
+#             f'Количество откликов: {"неограниченно" if subscription.unlimited else subscription.count_guaranteed_orders}\n'
+#             f'Количество доступных направлений: {"неограниченно" if subscription.count_work_types == 100 else str(subscription.count_work_types) + " из 18"}\n'
+#             f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
+#             f'Цена: {subscription.price} ₽\n')
+# 
+#     await callback.message.answer(text=text,
+#                                      reply_markup=kbc.admin_edit_subscription(
+#                                          sub_id=subscription.id),
+#                                      parse_mode='HTML'
+#                                      )
+# 
+# 
+# @router.callback_query(lambda c: c.data.startswith('edit-price-sub_'), AdminStates.check_subscription)
+# async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None:
+#     logger.debug(f'check_subscription_price...')
+#     subscription_id = int(callback.data.split('_')[1])
+#     kbc = KeyboardCollection()
+#     subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
+# 
+#     text = f'Текущая цена: {subscription.price}\n\nВведите цену:'
+# 
+#     msg = await callback.message.answer(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
+#     await state.set_state(AdminStates.edit_subscription_price)
+#     await state.update_data(subscription_id=subscription_id)
+#     await state.update_data(msg_id=msg.message_id)
+# 
+# 
+# @router.message(F.text, StateFilter(AdminStates.edit_subscription_price))
+# async def edit_price_subscription(message: Message, state: FSMContext) -> None:
+#     logger.debug(f'check_subscription_price...')
+#     kbc = KeyboardCollection()
+# 
+#     state_data = await state.get_data()
+#     subscription_id = int(state_data.get('subscription_id'))
+#     # msg_id = int(state_data.get('msg_id'))
+# 
+#     try:
+#         price = int(message.text)
+#     except Exception:
+#         # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+#         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
+#         await state.update_data(msg_id=msg.message_id)
+#         return
+# 
+#     subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
+#     await subscription.update(price=price)
+# 
+#     await state.set_state(AdminStates.menu)
+#     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+#     await message.answer('Цена изменена!', reply_markup=kbc.admin_back_btn('edit_subscription'))
+# 
+# 
+# @router.callback_query(lambda c: c.data.startswith('edit-orders-sub_'), AdminStates.check_subscription)
+# async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None:
+#     logger.debug(f'check_subscription_order...')
+#     subscription_id = int(callback.data.split('_')[1])
+#     kbc = KeyboardCollection()
+#     subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
+# 
+#     text = f'Текущее количество откликов: {subscription.count_guaranteed_orders if subscription.id != 6 else "бесконечно"}\n\nВведите новое количество:'
+# 
+#     msg = await callback.message.answer(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
+#     await state.set_state(AdminStates.edit_subscription_order)
+#     await state.update_data(subscription_id=subscription_id)
+#     await state.update_data(msg_id=msg.message_id)
+# 
+# 
+# @router.message(F.text, StateFilter(AdminStates.edit_subscription_order))
+# async def edit_price_subscription(message: Message, state: FSMContext) -> None:
+#     logger.debug(f'check_subscription_order...')
+#     kbc = KeyboardCollection()
+# 
+#     state_data = await state.get_data()
+#     subscription_id = int(state_data.get('subscription_id'))
+#     # msg_id = int(state_data.get('msg_id'))
+# 
+#     try:
+#         orders = int(message.text)
+#     except Exception:
+#         # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+#         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
+#         await state.update_data(msg_id=msg.message_id)
+#         return
+# 
+#     subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
+#     if subscription.id != 6:
+#         await subscription.update(count_guaranteed_orders=orders)
 
-    text = f'Выберите подписку:'
-
-    await state.set_state(AdminStates.check_subscription)
-
-    subscriptions = await SubscriptionType.get_all()
-    subscriptions_ids = [sub.id for sub in subscriptions[1::]]
-    subscriptions_names = [sub.subscription_type for sub in subscriptions[1::]]
-    await callback.message.answer(text=text,
-                                     reply_markup=kbc.choose_worker_subscription(
-                                         subscriptions_ids=subscriptions_ids,
-                                         subscriptions_names=subscriptions_names)
-                                     )
-
-
-@router.callback_query(lambda c: c.data.startswith('subscription_'), AdminStates.check_subscription)
-async def check_subscription(callback: CallbackQuery) -> None:
-    logger.debug(f'check_subscription...')
-    sub_id = int(callback.data.split('_')[1])
-    kbc = KeyboardCollection()
-    subscription = await SubscriptionType.get_subscription_type(id=sub_id)
-    subscriptions = await SubscriptionType.get_all()
-    subscriptions_ids = [sub.id for sub in subscriptions[1::]]
-    subscriptions_ids.remove(sub_id)
-    subscriptions_names = [sub.subscription_type for sub in subscriptions[1::]]
-    subscriptions_names.remove(subscription.subscription_type)
-
-    text = (f'Тариф <b>{subscription.subscription_type.capitalize()}</b>\n'
-            f'Количество откликов: {"неограниченно" if subscription.unlimited else subscription.count_guaranteed_orders}\n'
-            f'Количество доступных направлений: {"неограниченно" if subscription.count_work_types == 100 else str(subscription.count_work_types) + " из 18"}\n'
-            f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-            f'Цена: {subscription.price} ₽\n')
-
-    await callback.message.answer(text=text,
-                                     reply_markup=kbc.admin_edit_subscription(
-                                         sub_id=subscription.id),
-                                     parse_mode='HTML'
-                                     )
-
-
-@router.callback_query(lambda c: c.data.startswith('edit-price-sub_'), AdminStates.check_subscription)
-async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'check_subscription_price...')
-    subscription_id = int(callback.data.split('_')[1])
-    kbc = KeyboardCollection()
-    subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-
-    text = f'Текущая цена: {subscription.price}\n\nВведите цену:'
-
-    msg = await callback.message.answer(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
-    await state.set_state(AdminStates.edit_subscription_price)
-    await state.update_data(subscription_id=subscription_id)
-    await state.update_data(msg_id=msg.message_id)
-
-
-@router.message(F.text, StateFilter(AdminStates.edit_subscription_price))
-async def edit_price_subscription(message: Message, state: FSMContext) -> None:
-    logger.debug(f'check_subscription_price...')
-    kbc = KeyboardCollection()
-
-    state_data = await state.get_data()
-    subscription_id = int(state_data.get('subscription_id'))
-    # msg_id = int(state_data.get('msg_id'))
-
-    try:
-        price = int(message.text)
-    except Exception:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-        msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
-        await state.update_data(msg_id=msg.message_id)
-        return
-
-    subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-    await subscription.update(price=price)
-
-    await state.set_state(AdminStates.menu)
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-    await message.answer('Цена изменена!', reply_markup=kbc.admin_back_btn('edit_subscription'))
-
-
-@router.callback_query(lambda c: c.data.startswith('edit-orders-sub_'), AdminStates.check_subscription)
-async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'check_subscription_order...')
-    subscription_id = int(callback.data.split('_')[1])
-    kbc = KeyboardCollection()
-    subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-
-    text = f'Текущее количество откликов: {subscription.count_guaranteed_orders if subscription.id != 6 else "бесконечно"}\n\nВведите новое количество:'
-
-    msg = await callback.message.answer(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
-    await state.set_state(AdminStates.edit_subscription_order)
-    await state.update_data(subscription_id=subscription_id)
-    await state.update_data(msg_id=msg.message_id)
-
-
-@router.message(F.text, StateFilter(AdminStates.edit_subscription_order))
-async def edit_price_subscription(message: Message, state: FSMContext) -> None:
-    logger.debug(f'check_subscription_order...')
-    kbc = KeyboardCollection()
-
-    state_data = await state.get_data()
-    subscription_id = int(state_data.get('subscription_id'))
-    # msg_id = int(state_data.get('msg_id'))
-
-    try:
-        orders = int(message.text)
-    except Exception:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-        msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
-        await state.update_data(msg_id=msg.message_id)
-        return
-
-    subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-    if subscription.id != 6:
-        await subscription.update(count_guaranteed_orders=orders)
-
-    await state.set_state(AdminStates.menu)
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-    await message.answer('Количество откликов изменено!', reply_markup=kbc.admin_back_btn('edit_subscription'))
+#     await state.set_state(AdminStates.menu)
+#     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+#     await message.answer('Количество откликов изменено!', reply_markup=kbc.admin_back_btn('edit_subscription'))
 
 
 @router.callback_query(F.data == 'edit_user', StateFilter(AdminStates.menu))
@@ -489,9 +491,10 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-                           worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None
+        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
+        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
             step = ''
@@ -510,12 +513,12 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 f'Ваш тариф: {subscription.subscription_type}\n'
-                 f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'
+                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-                 f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-                 f'Зарегистрирован с {worker.registration_data}\n'
-                 f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n')
+                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка для многострочной строки
+                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -772,9 +775,10 @@ async def get_user(message: Message, state: FSMContext) -> None:
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-                           worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None
+        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
+        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
 
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
@@ -794,12 +798,12 @@ async def get_user(message: Message, state: FSMContext) -> None:
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 f'Ваш тариф: {subscription.subscription_type}\n'
-                 f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'
+                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-                 f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-                 f'Зарегистрирован с {worker.registration_data}\n'
-                 f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n')
+                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка для многострочной строки
+                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -851,9 +855,10 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-                           worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None
+        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
+        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
 
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
@@ -873,12 +878,12 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
                  f'{cites}'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 f'Ваш тариф: {subscription.subscription_type}\n'
-                 f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'
+                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-                 f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-                 f'Зарегистрирован с {worker.registration_data}\n'
-                 f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n')
+                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка для многострочной строки
+                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -1161,9 +1166,10 @@ async def get_worker(message: Message, state: FSMContext) -> None:
         return
 
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-    subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-    work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-                       worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None
+    # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
+    # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+    #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
+    work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
     city = await City.get_city(id=int(worker.city_id))
 
     text = (f'Профиль исполнителя\n\n'
@@ -1174,12 +1180,12 @@ async def get_worker(message: Message, state: FSMContext) -> None:
             f'Город: {city.city}\n'
             f'Выполненных заказов: {worker.order_count}\n'
             f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-            f'Тариф: {subscription.subscription_type}\n'
-            f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'
+            # f'Тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+            # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
             f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-            f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-            f'Зарегистрирован с {worker.registration_data}\n'
-            f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n')
+            # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+            f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка
+            # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'), protect_content=False)
@@ -1338,11 +1344,14 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    # msg_id = str(state_data.get('msg_id'))
+    msg_id = str(state_data.get('msg_id'))
     city_id = str(state_data.get('city_id'))
     message_to_worker = message.text
 
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    except Exception:
+        pass
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
@@ -1441,10 +1450,13 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    # msg_id = str(state_data.get('msg_id'))
+    msg_id = str(state_data.get('msg_id'))
     message_to_worker = message.text
 
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    except Exception:
+        pass
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
 
@@ -1756,13 +1768,15 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
     if workers_and_abs:
         for worker_and_abs in workers_and_abs:
             worker = await Worker.get_worker(id=worker_and_abs.worker_id)
-            worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-            sub = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-            if sub.notification:
-                try:
-                    await bot.send_message(chat_id=worker.tg_id, text=f'Объявление{advertisement.id} неактуально')
-                except Exception:
-                    pass
+            if worker is None:
+                continue
+            
+            # Отправляем уведомление всем откликнувшимся исполнителям
+            # (исполнитель уже откликнулся, значит город и направление подходят)
+            try:
+                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление {advertisement.id} неактуально')
+            except Exception:
+                pass
             await worker_and_abs.delete()
 
     await advertisement.delete(delite_photo=True)
@@ -1794,9 +1808,10 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-                           worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None
+        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
+        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
             step = ''
@@ -1815,11 +1830,11 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 f'Ваш тариф: {subscription.subscription_type}\n'
-                 f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'
-                 f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-                 f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-                 f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n')
+                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
+                 f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n')  # Закрывающая скобка для многострочной строки
+                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -1899,13 +1914,13 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
             worker = await Worker.get_worker(id=worker_and_abs.worker_id)
             if worker is None:
                 continue
-            worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-            sub = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-            if sub.notification:
-                try:
-                    await bot.send_message(chat_id=worker.tg_id, text=f'Объявление{advertisement.id} неактуально')
-                except Exception:
-                    pass
+            
+            # Отправляем уведомление всем откликнувшимся исполнителям
+            # (исполнитель уже откликнулся, значит город и направление подходят)
+            try:
+                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление {advertisement.id} неактуально')
+            except Exception:
+                pass
             await worker_and_abs.delete()
 
     await advertisement.delete(delite_photo=True)
@@ -1997,9 +2012,10 @@ async def back_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-                           worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None
+        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
+        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
             step = ''
@@ -2018,11 +2034,11 @@ async def back_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 f'Ваш тариф: {subscription.subscription_type}\n'
-                 f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'
-                 f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-                 f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-                 f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n')
+                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
+                 f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n')  # Закрывающая скобка для многострочной строки
+                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
+                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:

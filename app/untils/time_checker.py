@@ -150,17 +150,16 @@ async def handle_expired_advertisement(advertisement, kbc):
             worker = await Worker.get_worker(id=worker_and_abs.worker_id)
             if worker is None:
                 continue
-            worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-            sub = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-            if sub.notification:
-                city = await City.get_city(id=advertisement.city_id)
-                text = f'Объявление {advertisement.id} г. {city.city}\n' + help_defs.read_text_file(
-                    advertisement.text_path)
-                try:
-                    await bot.send_message(chat_id=worker.tg_id,
-                                           text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text}')
-                except Exception:
-                    pass
+            # Когда объявление истекает по сроку - отправляем всем откликнувшимся исполнителям
+            # (исполнитель уже откликнулся, значит город и направление подходят)
+            city = await City.get_city(id=advertisement.city_id)
+            text = f'Объявление {advertisement.id} г. {city.city}\n' + help_defs.read_text_file(
+                advertisement.text_path)
+            try:
+                await bot.send_message(chat_id=worker.tg_id,
+                                       text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text}')
+            except Exception:
+                pass
             if worker_and_abs.applyed:
                 workers_for_assessments.append(worker)
             await worker_and_abs.delete()

@@ -837,9 +837,6 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
 
     if worker := await Worker.get_worker(tg_id=message.chat.id):
         if worker.active:
-            worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-            subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)
-
             if len(worker.city_id) == 1:
                 cites = 'Ваш город: '
                 step = ''
@@ -850,13 +847,11 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
                 city = await City.get_city(id=city_id)
                 cites += f'{step}{city.city}\n'
 
-            end = '\n' if subscription.count_cites == 1 else ""
-
             text = (
                 f'Сообщение от исполнителя #{message.chat.id}\n\n'
                 f'Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.stars else 0} ⭐️\n'
                 f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
-                f'{cites + end if subscription.count_cites == 1 else ""}'
+                f'{cites}\n'
                 f'Выполненных заказов: {worker.order_count}\n'
             )
         else:
