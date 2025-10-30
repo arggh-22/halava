@@ -1690,6 +1690,31 @@ class Abs:
         self.views = views
         self.count_photo = count_photo
 
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db',
+                                       detect_types=sqlite3.PARSE_DECLTYPES |
+                                                    sqlite3.PARSE_COLNAMES)
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS abs
+                               (
+                                   id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   customer_id      INTEGER NOT NULL,
+                                   work_type_id     INTEGER NOT NULL,
+                                   city_id          INTEGER NOT NULL,
+                                   photo_path       TEXT,
+                                   text_path        TEXT    NOT NULL,
+                                   date_to_delite   TEXT    NOT NULL,
+                                   relevance        INTEGER DEFAULT 1,
+                                   views            INTEGER DEFAULT 0,
+                                   count_photo      INTEGER DEFAULT 0
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
+
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db',
                                        detect_types=sqlite3.PARSE_DECLTYPES |
@@ -2072,6 +2097,33 @@ class WorkersAndAbs:
         else:
             self.message_timestamps = []
 
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS workers_and_abs
+                               (
+                                   id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id                 INTEGER NOT NULL,
+                                   abs_id                    INTEGER NOT NULL,
+                                   send_by_worker            INTEGER DEFAULT 0,
+                                   send_by_customer          INTEGER DEFAULT 0,
+                                   applyed                   INTEGER DEFAULT 0,
+                                   worker_messages           TEXT,
+                                   customer_messages         TEXT,
+                                   turn                      INTEGER DEFAULT 1,
+                                   message_timestamps        TEXT,
+                                   last_read_by_worker       INTEGER DEFAULT 0,
+                                   last_read_by_customer     INTEGER DEFAULT 0,
+                                   last_message_by_worker    INTEGER DEFAULT 0,
+                                   last_message_by_customer  INTEGER DEFAULT 0
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
+
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
@@ -2418,6 +2470,22 @@ class WorkerAndCustomer:
         self.customer_id = customer_id
         self.worker_id = worker_id
 
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS worker_and_customer
+                               (
+                                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   customer_id  INTEGER NOT NULL,
+                                   worker_id    INTEGER NOT NULL
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
+
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db',
                                        detect_types=sqlite3.PARSE_DECLTYPES |
@@ -2481,6 +2549,24 @@ class UserAndSupportQueue:
         else:
             self.admin_messages = (admin_messages.split(' | '))[step::]
         self.turn = turn
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS user_and_support_queue
+                               (
+                                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   user_tg_id      INTEGER NOT NULL,
+                                   user_messages   TEXT,
+                                   admin_messages  TEXT,
+                                   turn            INTEGER DEFAULT 1
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
 
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
@@ -2635,6 +2721,22 @@ class WorkerAndReport:
         self.id = id
         self.abs_id = abs_id
         self.worker_id = worker_id
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS worker_and_report
+                               (
+                                   id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id  INTEGER NOT NULL,
+                                   abs_id     INTEGER NOT NULL
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
 
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db',
@@ -2801,6 +2903,25 @@ class ContactTariff:
         self.unlimited = unlimited  # Безлимитный тариф
         self.unlimited_days = unlimited_days  # Количество дней для безлимита
 
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS contact_tariffs
+                               (
+                                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   name            TEXT    NOT NULL,
+                                   contacts_count  INTEGER NOT NULL,
+                                   price           INTEGER NOT NULL,
+                                   unlimited       INTEGER DEFAULT 0,
+                                   unlimited_days  INTEGER
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
+
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
@@ -2868,6 +2989,26 @@ class WorkerRating:
         self.rating = rating  # Оценка от 1 до 5
         self.comment = comment
         self.created_at = created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS worker_ratings
+                               (
+                                   id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id   INTEGER NOT NULL,
+                                   customer_id INTEGER NOT NULL,
+                                   abs_id      INTEGER NOT NULL,
+                                   rating      INTEGER NOT NULL,
+                                   comment     TEXT,
+                                   created_at  TEXT    NOT NULL
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
 
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
@@ -2955,16 +3096,13 @@ class WorkerCitySubscription:
 
     @classmethod
     async def create_table_if_not_exists(cls) -> None:
-        """Создает таблицу если она не существует (удаляет старую и создает новую)"""
+        """Создает таблицу если она не существует"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
-            # Удаляем старую таблицу
-            await conn.execute('DROP TABLE IF EXISTS worker_city_subscriptions')
-            await conn.commit()
             
             # Создаем новую таблицу
             await conn.execute('''
-                               CREATE TABLE worker_city_subscriptions
+                               CREATE TABLE IF NOT EXISTS worker_city_subscriptions
                                (
                                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                                    worker_id           INTEGER NOT NULL,
@@ -3081,6 +3219,28 @@ class ContactExchange:
         self.message_id = message_id
         self.created_at = created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.updated_at = updated_at
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS contact_exchanges
+                               (
+                                   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id          INTEGER NOT NULL,
+                                   customer_id        INTEGER NOT NULL,
+                                   abs_id             INTEGER NOT NULL,
+                                   contacts_sent      INTEGER DEFAULT 0,
+                                   contacts_purchased INTEGER DEFAULT 0,
+                                   created_at         TEXT    NOT NULL,
+                                   updated_at         TEXT,
+                                   message_id         INTEGER
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
 
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
@@ -3497,6 +3657,25 @@ class WorkerDailyResponses:
         self.created_at = created_at
         self.updated_at = updated_at
 
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS worker_daily_responses
+                               (
+                                   id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id        INTEGER NOT NULL,
+                                   date             TEXT    NOT NULL,
+                                   responses_count  INTEGER DEFAULT 0,
+                                   created_at       TEXT    DEFAULT CURRENT_TIMESTAMP,
+                                   updated_at       TEXT
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
+
     async def save(self) -> None:
         """Сохраняет или обновляет запись об откликах в день"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
@@ -3592,6 +3771,30 @@ class WorkerStatus:
         self.last_status_check = last_status_check
         self.created_at = created_at or datetime.now().isoformat()
         self.updated_at = updated_at or datetime.now().isoformat()
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect('app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS worker_statuses
+                               (
+                                   id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id         INTEGER NOT NULL UNIQUE,
+                                   has_ip            INTEGER DEFAULT 0,
+                                   ip_number         TEXT,
+                                   has_ooo           INTEGER DEFAULT 0,
+                                   ooo_number        TEXT,
+                                   has_sz            INTEGER DEFAULT 0,
+                                   sz_number         TEXT,
+                                   last_status_check TEXT,
+                                   created_at        TEXT    NOT NULL,
+                                   updated_at        TEXT    NOT NULL
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
 
     async def save(self) -> None:
         """Создает или обновляет запись о статусе исполнителя"""
@@ -3723,6 +3926,23 @@ class WorkerResponseCancellation:
         self.worker_id = worker_id
         self.abs_id = abs_id
         self.cancelled_at = cancelled_at
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS worker_response_cancellations
+                               (
+                                   id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id     INTEGER NOT NULL,
+                                   abs_id        INTEGER NOT NULL,
+                                   cancelled_at  TEXT DEFAULT CURRENT_TIMESTAMP
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
 
     async def save(self) -> None:
         """Сохраняет запись об отмене отклика"""

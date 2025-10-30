@@ -30,6 +30,7 @@ from app.untils.time_checker import restore_weekly_activity, check_worker_status
 from app.handlers.worker import send_city_subscription_expiry_notifications
 from loaders import bot, dp, scheduler
 from aiogram.types import CallbackQuery
+from app.untils.db_init import init_db
 
 
 async def run():
@@ -51,6 +52,13 @@ async def run():
     )
 
     logging.info(f"DEBUG_MODE: {config.DEBUG_MODE}")
+
+    # Ensure database schema exists before routers/scheduler start
+    try:
+        await init_db()
+        logging.info("[MAIN] Database initialized (tables ensured).")
+    except Exception as e:
+        logging.error(f"[MAIN] Database init error: {e}")
 
     # Настройка команд бота
     commands = [

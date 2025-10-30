@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+Don't usee callback.message.edit_text, use await callback.message.answer

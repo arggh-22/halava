@@ -27,20 +27,27 @@ logger = logging.getLogger()
 # Simple in-memory cache for admin summary
 _admin_summary_cache = {"data": None, "ts": 0.0, "ttl": 60.0}  # Кеш на 30 секунд
 
+
 def clear_admin_cache():
     """Очищает кеш админской аналитики"""
     global _admin_summary_cache
     _admin_summary_cache = {"data": None, "ts": 0.0, "ttl": 60.0}
 
+
 def is_cache_valid():
     """Проверяет валидность кеша"""
     import time
     current_time = time.time()
-    return (_admin_summary_cache["data"] is not None and 
+    return (_admin_summary_cache["data"] is not None and
             current_time - _admin_summary_cache["ts"] < _admin_summary_cache["ttl"])
 
 
-@router.callback_query(F.data == 'menu', StateFilter(AdminStates.menu, UserStates.menu, AdminStates.edit_stop_words, AdminStates.unblock_user, AdminStates.block_user, AdminStates.check_subscription, AdminStates.edit_subscription, AdminStates.get_customer, AdminStates.get_worker, AdminStates.check_abs, AdminStates.check_banned_abs, AdminStates.get_user, AdminStates.send_to_user))
+@router.callback_query(F.data == 'menu', StateFilter(AdminStates.menu, UserStates.menu, AdminStates.edit_stop_words,
+                                                     AdminStates.unblock_user, AdminStates.block_user,
+                                                     AdminStates.check_subscription, AdminStates.edit_subscription,
+                                                     AdminStates.get_customer, AdminStates.get_worker,
+                                                     AdminStates.check_abs, AdminStates.check_banned_abs,
+                                                     AdminStates.get_user, AdminStates.send_to_user))
 async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug('admin_menu...')
     kbc = KeyboardCollection()
@@ -55,17 +62,17 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
         len_banned_users = cached_data.get("len_banned_users", 0)
         len_advertisement = cached_data.get("len_advertisement", 0)
         len_banned_advertisement = cached_data.get("len_banned_advertisement", 0)
-        
+
         # Проверяем наличие admin в кеше, если нет - загружаем заново
         if "admin" in cached_data:
             admin = cached_data["admin"]
         else:
             admin = await Admin.get_by_tg_id(callback.message.chat.id)
-        
+
         # Получаем данные админа из кеша или загружаем заново
         deleted_abs = cached_data.get("deleted_abs", admin.deleted_abs if admin else 0)
         done_abs = cached_data.get("done_abs", admin.done_abs if admin else 0)
-        
+
         logger.debug('Using cached admin summary data')
     else:
         # Загружаем свежие данные
@@ -74,13 +81,13 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
             # Получаем админа
             admin = await Admin.get_by_tg_id(callback.message.chat.id)
             logger.debug(f"Admin loaded: {admin.id if admin else 'None'}")
-            
+
             # Используем оптимизированные COUNT запросы вместо загрузки всех данных
             import aiosqlite
-            
+
             async with aiosqlite.connect(database='app/data/database/database.db') as conn:
                 logger.debug("Connected to database")
-                
+
                 # Подсчет заказчиков (проверяем существование таблицы)
                 try:
                     cursor = await conn.execute('SELECT COUNT(*) FROM customers')
@@ -89,7 +96,7 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
                 except Exception as e:
                     logger.warning(f"Таблица customers не найдена: {e}")
                     len_customer = 0
-                
+
                 # Подсчет исполнителей (проверяем существование таблицы)
                 try:
                     cursor = await conn.execute('SELECT COUNT(*) FROM workers')
@@ -98,32 +105,36 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
                 except Exception as e:
                     logger.warning(f"Таблица workers не найдена: {e}")
                     len_worker = 0
-                
+
                 # Подсчет уникальных пользователей (заказчики, которые не являются исполнителями)
                 try:
                     cursor = await conn.execute('''
-                        SELECT COUNT(*) FROM customers c 
-                        WHERE c.tg_id NOT IN (SELECT w.tg_id FROM workers w WHERE w.tg_id IS NOT NULL)
-                    ''')
+                                                SELECT COUNT(*)
+                                                FROM customers c
+                                                WHERE c.tg_id NOT IN
+                                                      (SELECT w.tg_id FROM workers w WHERE w.tg_id IS NOT NULL)
+                                                ''')
                     unique_customers = (await cursor.fetchone())[0]
                     len_users = len_worker + unique_customers
                     logger.debug(f"Unique customers: {unique_customers}, Total users: {len_users}")
                 except Exception as e:
                     logger.warning(f"Ошибка при подсчете уникальных пользователей: {e}")
                     len_users = len_worker + len_customer
-                
+
                 # Подсчет заблокированных пользователей (проверяем существование таблицы)
                 try:
                     cursor = await conn.execute('''
-                        SELECT COUNT(*) FROM banned 
-                        WHERE ban_now = 1 OR forever = 1
-                    ''')
+                                                SELECT COUNT(*)
+                                                FROM banned
+                                                WHERE ban_now = 1
+                                                   OR forever = 1
+                                                ''')
                     len_banned_users = (await cursor.fetchone())[0]
                     logger.debug(f"Banned users count: {len_banned_users}")
                 except Exception as e:
                     logger.warning(f"Таблица banned не найдена: {e}")
                     len_banned_users = 0
-                
+
                 # Подсчет объявлений (проверяем существование таблицы)
                 try:
                     cursor = await conn.execute('SELECT COUNT(*) FROM abs')
@@ -132,7 +143,7 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
                 except Exception as e:
                     logger.warning(f"Таблица abs не найдена: {e}")
                     len_advertisement = 0
-                
+
                 # Подсчет заблокированных объявлений (проверяем существование таблицы)
                 try:
                     cursor = await conn.execute('SELECT COUNT(*) FROM banned_abs')
@@ -141,7 +152,7 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
                 except Exception as e:
                     logger.warning(f"Таблица banned_abs не найдена: {e}")
                     len_banned_advertisement = 0
-                
+
                 await cursor.close()
                 logger.debug("Database connection closed")
 
@@ -149,10 +160,10 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
             logger.error(f"Ошибка при загрузке аналитики: {e}")
             logger.error(f"Тип ошибки: {type(e).__name__}")
             logger.error(f"Детали ошибки: {str(e)}")
-            
+
             # В случае ошибки, не используем кеш и загружаем данные заново
             clear_admin_cache()
-            
+
             # Fallback к простым значениям в случае ошибки
             len_users = 0
             len_customer = 0
@@ -161,7 +172,7 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
             len_advertisement = 0
             len_banned_advertisement = 0
             admin = await Admin.get_by_tg_id(callback.message.chat.id)
-        
+
         # Сохраняем в кеш
         import time
         _admin_summary_cache["data"] = {
@@ -196,13 +207,13 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
 async def refresh_admin_stats(callback: CallbackQuery, state: FSMContext) -> None:
     """Принудительное обновление статистики админа"""
     logger.debug('refresh_admin_stats...')
-    
+
     # Очищаем кеш
     clear_admin_cache()
-    
+
     # Показываем сообщение об обновлении
     await callback.answer("🔄 Статистика обновлена!", show_alert=True)
-    
+
     # Вызываем admin_menu для перезагрузки данных
     await admin_menu(callback, state)
 
@@ -212,13 +223,13 @@ async def edit_order_price(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик для изменения цены объявлений"""
     logger.debug('edit_order_price...')
     kbc = KeyboardCollection()
-    
+
     admin = await Admin.get_by_tg_id(callback.message.chat.id)
-    
+
     text = f'💰 <b>Управление ценой объявлений</b>\n\n'
     text += f'Текущая цена: {admin.order_price}₽\n\n'
     text += f'Введите новую цену в рублях:'
-    
+
     msg = await callback.message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'), parse_mode='HTML')
     await state.set_state(AdminStates.edit_order_price)
     await state.update_data(msg_id=msg.message_id)
@@ -229,19 +240,19 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
     """Обработка введенной цены объявлений"""
     logger.debug('process_order_price...')
     kbc = KeyboardCollection()
-    
+
     state_data = await state.get_data()
     # msg_id = state_data.get('msg_id')
-    
+
     try:
         new_price = int(message.text)
         if new_price <= 0:
             raise ValueError("Цена должна быть положительным числом")
-        
+
         # Получаем админа и обновляем цену
         admin = await Admin.get_by_tg_id(message.chat.id)
         await admin.update(order_price=new_price)
-        
+
         # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
             text=f'✅ **Цена объявлений успешно изменена!**\n\n'
@@ -250,7 +261,7 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
             parse_mode='Markdown'
         )
         await state.set_state(AdminStates.menu)
-        
+
     except ValueError as e:
         # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
@@ -494,7 +505,8 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
         # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
         # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
         #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+                           worker_sub.work_type_ids] if worker_sub.work_type_ids else None
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
             step = ''
@@ -518,7 +530,7 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
                  # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
                  f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка для многострочной строки
-                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
+        # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -542,17 +554,18 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
                     await callback.message.delete()
                 except Exception:
                     pass
-                await callback.message.answer_photo(caption=text, photo=FSInputFile(worker.profile_photo), protect_content=False,
+                await callback.message.answer_photo(caption=text, photo=FSInputFile(worker.profile_photo),
+                                                    protect_content=False,
                                                     reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                                     customer_id=customer_id))
+                                                                                        customer_id=customer_id))
             else:
                 await callback.message.answer(text=text, protect_content=False,
-                                                 reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                                     customer_id=customer_id))
+                                              reply_markup=kbc.admin_back_or_send(callback_data='menu',
+                                                                                  customer_id=customer_id))
         else:
             await callback.message.answer(text=text, protect_content=False,
-                                             reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                                 customer_id=customer_id))
+                                          reply_markup=kbc.admin_back_or_send(callback_data='menu',
+                                                                              customer_id=customer_id))
         await state.update_data(user_id=user_id)
         return
     else:
@@ -778,7 +791,8 @@ async def get_user(message: Message, state: FSMContext) -> None:
         # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
         # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
         #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+                           worker_sub.work_type_ids] if worker_sub.work_type_ids else None
 
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
@@ -803,7 +817,7 @@ async def get_user(message: Message, state: FSMContext) -> None:
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
                  # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
                  f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка для многострочной строки
-                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
+        # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -858,7 +872,8 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
         # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
         # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
         #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+                           worker_sub.work_type_ids] if worker_sub.work_type_ids else None
 
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
@@ -883,7 +898,7 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
                  # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
                  f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка для многострочной строки
-                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
+        # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -909,14 +924,19 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
                     await callback.message.delete()
                 except Exception:
                     pass
-                await callback.message.answer_photo(caption=text, photo=FSInputFile(worker.profile_photo), protect_content=False,
-                                                    reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id))
+                await callback.message.answer_photo(caption=text, photo=FSInputFile(worker.profile_photo),
+                                                    protect_content=False,
+                                                    reply_markup=kbc.admin_back_or_send(callback_data='menu',
+                                                                                        customer_id=customer_id))
             else:
                 await callback.message.answer(text=text, protect_content=False,
-                                              reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id))
+                                              reply_markup=kbc.admin_back_or_send(callback_data='menu',
+                                                                                  customer_id=customer_id))
 
         else:
-            await callback.message.answer(text=text, protect_content=False, reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id))
+            await callback.message.answer(text=text, protect_content=False,
+                                          reply_markup=kbc.admin_back_or_send(callback_data='menu',
+                                                                              customer_id=customer_id))
         await callback.message.delete()
         await state.update_data(user_id=user_id)
         return
@@ -966,11 +986,11 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
         if 'https' in abs_now.photo_path['0']:
             await callback.message.answer(text=text,
                                           reply_markup=kbc.choose_obj_with_out_list_admin(id_now=0, btn_next=btn_next,
-                                                                                            btn_back=False,
-                                                                                            btn_block=True,
-                                                                                            btn_delete=True,
-                                                                                            abs_id=abs_now.id,
-                                                                                            customer_id=customer_id))
+                                                                                          btn_back=False,
+                                                                                          btn_block=True,
+                                                                                          btn_delete=True,
+                                                                                          abs_id=abs_now.id,
+                                                                                          customer_id=customer_id))
             return
         await callback.message.answer_photo(photo=FSInputFile(abs_now.photo_path['0']), caption=text,
                                             reply_markup=kbc.choose_obj_with_out_list_admin(id_now=0, btn_next=btn_next,
@@ -1033,12 +1053,12 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
         if 'https' in abs_now.photo_path['0']:
             await callback.message.answer(text=text,
                                           reply_markup=kbc.choose_obj_with_out_list_admin_var(id_now=0,
-                                                                                                btn_next=btn_next,
-                                                                                                btn_back=False,
-                                                                                                btn_block=True,
-                                                                                                btn_delete=True,
-                                                                                                abs_id=abs_now.id,
-                                                                                                customer_id=customer_id))
+                                                                                              btn_next=btn_next,
+                                                                                              btn_back=False,
+                                                                                              btn_block=True,
+                                                                                              btn_delete=True,
+                                                                                              abs_id=abs_now.id,
+                                                                                              customer_id=customer_id))
             return
         await callback.message.answer_photo(photo=FSInputFile(abs_now.photo_path['0']), caption=text,
                                             reply_markup=kbc.choose_obj_with_out_list_admin_var(id_now=0,
@@ -1074,7 +1094,7 @@ async def unblock_user(callback: CallbackQuery, state: FSMContext) -> None:
 
     if banned is None:
         await callback.message.answer('Пользователь не был заблокирован',
-                                         reply_markup=kbc.admin_back_btn('get_user'))
+                                      reply_markup=kbc.admin_back_btn('get_user'))
 
         try:
             await callback.message.delete()
@@ -1122,7 +1142,7 @@ async def unblock_user(callback: CallbackQuery, state: FSMContext) -> None:
     else:
         if banned.forever:
             await callback.message.answer('Пользователь уже заблокирован на всегда',
-                                             reply_markup=kbc.admin_back_btn('menu'))
+                                          reply_markup=kbc.admin_back_btn('menu'))
             try:
                 await callback.message.delete()
             except TelegramBadRequest:
@@ -1169,7 +1189,8 @@ async def get_worker(message: Message, state: FSMContext) -> None:
     # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
     # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
     #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
-    work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
+    work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+                       worker_sub.work_type_ids] if worker_sub.work_type_ids else None
     city = await City.get_city(id=int(worker.city_id))
 
     text = (f'Профиль исполнителя\n\n'
@@ -1185,7 +1206,7 @@ async def get_worker(message: Message, state: FSMContext) -> None:
             f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
             # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
             f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка
-            # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
+    # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'), protect_content=False)
@@ -1228,6 +1249,7 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
             BannedAbs.count(),
             Admin.count_distinct_users(),
             Admin.get_by_tg_id(callback.message.chat.id)
+
         )
 
         summary = {
@@ -1350,7 +1372,7 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
 
     try:
         await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-    except Exception:
+    except TelegramBadRequest:
         pass
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
@@ -1379,13 +1401,16 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
                 try:
                     message_to_worker = message_to_worker + f'\n\nВаша реферальная ссылка: https://t.me/Rus_haltura_bot?start={worker.ref_code}'
                     await bot.send_message(chat_id=worker.tg_id, text=message_to_worker)
-                except Exception:
+                except TelegramBadRequest:
                     pass
                 message_to_worker = str(state_data.get('message_to_worker'))
 
     city = await City.get_city(id=city_id)
 
-    # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    except TelegramBadRequest:
+        pass
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=f'Сообщение отправлено всем исполнителям из {city.city}!',
                                   reply_markup=kbc.menu_btn())
@@ -1419,7 +1444,7 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
                 message_to_worker = message_to_worker + f'\n\nВаша реферальная ссылка: https://t.me/Rus_haltura_bot?start={worker.ref_code}'
                 await bot.send_photo(chat_id=worker.tg_id, photo=FSInputFile(file_path_photo),
                                      caption=message_to_worker)
-            except Exception:
+            except TelegramBadRequest:
                 pass
             message_to_worker = str(state_data.get('message_to_worker'))
 
@@ -1455,7 +1480,7 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
 
     try:
         await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-    except Exception:
+    except TelegramBadRequest:
         pass
 
     msg = await message.answer(text='Прикрепите фото, или нажмите кнопку пропустить', reply_markup=kbc.skip_btn_admin())
@@ -1482,14 +1507,16 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
                 try:
                     message_to_worker = message_to_worker + f'\n\nВаша реферальная ссылка: https://t.me/Rus_haltura_bot?start={worker.ref_code}'
                     await bot.send_message(chat_id=worker.tg_id, text=message_to_worker)
-                except Exception:
+                except TelegramBadRequest:
                     pass
                 message_to_worker = str(state_data.get('message_to_worker'))
 
     # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
     await state.set_state(AdminStates.menu)
-    await callback.message.answer(text=f'Сообщение отправлено всем исполнителям!',
-                                  reply_markup=kbc.menu_btn())
+    await callback.message.answer(
+        text=f'Сообщение отправлено всем исполнителям!',
+        reply_markup=kbc.menu_btn()
+    )
 
 
 @router.message(F.photo, AdminStates.msg_to_worker_photo_ref)
@@ -1500,14 +1527,19 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1].file_id
 
     state_data = await state.get_data()
-    # msg = str(state_data.get('msg'))
+    msg = str(state_data.get('msg'))
     message_to_worker = str(state_data.get('message_to_worker'))
 
-    # await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+    try:
+        await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+    except TelegramBadRequest:
+        pass
     msg = await message.answer('Подождите, идет отправка')
 
-    file_path_photo = await help_defs.save_photo(id=message.from_user.id,
-                                                 path='app/data/database/abs_from_admin_photo/')
+    file_path_photo = await help_defs.save_photo(
+        id=message.from_user.id,
+        path='app/data/database/abs_from_admin_photo/'
+    )
     await bot.download(file=photo, destination=file_path_photo)
 
     workers = await Worker.get_all()
@@ -1515,16 +1547,19 @@ async def msg_to_worker_photo(message: Message, state: FSMContext) -> None:
         for worker in workers:
             try:
                 message_to_worker = message_to_worker + f'\n\nВаша реферальная ссылка: https://t.me/Rus_haltura_bot?start={worker.ref_code}'
-                await bot.send_photo(chat_id=worker.tg_id, photo=FSInputFile(file_path_photo),
-                                     caption=message_to_worker)
-            except Exception:
+                await bot.send_photo(
+                    chat_id=worker.tg_id,
+                    photo=FSInputFile(file_path_photo),
+                    caption=message_to_worker
+                )
+            except TelegramBadRequest:
                 pass
             message_to_worker = str(state_data.get('message_to_worker'))
 
     help_defs.delete_file(file_path_photo)
     try:
         await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-    except Exception:
+    except TelegramBadRequest:
         pass
     await state.set_state(AdminStates.menu)
     await message.answer(text=f'Сообщение отправлено всем исполнителя!', reply_markup=kbc.menu_btn())
@@ -1556,7 +1591,6 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
         btn_next = False
 
     text = help_defs.read_text_file(abs_now.text_path)
-
 
     text = f'Объявление {abs_now.id}\n\n' + text
     if abs_now.photo_path:
@@ -1622,7 +1656,6 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
         btn_back = True
 
     text = help_defs.read_text_file(abs_now.text_path)
-
 
     text = f'Объявление {abs_now.id}\n\n' + text
 
@@ -1697,7 +1730,6 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
         photo_id = 0
 
     if abs_now.photo_path:
-
         await callback.message.edit_media(
             media=InputMediaPhoto(
                 media=FSInputFile(abs_now.photo_path[str(photo_id)]),
@@ -1770,7 +1802,7 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
             worker = await Worker.get_worker(id=worker_and_abs.worker_id)
             if worker is None:
                 continue
-            
+
             # Отправляем уведомление всем откликнувшимся исполнителям
             # (исполнитель уже откликнулся, значит город и направление подходят)
             try:
@@ -1808,10 +1840,8 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
-        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+                           worker_sub.work_type_ids] if worker_sub.work_type_ids else None
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
             step = ''
@@ -1830,11 +1860,7 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
-                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n')  # Закрывающая скобка для многострочной строки
-                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
-                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -1873,18 +1899,22 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
 
     state_data = await state.get_data()
     customer_id = int(state_data.get('customer_id'))
-    # msg_id = int(state_data.get('msg_id'))
+    msg_id = int(state_data.get('msg_id'))
 
     customer = await Customer.get_customer(id=customer_id)
 
     msg_to_send = message.text
 
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    except TelegramBadRequest:
+        pass
 
     banned = await Banned.get_banned(tg_id=customer.tg_id)
     await banned.update(ban_reason=msg_to_send)
 
-    await message.answer(text='Сообщение пользователю отправлено', reply_markup=kbc.admin_back_btn(f'get-user_{customer_id}'))
+    await message.answer(text='Сообщение пользователю отправлено',
+                         reply_markup=kbc.admin_back_btn(f'get-user_{customer_id}'))
     try:
         await bot.send_message(chat_id=customer.tg_id, text=f'Сообщение от администрации бота: "{msg_to_send}"')
     except TelegramBadRequest:
@@ -1914,7 +1944,7 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
             worker = await Worker.get_worker(id=worker_and_abs.worker_id)
             if worker is None:
                 continue
-            
+
             # Отправляем уведомление всем откликнувшимся исполнителям
             # (исполнитель уже откликнулся, значит город и направление подходят)
             try:
@@ -1991,7 +2021,8 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('back-to-customer_'), StateFilter(AdminStates.get_user, AdminStates.check_banned_abs, AdminStates.check_abs))
+@router.callback_query(lambda c: c.data.startswith('back-to-customer_'),
+                       StateFilter(AdminStates.get_user, AdminStates.check_banned_abs, AdminStates.check_abs))
 async def back_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
     customer_id = int(callback.data.split('_')[1])
     logger.debug(f'block_advertisement...')
@@ -2012,10 +2043,8 @@ async def back_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
-        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
-        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in worker_sub.work_type_ids] if worker_sub.work_type_ids else None
+        work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
+                           worker_sub.work_type_ids] if worker_sub.work_type_ids else None
         if len(worker.city_id) == 1:
             cites = 'Ваш город: '
             step = ''
@@ -2034,11 +2063,7 @@ async def back_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
-                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n')  # Закрывающая скобка для многострочной строки
-                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
-                 # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -2059,17 +2084,18 @@ async def back_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
 
         if worker:
             if worker.profile_photo:
-                await callback.message.answer_photo(caption=text, photo=FSInputFile(worker.profile_photo), protect_content=False,
+                await callback.message.answer_photo(caption=text, photo=FSInputFile(worker.profile_photo),
+                                                    protect_content=False,
                                                     reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                                     customer_id=customer_id))
+                                                                                        customer_id=customer_id))
             else:
                 await callback.message.answer(text=text, protect_content=False,
-                                                 reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                                     customer_id=customer_id))
+                                              reply_markup=kbc.admin_back_or_send(callback_data='menu',
+                                                                                  customer_id=customer_id))
         else:
             await callback.message.answer(text=text, protect_content=False,
-                                             reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                                 customer_id=customer_id))
+                                          reply_markup=kbc.admin_back_or_send(callback_data='menu',
+                                                                              customer_id=customer_id))
         await callback.message.delete()
         await state.update_data(user_id=user_id)
         return
@@ -2108,7 +2134,6 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-
     text = f'Объявление {abs_now.id}\n\n' + text
     if abs_now.photo_path:
         try:
@@ -2135,13 +2160,17 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    await callback.message.answer(text=text,
-                                  reply_markup=kbc.choose_obj_with_out_list_admin_var(id_now=0, btn_next=btn_next,
-                                                                                      btn_back=False,
-                                                                                      btn_block=True,
-                                                                                      btn_delete=True,
-                                                                                      abs_id=abs_now.id,
-                                                                                      customer_id=customer_id))
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.choose_obj_with_out_list_admin_var(
+            id_now=0,
+            btn_next=btn_next,
+            btn_back=False,
+            btn_block=True,
+            btn_delete=True,
+            abs_id=abs_now.id,
+            customer_id=customer_id)
+    )
 
 
 @router.callback_query(lambda c: c.data.startswith('go_'), AdminStates.check_banned_abs)
@@ -2173,7 +2202,6 @@ async def check_banned_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-
     text = f'Объявление {abs_now.id}\n\n' + text
 
     if abs_now.photo_path:
@@ -2201,13 +2229,17 @@ async def check_banned_abs(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    await callback.message.answer(text=text, reply_markup=kbc.choose_obj_with_out_list_admin_var(id_now=abs_list_id,
-                                                                                                 btn_next=btn_next,
-                                                                                                 btn_back=btn_back,
-                                                                                                 btn_block=True,
-                                                                                                 btn_delete=True,
-                                                                                                 abs_id=abs_now.id,
-                                                                                                 customer_id=customer_id))
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.choose_obj_with_out_list_admin_var(
+            id_now=abs_list_id,
+            btn_next=btn_next,
+            btn_back=btn_back,
+            btn_block=True,
+            btn_delete=True,
+            abs_id=abs_now.id,
+            customer_id=customer_id)
+    )
 
 
 @router.callback_query(lambda c: c.data.startswith('go-to-next-adm_'), AdminStates.check_banned_abs)
@@ -2281,14 +2313,18 @@ async def unblock_advertisement(callback: CallbackQuery, state: FSMContext) -> N
             await banned.delete()
         else:
             if banned.forever:
-                await banned.update(ban_counter=banned.ban_counter - 1,
-                                    ban_now=False,
-                                    ban_end=None,
-                                    forever=False)
+                await banned.update(
+                    ban_counter=banned.ban_counter - 1,
+                    ban_now=False,
+                    ban_end=None,
+                    forever=False
+                )
             else:
-                await banned.update(ban_counter=banned.ban_counter - 1,
-                                    ban_now=False,
-                                    ban_end=None)
+                await banned.update(
+                    ban_counter=banned.ban_counter - 1,
+                    ban_now=False,
+                    ban_end=None
+                )
 
     text_path = help_defs.copy_file(banned_advertisement.text_path, f'app/data/text/{customer.tg_id}/')
 
@@ -2297,8 +2333,10 @@ async def unblock_advertisement(callback: CallbackQuery, state: FSMContext) -> N
         await callback.message.delete()
         await callback.message.answer('Пользователь разблокирован')
         try:
-            await bot.send_message(chat_id=customer.tg_id,
-                                   text='Вы были разблокированы, приносим извинения за предоставленные неудобства.\nВызовите команду /menu чтобы продолжить работу')
+            await bot.send_message(
+                chat_id=customer.tg_id,
+                text='Вы были разблокированы, приносим извинения за предоставленные неудобства.\nВызовите команду /menu чтобы продолжить работу'
+            )
         except Exception:
             pass
         return
@@ -2320,7 +2358,6 @@ async def unblock_advertisement(callback: CallbackQuery, state: FSMContext) -> N
 
     text = help_defs.read_text_file(text_path)
 
-
     text = f'Объявление{advertisement.id}\n\n' + text
 
     workers = await Worker.get_all_in_city(city_id=customer.city_id)
@@ -2334,30 +2371,20 @@ async def unblock_advertisement(callback: CallbackQuery, state: FSMContext) -> N
             worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
             try:
                 if worker_sub.work_type_ids:
-                    if (advertisement.work_type_id in worker_sub.work_type_ids) or worker_sub.unlimited_work_types:
+                    if advertisement.work_type_id in worker_sub.work_type_ids:
                         if banned_advertisement.photo_path:
-                            await bot.send_photo(chat_id=worker.tg_id,
-                                                 photo=FSInputFile(banned_advertisement.photo_path['0']),
-                                                 caption=text,
-                                                 reply_markup=kbc.apply_btn(advertisement.id)
-                                                 )
+                            await bot.send_photo(
+                                chat_id=worker.tg_id,
+                                photo=FSInputFile(banned_advertisement.photo_path['0']),
+                                caption=text,
+                                reply_markup=kbc.apply_btn(advertisement.id)
+                            )
                         else:
-                            await bot.send_message(chat_id=worker.tg_id,
-                                                   text=text,
-                                                   reply_markup=kbc.apply_btn(advertisement.id)
-                                                   )
-                elif worker_sub.unlimited_work_types:
-                    if banned_advertisement.photo_path:
-                        await bot.send_photo(chat_id=worker.tg_id,
-                                             photo=FSInputFile(banned_advertisement.photo_path['0']),
-                                             caption=text,
-                                             reply_markup=kbc.apply_btn(advertisement.id)
-                                             )
-                    else:
-                        await bot.send_message(chat_id=worker.tg_id,
-                                               text=text,
-                                               reply_markup=kbc.apply_btn(advertisement.id)
-                                               )
+                            await bot.send_message(
+                                chat_id=worker.tg_id,
+                                text=text,
+                                reply_markup=kbc.apply_btn(advertisement.id)
+                            )
             except Exception:
                 pass
 
@@ -2388,7 +2415,7 @@ async def unblock_advertisement(callback: CallbackQuery, state: FSMContext) -> N
 
     advertisement_now = advertisements[advertisement_id]
 
-    text = f'Объявление{advertisement_now.id}\n\n' + help_defs.read_text_file(advertisement_now.text_path)
+    text = f'Объявление {advertisement_now.id}\n\n' + help_defs.read_text_file(advertisement_now.text_path)
     logger.debug(f"text {text}")
     if advertisement_now.photo_path:
         try:
@@ -2442,17 +2469,23 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
         await banned.delete()
     else:
         if banned.forever:
-            await banned.update(ban_counter=banned.ban_counter - 1,
-                                ban_now=False,
-                                ban_end=None,
-                                forever=False)
+            await banned.update(
+                ban_counter=banned.ban_counter - 1,
+                ban_now=False,
+                ban_end=None,
+                forever=False
+            )
         else:
-            await banned.update(ban_counter=banned.ban_counter - 1,
-                                ban_now=False,
-                                ban_end=None)
+            await banned.update(
+                ban_counter=banned.ban_counter - 1,
+                ban_now=False,
+                ban_end=None
+            )
     try:
-        await bot.send_message(chat_id=customer.tg_id,
-                               text='Вы были разблокированы, приносим извинения за предоставленные неудобства.\nВызовите команду /menu чтобы продолжить работу')
+        await bot.send_message(
+            chat_id=customer.tg_id,
+            text='Вы были разблокированы, приносим извинения за предоставленные неудобства.\nВызовите команду /menu чтобы продолжить работу'
+        )
     except Exception:
         pass
 
@@ -2526,19 +2559,19 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
 async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -> None:
     """Удаление имени исполнителя администратором с системой предупреждений"""
     logger.debug(f'admin_delete_worker_name...')
-    
+
     try:
         if not callback.data:
             await callback.answer("❌ Неверный формат данных", show_alert=True)
             return
-            
+
         parts = callback.data.split('_')
         logger.debug(f'admin_delete_worker_name callback.data: {callback.data}, parts: {parts}, len: {len(parts)}')
-        
+
         if len(parts) < 6:
             await callback.answer("❌ Неверный формат данных", show_alert=True)
             return
-        
+
         try:
             worker_id = int(parts[4])
             worker_tg_id = int(parts[5])
@@ -2546,33 +2579,33 @@ async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -
             logger.error(f"Ошибка при парсинге ID из callback.data: {callback.data}, parts: {parts}, error: {e}")
             await callback.answer("❌ Неверный формат данных", show_alert=True)
             return
-        
+
         worker = await Worker.get_worker(id=worker_id)
         if not worker:
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
-        
+
         # Увеличиваем счетчик нарушений
         new_violations_count = (worker.name_violations_count or 0) + 1
         await worker.update_name_violations_count(new_violations_count)
-        
+
         # Обнуляем имя
         await worker.update_profile_name(profile_name="")
-        
+
         # Удаляем сообщение
         try:
             await callback.message.delete()
         except Exception:
             pass
-        
+
         # Система предупреждений и блокировок
         from app.data.database.models import Banned
-        
+
         if new_violations_count == 3:
             # 3-й раз - блокировка навсегда
             banned = await Banned.get_banned(tg_id=worker_tg_id)
             ban_reason = "Повторные нарушения правил платформы (имя)"
-            
+
             if banned:
                 await banned.update(forever=True, ban_now=True, ban_reason=ban_reason)
             else:
@@ -2586,7 +2619,7 @@ async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -
                     ban_reason=ban_reason
                 )
                 await banned.save()
-            
+
             # Отправляем уведомление исполнителю
             try:
                 await bot.send_message(
@@ -2596,16 +2629,17 @@ async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -
                 )
             except Exception as e:
                 logger.error(f"Ошибка при отправке уведомления о блокировке: {e}")
-            
-            await callback.message.answer(f"✅ Имя удалено. Исполнитель #{worker_id} заблокирован навсегда (3 нарушения)")
-        
+
+            await callback.message.answer(
+                f"✅ Имя удалено. Исполнитель #{worker_id} заблокирован навсегда (3 нарушения)")
+
         elif new_violations_count == 1 or new_violations_count == 2:
             # 1-й или 2-й раз - предупреждение и перенаправление
             try:
                 kbc = KeyboardCollection()
-                
+
                 warning_text = f"⚠️ Укажите своё настоящее имя — рекламные или выдуманные имена не допускаются. ({new_violations_count}/3)"
-                
+
                 await bot.send_message(
                     chat_id=worker_tg_id,
                     text=warning_text,
@@ -2614,13 +2648,13 @@ async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -
                 )
             except Exception as e:
                 logger.error(f"Ошибка при отправке предупреждения: {e}")
-            
-            await callback.message.answer(f"✅ Имя удалено. Исполнителю #{worker_id} отправлено предупреждение ({new_violations_count}/3)")
-        
+
+            await callback.message.answer(
+                f"✅ Имя удалено. Исполнителю #{worker_id} отправлено предупреждение ({new_violations_count}/3)")
+
     except Exception as e:
         logger.error(f"Ошибка в admin_delete_worker_name: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
-
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |
