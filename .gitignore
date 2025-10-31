@@ -54,3 +54,6 @@ logs/*
 celerybeat-schedule*
 
 *.db
+app/data/database/database.db
+app/data/database/database.db-shm
+app/data/database/database.db-wal
