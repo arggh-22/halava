@@ -95,21 +95,55 @@ async def admin_delete_photo_violation(callback: CallbackQuery, state: FSMContex
         await callback.message.edit_text("❌ Исполнитель не найден")
         return
     
-    # Удаляем фото профиля
-    if worker.profile_photo:
-        await worker.update_profile_photo(profile_photo=None)
+    # Определяем тип фото по caption
+    caption = callback.message.caption or ""
+    is_portfolio = "портфолио" in caption.lower()
     
-    # Отправляем уведомление пользователю
-    try:
-        await bot.send_message(
-            chat_id=worker.tg_id, 
-            text="Фото профиля нарушает правила платформы 🚫\n\nЗагрузите другое!",
-            reply_markup=kbc.photo_work_keyboard(is_photo=False)
+    if is_portfolio:
+        # Удаляем все фото портфолио (так как не знаем, какое именно было отправлено)
+        from app.untils import help_defs
+        
+        if worker.portfolio_photo:
+            # Удаляем все файлы портфолио
+            for photo_key, photo_path in worker.portfolio_photo.items():
+                if photo_path and isinstance(photo_path, str):
+                    help_defs.delete_file(photo_path)
+                    logger.info(f"Удалено фото портфолио: {photo_path}")
+            
+            # Очищаем портфолио в базе данных
+            await worker.update_portfolio_photo(portfolio_photo={})
+            logger.info(f"Портфолио исполнителя {worker.tg_id} полностью очищено")
+        
+        # Отправляем уведомление пользователю
+        try:
+            await bot.send_message(
+                chat_id=worker.tg_id, 
+                text="Фото портфолио нарушает правила платформы 🚫\n\nЗагрузите другие фото!",
+                reply_markup=kbc.done_btn()
+            )
+        except TelegramBadRequest:
+            pass
+        
+        # Обновляем сообщение в чате логов
+        await callback.message.edit_caption(
+            caption=f"✅ Фото портфолио исполнителя {worker.tg_id} удалено за нарушение правил"
         )
-    except TelegramBadRequest:
-        pass
-    
-    # Обновляем сообщение в чате логов
-    await callback.message.edit_caption(
-        caption=f"✅ Фото профиля исполнителя {worker.tg_id} удалено за нарушение правил"
-    )
+    else:
+        # Удаляем фото профиля
+        if worker.profile_photo:
+            await worker.update_profile_photo(profile_photo=None)
+        
+        # Отправляем уведомление пользователю
+        try:
+            await bot.send_message(
+                chat_id=worker.tg_id, 
+                text="Фото профиля нарушает правила платформы 🚫\n\nЗагрузите другое!",
+                reply_markup=kbc.photo_work_keyboard(is_photo=False)
+            )
+        except TelegramBadRequest:
+            pass
+        
+        # Обновляем сообщение в чате логов
+        await callback.message.edit_caption(
+            caption=f"✅ Фото профиля исполнителя {worker.tg_id} удалено за нарушение правил"
+        )

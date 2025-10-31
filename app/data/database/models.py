@@ -374,81 +374,76 @@ class Worker:
         """
         Получение активных исполнителей по городу и типу работы.
         Учитывает основной город из workers.city_id и дополнительные города из worker_city_subscriptions
+        ОПТИМИЗИРОВАНО: один запрос вместо N запросов для каждого воркера
         """
         import logging
         logger = logging.getLogger()
-        logger.info(f'[DEBUG] get_active_workers_for_advertisement: city_id={city_id}, work_type_id={work_type_id}')
+        logger.debug(f'[OPTIMIZED] get_active_workers_for_advertisement: city_id={city_id}, work_type_id={work_type_id}')
 
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
-            # Получаем всех активных исполнителей (используем DISTINCT для избежания дублирования)
+            # Оптимизированный запрос: получаем всех воркеров с их подписками одним запросом
+            # GROUP_CONCAT агрегирует все подписки для каждого воркера
+            # Используем запятую как разделитель в GROUP_CONCAT, так как city_ids внутри уже содержит |
             query = '''
-                    SELECT DISTINCT w.*, ws.work_type_ids
+                    SELECT 
+                        w.*, 
+                        ws.work_type_ids,
+                        GROUP_CONCAT(wcs.city_ids) as subscription_cities
                     FROM workers w
-                             LEFT JOIN worker_and_subscription ws ON w.id = ws.worker_id
+                    LEFT JOIN worker_and_subscription ws ON w.id = ws.worker_id
+                    LEFT JOIN worker_city_subscriptions wcs ON w.id = wcs.worker_id AND wcs.active = 1
                     WHERE w.active = 1
+                    GROUP BY w.id
                     '''
             cursor = await conn.execute(query)
             records = await cursor.fetchall()
             await cursor.close()
 
-            logger.info(f'[DEBUG] Found {len(records)} active workers in database')
+            logger.debug(f'[OPTIMIZED] Found {len(records)} active workers in database')
 
             matching_workers = []
             work_type_id_str = str(work_type_id)
+            city_id_str = str(city_id)
 
             for record in records:
-                worker_tg_id = record[1]
-                worker_id = record[0]
-                logger.info(f'[DEBUG] Processing worker {worker_tg_id}')
-
                 # Проверяем основной город (формат: "1 | 2 | 3")
                 try:
-                    main_city_ids = str(record[4]).split(' | ') if record[4] is not None else []
+                    main_city_str = str(record[4]) if record[4] is not None else ''
+                    main_city_ids = [cid.strip() for cid in main_city_str.split(' | ') if cid.strip()] if main_city_str else []
                 except (AttributeError, TypeError):
-                    logger.info(f'[DEBUG] Worker {worker_tg_id}: invalid main city_id format')
                     continue
 
-                # Проверяем дополнительные города из подписок
+                # Получаем дополнительные города из подписок (уже агрегированы в запросе)
+                # GROUP_CONCAT объединяет строки через запятую по умолчанию
+                # Каждая подписка содержит city_ids в формате "1|2|3"
+                subscription_cities_str = record[25] if len(record) > 25 and record[25] else ''
                 additional_city_ids = []
-                cursor = await conn.execute('''
-                                            SELECT city_ids
-                                            FROM worker_city_subscriptions
-                                            WHERE worker_id = ?
-                                              AND active = 1
-                                            ''', [worker_id])
-                subscription_records = await cursor.fetchall()
-                await cursor.close()
-
-                for sub_record in subscription_records:
-                    if sub_record[0]:  # city_ids не пустые
-                        additional_city_ids.extend(sub_record[0].split('|'))
+                if subscription_cities_str:
+                    # GROUP_CONCAT объединяет через запятую: "1|2|3,4|5,6|7|8"
+                    # Сначала разбиваем по запятой, потом каждый элемент по |
+                    subscription_list = subscription_cities_str.split(',')
+                    for sub_cities in subscription_list:
+                        if sub_cities:
+                            # Каждая подписка может содержать несколько городов через |
+                            cities = sub_cities.split('|')
+                            additional_city_ids.extend([cid.strip() for cid in cities if cid.strip()])
+                    # Убираем дубликаты
+                    additional_city_ids = list(dict.fromkeys(additional_city_ids))
 
                 # Объединяем основной город и дополнительные города
-                all_city_ids = main_city_ids + [str(cid).strip() for cid in additional_city_ids if cid.strip()]
-
-                logger.info(
-                    f'[DEBUG] Worker {worker_tg_id}: main_cities={main_city_ids}, additional_cities={additional_city_ids}, all_cities={all_city_ids}')
+                all_city_ids = main_city_ids + additional_city_ids
 
                 # Проверяем, есть ли нужный город в списке всех городов
-                if str(city_id) not in all_city_ids:
-                    logger.info(f'[DEBUG] Worker {worker_tg_id}: city {city_id} not in {all_city_ids}')
+                if city_id_str not in all_city_ids:
                     continue
 
                 # Проверяем тип работы (work_type_ids из таблицы worker_and_subscription)
-                # w.* дает 24 поля (0-23), ws.work_type_ids это поле 24 (теперь поле 2 в новой структуре, но индекс в JOIN остается 24)
-                logger.info(
-                    f'[DEBUG] Worker {worker_tg_id}: record length={len(record)}, record[24]={record[24] if len(record) > 24 else "N/A"}')
                 try:
-                    work_type_ids = str(record[24]).split('|') if len(record) > 24 and record[24] is not None else []
+                    work_type_ids_str = str(record[24]) if len(record) > 24 and record[24] is not None else ''
+                    work_type_ids = [id.strip() for id in work_type_ids_str.split('|') if id.strip()] if work_type_ids_str else []
                 except (AttributeError, TypeError, IndexError):
                     work_type_ids = []
-
-                # Убираем пустые строки из списка
-                work_type_ids = [id for id in work_type_ids if id and id.strip()]
-
-                logger.info(
-                    f'[DEBUG] Worker {worker_tg_id}: work_type_ids={work_type_ids}, looking for {work_type_id_str}')
 
                 # Проверяем тип работы
                 # Если work_type_ids=['0'] - это безлимитная подписка (получает все типы)
@@ -457,17 +452,15 @@ class Worker:
                 is_unlimited = len(work_type_ids) == 1 and work_type_ids[0] == '0'
 
                 if work_type_ids and not is_unlimited and work_type_id_str not in work_type_ids:
-                    logger.info(f'[DEBUG] Worker {worker_tg_id}: work_type {work_type_id_str} not in {work_type_ids}')
                     continue
 
-                logger.info(f'[DEBUG] Worker {worker_tg_id}: MATCH! Adding to list')
-
+                # Создаем объект воркера
                 worker = cls(
                     id=record[0],
                     tg_id=record[1],
                     tg_name=record[2],
                     phone_number=record[3],
-                    city_id=[int(x) for x in all_city_ids],
+                    city_id=[int(x) for x in all_city_ids if x],
                     confirmed=record[5],
                     stars=record[6],
                     count_ratings=record[7],
@@ -490,7 +483,7 @@ class Worker:
                 )
                 matching_workers.append(worker)
 
-            logger.info(f'[DEBUG] Final result: {len(matching_workers)} matching workers found')
+            logger.debug(f'[OPTIMIZED] Final result: {len(matching_workers)} matching workers found')
             return matching_workers
         finally:
             await conn.close()

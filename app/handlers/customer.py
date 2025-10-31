@@ -2517,11 +2517,17 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
         
         if photo_path and photos_len > 0 and '0' in photo_path:
             logger.info(f'[DEBUG] Sending photo to worker {worker.tg_id}')
+            # Передаем count_photo и photo_num для возможности листания фото
             await bot.send_photo(
                 chat_id=worker.tg_id,
                 photo=FSInputFile(photo_path['0']),
                 caption=text,
-                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_id)
+                reply_markup=kbc.advertisement_response_buttons(
+                    abs_id=advertisement_id,
+                    count_photo=photos_len,
+                    photo_num=0,
+                    abs_list_id=-1  # -1 означает, что это из рассылки (нет списка объявлений)
+                )
             )
         else:
             logger.info(f'[DEBUG] Sending text message to worker {worker.tg_id}')
