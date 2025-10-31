@@ -52,3 +52,5 @@ logs/*
 #media/*
 
 celerybeat-schedule*
+
+*.db
