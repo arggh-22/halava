@@ -1,36 +1,42 @@
-# BOT_TOKEN = '7410145873:AAGaMJ-1yhDiztdgSOMOhaglOz54ANkk87o'     # '7410145873:AAGaMJ-1yhDiztdgSOMOhaglOz54ANkk87o'
-# BOT_TOKEN = '8114974710:AAEYQpbuaKdUNGjBReHxN-7FTjLi9Z1XtZE' # '7470851575:AAH7uCMP-FGWHAcj2LmSzNeQBQCSJHf6xk8' # '8114974710:AAEYQpbuaKdUNGjBReHxN-7FTjLi9Z1XtZE'     # '7410145873:AAGaMJ-1yhDiztdgSOMOhaglOz54ANkk87o'
-BOT_TOKEN = '7470851575:AAH7uCMP-FGWHAcj2LmSzNeQBQCSJHf6xk8' # '8114974710:AAEYQpbuaKdUNGjBReHxN-7FTjLi9Z1XtZE'     # '7410145873:AAGaMJ-1yhDiztdgSOMOhaglOz54ANkk87o'
-DEBUG_MODE = False
-PAYMENTS = '390540012:LIVE:53858'   # '390540012:LIVE:53858'
-# PAYMENTS = 'DISABLED'  # Раскомментируйте эту строку для отключения платежей
+from dotenv import load_dotenv
+import os
 
-BLOCKED_CHAT = -4965406464 # -4812922202  # -4259425512
-# BLOCKED_CHAT = -4812922202  # -4259425512
-SUPPORT_CHAT = -4897467103 # -1003070992520 # -4961097301  # -4270981854
-# SUPPORT_CHAT = -1003070992520 # -4897467103 # -1003070992520 # -4961097301  # -4270981854
-ADVERTISEMENT_LOG = -4835007907 # -1003179700370  # -4206742054
-# ADVERTISEMENT_LOG = -1003179700370 # -4835007907 # -1003179700370  # -4206742054
-MESSAGE_LOG = -4887694437 # -4677957868   # -4265610893
-# MESSAGE_LOG = -4677957868 # -4887694437 # -4677957868   # -4265610893
-REPORT_LOG = -4975004306 # -4886110144    # -4192920544
-# REPORT_LOG = -1002997784307 # -4975004306 # -4886110144    # -4192920544
-NAME_MODERATION_CHAT = -4975004306  # Чат для модерации имен исполнителей
-# NAME_MODERATION_CHAT = -1002997784307  # Временно используем REPORT_LOG, нужно создать отдельный чат
+# Загружаем переменные из .env файла
+load_dotenv()
 
-PRICE = 90
+# Токен бота
+BOT_TOKEN = os.getenv('BOT_TOKEN', '7470851575:AAH7uCMP-FGWHAcj2LmSzNeQBQCSJHf6xk8')
+
+# Режим отладки
+DEBUG_MODE = os.getenv('DEBUG_MODE', 'False').lower() in ('true', '1', 'yes')
+
+# Платежи
+PAYMENTS = os.getenv('PAYMENTS', 'DISABLED')
+
+# ID чатов
+BLOCKED_CHAT = int(os.getenv('BLOCKED_CHAT', '-4965406464'))
+SUPPORT_CHAT = int(os.getenv('SUPPORT_CHAT', '-4897467103'))
+ADVERTISEMENT_LOG = int(os.getenv('ADVERTISEMENT_LOG', '-4835007907'))
+MESSAGE_LOG = int(os.getenv('MESSAGE_LOG', '-4887694437'))
+REPORT_LOG = int(os.getenv('REPORT_LOG', '-4975004306'))
+NAME_MODERATION_CHAT = int(os.getenv('NAME_MODERATION_CHAT', os.getenv('REPORT_LOG', '-4975004306')))
+
+# Цена
+PRICE = int(os.getenv('PRICE', '90'))
 
 # Максимальная длина имени исполнителя
-MAX_WORKER_NAME_LENGTH = 15
+MAX_WORKER_NAME_LENGTH = int(os.getenv('MAX_WORKER_NAME_LENGTH', '15'))
 # Минимальная длина имени исполнителя
-MIN_WORKER_NAME_LENGTH = 2
+MIN_WORKER_NAME_LENGTH = int(os.getenv('MIN_WORKER_NAME_LENGTH', '2'))
 
-API_KEY = "ключ"
-ACCESS_TOKEN = "токен"
+# API ключи (необязательные)
+API_KEY = os.getenv('API_KEY', 'ключ')
+ACCESS_TOKEN = os.getenv('ACCESS_TOKEN', 'токен')
 
-FOLDER_ID = 'b1g65bqsr2f2p2k3p1jk'
-URL_VISION_API = "https://vision.api.cloud.yandex.net/vision/v1/batchAnalyze"
-YANDEX_API_SECRET_KEY = 'AQVN1qvCcsogvTHLU4YH42qCJ5AUQopfJPXqXUk6'
+# Yandex Cloud настройки
+FOLDER_ID = os.getenv('FOLDER_ID', 'b1g65bqsr2f2p2k3p1jk')
+URL_VISION_API = os.getenv('URL_VISION_API', 'https://vision.api.cloud.yandex.net/vision/v1/batchAnalyze')
+YANDEX_API_SECRET_KEY = os.getenv('YANDEX_API_SECRET_KEY', '')
 
 
 #  _    _        _      _____              _
