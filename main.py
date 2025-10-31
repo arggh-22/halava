@@ -85,8 +85,8 @@ async def run():
     scheduler.add_job(time_checker.check_time_banned_advertisement, "interval", hours=24)
     scheduler.add_job(time_checker.check_time_workers_stars, "interval", hours=48)
     scheduler.add_job(time_checker.cleanup_orphaned_files, "interval", days=7)  # Еженедельная очистка файлов
-    # scheduler.add_job(send_city_subscription_expiry_notifications, "interval", hours=24)  # Ежедневная проверка истекающих подписок на города
-    scheduler.add_job(send_city_subscription_expiry_notifications, "interval", minutes=1)  # Ежедневная проверка истекающих подписок на города
+    scheduler.add_job(send_city_subscription_expiry_notifications, "interval", hours=24)  # Ежедневная проверка истекающих подписок на города
+    # scheduler.add_job(send_city_subscription_expiry_notifications, "interval", minutes=1)  # Ежедневная проверка истекающих подписок на города
     scheduler.add_job(restore_weekly_activity, "interval", days=7)  # Еженедельное восстановление активности исполнителей
     scheduler.add_job(check_worker_statuses, "interval", days=7)  # Еженедельная проверка статусов исполнителей (ИП, ООО, СЗ)
     scheduler.add_job(update_worker_ranks, "interval", hours=24)  # Ежедневное обновление рангов исполнителей на основе заказов за 30 дней

@@ -314,7 +314,11 @@ def delete_folder(folder_path):
 
 def cleanup_orphaned_portfolio_files():
     """
-    Очищает "осиротевшие" файлы портфолио, которые не связаны ни с одним исполнителем.
+    Очищает "осиротевшие" файлы (фото профиля и портфолио), которые не связаны ни с одним исполнителем.
+    Проверяет:
+    - Файлы в папке пользователя (app/data/photo/{user_id}/) - фото профиля и старые файлы портфолио
+    - Файлы в папке portfolio (app/data/photo/{user_id}/portfolio/) - новые файлы портфолио
+    
     Эта функция должна вызываться периодически для поддержания чистоты файловой системы.
     
     Returns:
@@ -322,10 +326,10 @@ def cleanup_orphaned_portfolio_files():
     """
     portfolio_base_path = 'app/data/photo/'
     if not os.path.exists(portfolio_base_path):
-        logger.info("Папка портфолио не существует, очистка не требуется")
+        logger.info("Папка фото не существует, очистка не требуется")
         return 0
 
-    logger.info("Начинаем очистку осиротевших файлов портфолио...")
+    logger.info("Начинаем очистку осиротевших файлов (профиль и портфолио)...")
 
     # Получаем все папки с ID пользователей
     user_folders = [f for f in os.listdir(portfolio_base_path)
@@ -338,23 +342,50 @@ def cleanup_orphaned_portfolio_files():
         folder_path = os.path.join(portfolio_base_path, folder)
         checked_folders += 1
 
-        # Получаем все файлы в папке
         try:
+            # 1. Проверяем файлы в самой папке пользователя (фото профиля и старые файлы портфолио)
             files = os.listdir(folder_path)
-            for file in files:
-                if file.endswith('.jpg'):
-                    file_path = os.path.join(folder_path, file)
-
-                    # Проверяем, используется ли файл в портфолио какого-либо исполнителя
-                    if is_file_orphaned(file_path):
+            for item in files:
+                item_path = os.path.join(folder_path, item)
+                
+                # Пропускаем папки (например, portfolio)
+                if os.path.isdir(item_path):
+                    continue
+                
+                # Проверяем только .jpg файлы
+                if item.endswith('.jpg'):
+                    # Проверяем, используется ли файл (profile_photo или старое portfolio_photo)
+                    if is_file_orphaned(item_path):
                         # Удаляем осиротевший файл
-                        if delete_file(file_path):
+                        if delete_file(item_path):
                             cleaned_count += 1
-                            logger.info(f"Удален осиротевший файл портфолио: {file_path}")
+                            logger.info(f"Удален осиротевший файл из папки пользователя: {item_path}")
                         else:
-                            logger.warning(f"Не удалось удалить осиротевший файл: {file_path}")
+                            logger.warning(f"Не удалось удалить файл: {item_path}")
                     else:
-                        logger.debug(f"Файл используется в портфолио: {file_path}")
+                        logger.debug(f"Файл используется: {item_path}")
+
+            # 2. Проверяем файлы в подпапке portfolio (новые файлы портфолио)
+            portfolio_folder = os.path.join(folder_path, 'portfolio')
+            if os.path.exists(portfolio_folder) and os.path.isdir(portfolio_folder):
+                try:
+                    portfolio_files = os.listdir(portfolio_folder)
+                    for file in portfolio_files:
+                        if file.endswith('.jpg'):
+                            file_path = os.path.join(portfolio_folder, file)
+
+                            # Проверяем, используется ли файл в портфолио
+                            if is_file_orphaned(file_path):
+                                # Удаляем осиротевший файл
+                                if delete_file(file_path):
+                                    cleaned_count += 1
+                                    logger.info(f"Удален осиротевший файл портфолио: {file_path}")
+                                else:
+                                    logger.warning(f"Не удалось удалить файл портфолио: {file_path}")
+                            else:
+                                logger.debug(f"Файл портфолио используется: {file_path}")
+                except Exception as e:
+                    logger.error(f"Ошибка при проверке папки portfolio {portfolio_folder}: {e}")
 
         except Exception as e:
             logger.error(f"Ошибка при проверке папки {folder_path}: {e}")

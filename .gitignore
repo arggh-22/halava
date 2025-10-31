@@ -57,3 +57,7 @@ celerybeat-schedule*
 app/data/database/database.db
 app/data/database/database.db-shm
 app/data/database/database.db-wal
+app/data/photo
+app/data/text
+app/data/banned
+app/data/database/abs_from_admin_photo
