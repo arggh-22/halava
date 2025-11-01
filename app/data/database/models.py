@@ -2969,6 +2969,83 @@ class ContactTariff:
         finally:
             await conn.close()
 
+    async def update(self, name: str = None, contacts_count: int = None, price: int = None,
+                     unlimited: bool = None, unlimited_days: int = None) -> None:
+        """Обновление тарифа"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            updates = []
+            params = []
+            
+            if name is not None:
+                updates.append('name = ?')
+                params.append(name)
+            if contacts_count is not None:
+                updates.append('contacts_count = ?')
+                params.append(contacts_count)
+            if price is not None:
+                updates.append('price = ?')
+                params.append(price)
+            if unlimited is not None:
+                updates.append('unlimited = ?')
+                params.append(int(unlimited))
+            if unlimited_days is not None:
+                updates.append('unlimited_days = ?')
+                params.append(unlimited_days)
+            
+            if updates:
+                params.append(self.id)
+                query = f'UPDATE contact_tariffs SET {", ".join(updates)} WHERE id = ?'
+                await conn.execute(query, params)
+                await conn.commit()
+                
+                # Обновляем локальные значения
+                if name is not None:
+                    self.name = name
+                if contacts_count is not None:
+                    self.contacts_count = contacts_count
+                if price is not None:
+                    self.price = price
+                if unlimited is not None:
+                    self.unlimited = unlimited
+                if unlimited_days is not None:
+                    self.unlimited_days = unlimited_days
+        finally:
+            await conn.close()
+
+    async def delete(self) -> None:
+        """Удаление тарифа"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('DELETE FROM contact_tariffs WHERE id = ?', [self.id])
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def init_default_tariffs(cls) -> None:
+        """Инициализация тарифов по умолчанию, если их нет в БД"""
+        existing = await cls.get_all()
+        if existing:
+            return  # Тарифы уже есть
+        
+        # Создаем тарифы по умолчанию
+        default_tariffs = [
+            # Обычные тарифы (цена в копейках, контакты в штуках)
+            cls(id=None, name="1 контакт", contacts_count=1, price=19000, unlimited=False, unlimited_days=None),
+            cls(id=None, name="2 контакта", contacts_count=2, price=29000, unlimited=False, unlimited_days=None),
+            cls(id=None, name="5 контактов", contacts_count=5, price=69000, unlimited=False, unlimited_days=None),
+            cls(id=None, name="10 контактов", contacts_count=10, price=119000, unlimited=False, unlimited_days=None),
+            # Безлимитные тарифы (цена в копейках, дни)
+            cls(id=None, name="Безлимит 1 месяц", contacts_count=-1, price=199000, unlimited=True, unlimited_days=30),
+            cls(id=None, name="Безлимит 3 месяца", contacts_count=-1, price=449000, unlimited=True, unlimited_days=90),
+            cls(id=None, name="Безлимит 6 месяцев", contacts_count=-1, price=699000, unlimited=True, unlimited_days=180),
+            cls(id=None, name="Безлимит 12 месяцев", contacts_count=-1, price=1099000, unlimited=True, unlimited_days=365),
+        ]
+        
+        for tariff in default_tariffs:
+            await tariff.save()
+
 
 class WorkerRating:
     """Модель для оценок исполнителей заказчиками"""

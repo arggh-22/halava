@@ -151,6 +151,18 @@ class AdminStates(StatesGroup):
     check_banned_abs = State()
     add_comment_to_lock = State()
     add_comment_to_lock_abs_chat = State()
+    # Состояния для управления тарифами контактов
+    manage_contact_tariffs = State()
+    view_contact_tariff = State()
+    edit_contact_tariff_price = State()
+    edit_contact_tariff_name = State()
+    edit_contact_tariff_contacts_count = State()
+    edit_contact_tariff_unlimited_days = State()
+    add_contact_tariff_type = State()
+    add_contact_tariff_name = State()
+    add_contact_tariff_contacts_count = State()
+    add_contact_tariff_price = State()
+    add_contact_tariff_unlimited_days = State()
 
 
 class BannedStates(StatesGroup):

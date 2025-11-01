@@ -5635,28 +5635,38 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
         except ValueError:
             text += f"⏰ Безлимит истек\n\n"
 
+    # Загружаем тарифы из БД
+    from app.data.database.models import ContactTariff
+    tariffs = await ContactTariff.get_all()
+    
     text += f"📦 **Доступные тарифы:**\n\n"
-    text += f"🔸 1 контакт - 190₽\n"
-    text += f"🔸 2 контакта - 290₽ (-24%)\n"
-    text += f"🔸 5 контактов - 690₽ (-27%)\n"
-    text += f"🔸 10 контактов - 1190₽ (-37%)\n"
-    text += f"🔸 Безлимит 1 месяц - 1990₽\n"
-    text += f"🔸 Безлимит 3 месяца - 4490₽\n"
-    text += f"🔸 Безлимит 6 месяцев - 6990₽\n"
-    text += f"🔸 Безлимит 12 месяцев - 10990₽\n\n"
-    text += f"💡 Контакты нужны для получения телефонов заказчиков"
+    for tariff in tariffs:
+        price_rub = tariff.price / 100
+        discount_text = ""
+        if not tariff.unlimited and tariff.contacts_count > 1:
+            # Вычисляем скидку
+            base_price_per_contact = 190
+            total_base_price = base_price_per_contact * tariff.contacts_count
+            actual_price = price_rub
+            if actual_price < total_base_price:
+                discount_percent = int(((total_base_price - actual_price) / total_base_price) * 100)
+                discount_text = f" (-{discount_percent}%)"
+        text += f"🔸 {tariff.name} - {int(price_rub)}₽{discount_text}\n"
+    text += f"\n💡 Контакты нужны для получения телефонов заказчиков"
 
-    # Используем существующую клавиатуру с тарифами
-    builder = InlineKeyboardBuilder()
-    builder.add(kbc._inline("190 ₽ — 1 контакт", "contact-tariff_1_190"))
-    builder.add(kbc._inline("290 ₽ — 2 контакта", "contact-tariff_2_290"))
-    builder.add(kbc._inline("690 ₽ — 5 контактов", "contact-tariff_5_690"))
-    builder.add(kbc._inline("1190 ₽ — 10 контактов", "contact-tariff_10_1190"))
-    builder.add(kbc._inline("1990 ₽ — Безлимит 1 месяц", "contact-tariff_unlimited_1_1990"))
-    builder.add(kbc._inline("4490 ₽ — Безлимит 3 месяца", "contact-tariff_unlimited_3_4490"))
-    builder.add(kbc._inline("6990 ₽ — Безлимит 6 месяцев", "contact-tariff_unlimited_6_6990"))
-    builder.add(kbc._inline("10990 ₽ — Безлимит 12 месяцев", "contact-tariff_unlimited_12_10990"))
-    builder.add(kbc._inline("🏠 В меню", "worker_menu"))
+    # Используем клавиатуру с тарифами из БД
+    keyboard = await kbc.contact_purchase_tariffs()
+    # Добавляем кнопку "В меню" если её нет
+    builder = InlineKeyboardBuilder.from_markup(keyboard)
+    # Проверяем, есть ли уже кнопка "В меню"
+    has_menu = False
+    for row in keyboard.inline_keyboard:
+        for button in row:
+            if button.callback_data == "worker_menu":
+                has_menu = True
+                break
+    if not has_menu:
+        builder.add(kbc._inline("🏠 В меню", "worker_menu"))
     builder.adjust(1)
 
     # Безопасное редактирование
@@ -5686,42 +5696,52 @@ async def buy_contacts_handler(callback: CallbackQuery, state: FSMContext) -> No
 
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
 
-    # Парсим callback_data: contact-tariff_{tokens}_{price} или contact-tariff_unlimited_{months}_{price}
+    # Парсим callback_data: contact-tariff_{id}
     parts = callback.data.split('_')
     logger.debug(f"Callback data: {callback.data}")
     logger.debug(f"Parts: {parts}")
 
-    if len(parts) < 3:
+    if len(parts) < 2:
         await callback.answer("❌ Неверный формат тарифа", show_alert=True)
         return
 
-    if parts[1] == "unlimited":
-        # Безлимитный тариф: contact-tariff_unlimited_{months}_{price}
-        months = int(parts[2])
-        price = int(parts[3])
-        tokens = -1  # Безлимит
-        tariff_name = f"Безлимит {months} месяц(ев)"
+    # Получаем тариф из БД
+    from app.data.database.models import ContactTariff
+    tariff_id = int(parts[1])
+    tariff = await ContactTariff.get_by_id(tariff_id)
+    
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    price_rub = tariff.price / 100
+    
+    # Формируем информацию о тарифе
+    if tariff.unlimited:
+        tariff_name = tariff.name
+        tokens = -1
+        months = tariff.unlimited_days // 30 if tariff.unlimited_days else 1
+        info_text = f'Безлимитный доступ к контактам на {months} месяц(ев)'
     else:
-        # Обычный тариф: contact-tariff_{tokens}_{price}
-        tokens = int(parts[1])
-        price = int(parts[2])
-        tariff_name = f"{tokens} контакт(ов)"
-        months = 0  # Для обычных тарифов months = 0
+        tariff_name = tariff.name
+        tokens = tariff.contacts_count
+        months = 0
+        info_text = f'После покупки у вас будет {worker.purchased_contacts + tokens} контакт(ов)'
 
     # Создаем инвойс для оплаты
     text = f"""
 💰 **Подтверждение покупки**
 
 📦 Тариф: {tariff_name}
-💵 Цена: {price}₽
+💵 Цена: {int(price_rub)}₽
 
-{f'После покупки у вас будет {worker.purchased_contacts + tokens} контакт(ов)' if tokens > 0 else f'Безлимитный доступ к контактам на {months} месяц(ев)'}
+{info_text}
 
 Подтвердить покупку?
         """
 
     builder = InlineKeyboardBuilder()
-    builder.add(kbc._inline("✅ Подтвердить", f"confirm_contact_purchase_{tokens}_{price}_{months}"))
+    builder.add(kbc._inline("✅ Подтвердить", f"confirm_contact_purchase_{tariff_id}"))
     builder.add(kbc._inline("❌ Отмена", "worker_purchased_contacts"))
     builder.adjust(1)
 
@@ -5738,11 +5758,17 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
     logger.debug(f'confirm_contact_purchase...')
     kbc = KeyboardCollection()
 
-    # Парсим данные: confirm_contact_purchase_{tokens}_{price}_{months}
+    # Парсим данные: confirm_contact_purchase_{tariff_id}
     parts = callback.data.split('_')
-    tokens = int(parts[3])
-    price = int(parts[4])
-    months = int(parts[5]) if len(parts) > 5 else 0
+    tariff_id = int(parts[3])
+
+    # Получаем тариф из БД
+    from app.data.database.models import ContactTariff
+    tariff = await ContactTariff.get_by_id(tariff_id)
+    
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
 
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
 
@@ -5750,10 +5776,12 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
     # Пока что просто добавляем контакты (имитация успешной оплаты)
 
     try:
-        if tokens == -1:  # Безлимит
-            # Устанавливаем безлимитный доступ на указанное количество месяцев
-            until_date = datetime.now() + timedelta(days=months * 30)
+        if tariff.unlimited:  # Безлимит
+            # Устанавливаем безлимитный доступ на указанное количество дней
+            until_date = datetime.now() + timedelta(days=tariff.unlimited_days)
             await worker.update_purchased_contacts(unlimited_contacts_until=until_date.isoformat())
+            
+            months = tariff.unlimited_days // 30 if tariff.unlimited_days else 1
 
             text = f"""
 ✅ **Покупка успешно выполнена!**
@@ -5766,13 +5794,13 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
             """
         else:
             # Добавляем обычные контакты
-            new_count = worker.purchased_contacts + tokens
+            new_count = worker.purchased_contacts + tariff.contacts_count
             await worker.update_purchased_contacts(purchased_contacts=new_count)
 
             text = f"""
 ✅ **Покупка успешно выполнена!**
 
-🎉 Добавлено {tokens} контактов!
+🎉 Добавлено {tariff.contacts_count} контактов!
 📊 У вас теперь: {new_count} контактов
 
 💡 Используйте их для получения телефонов заказчиков!

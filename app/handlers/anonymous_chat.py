@@ -952,14 +952,14 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
         try:
             await callback.message.answer(
                 text="💰 <b>Тарифы на покупку контактов</b>\n\nВыберите подходящий тариф:",
-                reply_markup=kbc.buy_tokens_tariffs(),
+                reply_markup=await kbc.buy_tokens_tariffs(),
                 parse_mode='HTML'
             )
         except TelegramBadRequest:
             # Если сообщение недоступно для редактирования, отправляем новое
             await callback.message.answer(
                 text="💰 <b>Тарифы на покупку контактов</b>\n\nВыберите подходящий тариф:",
-                reply_markup=kbc.buy_tokens_tariffs(),
+                reply_markup=await kbc.buy_tokens_tariffs(),
                 parse_mode='HTML'
             )
 
@@ -1385,7 +1385,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                          f"📋 Объявление: #{abs_id}\n"
                          f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
                          f"Выберите тариф:",
-                    reply_markup=kbc.buy_tokens_tariffs(),
+                    reply_markup=await kbc.buy_tokens_tariffs(),
                     parse_mode='HTML'
                 )
             except TelegramBadRequest:
@@ -1395,7 +1395,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                          f"📋 Объявление: #{abs_id}\n"
                          f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
                          f"Выберите тариф:",
-                    reply_markup=kbc.buy_tokens_tariffs(),
+                    reply_markup=await kbc.buy_tokens_tariffs(),
                     parse_mode='HTML'
                 )
             
@@ -2539,30 +2539,41 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
     try:
         parts = callback.data.split('_')
 
-        # Парсим тариф
-        if len(parts) >= 4:
-            if parts[2] == 'unlimited':
-                # Безлимит
-                months = int(parts[3])
-                price = int(parts[4])
-                tokens = -1  # -1 означает безлимит
-                tariff_name = f"Безлимит {months} мес."
-            else:
-                # Обычные жетоны
-                tokens = int(parts[2])
-                price = int(parts[3])
-                tariff_name = f"{tokens} жетон(ов)"
-        else:
+        # Парсим тариф: buy_tokens_{tariff_id}
+        if len(parts) < 3:
             await callback.answer("❌ Неверный формат тарифа", show_alert=True)
+            return
+
+        tariff_id = int(parts[2])
+        
+        # Получаем тариф из БД
+        from app.data.database.models import ContactTariff
+        tariff = await ContactTariff.get_by_id(tariff_id)
+        
+        if not tariff:
+            await callback.answer("❌ Тариф не найден", show_alert=True)
             return
 
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
 
+        price_rub = tariff.price / 100
+        
+        # Формируем информацию о тарифе
+        if tariff.unlimited:
+            tokens = -1
+            tariff_name = tariff.name
+            info_text = 'Безлимитный доступ к контактам'
+        else:
+            tokens = tariff.contacts_count
+            tariff_name = tariff.name
+            info_text = f'После покупки у вас будет {worker.purchased_contacts + tokens} жетон(ов)'
+
         # Сохраняем выбор в state
         await state.update_data(
             purchase_tokens=tokens,
-            purchase_price=price,
-            purchase_tariff=tariff_name
+            purchase_price=int(price_rub),
+            purchase_tariff=tariff_name,
+            purchase_tariff_id=tariff_id
         )
         await state.set_state(WorkStates.worker_buy_tokens)
 
@@ -2570,9 +2581,9 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
 💰 <b>Подтверждение покупки</b>
 
 📦 Тариф: {tariff_name}
-💵 Цена: {price}₽
+💵 Цена: {int(price_rub)}₽
 
-{f'После покупки у вас будет {worker.purchased_contacts + tokens} жетон(ов)' if tokens > 0 else 'Безлимитный доступ к контактам'}
+{info_text}
 
 Подтвердить покупку?
         """
@@ -2580,12 +2591,11 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
         kbc = KeyboardCollection()
         # Здесь должна быть интеграция с платежной системой
         # Пока заглушка
-        builder = kbc._inline
         from aiogram.utils.keyboard import InlineKeyboardBuilder
         keyboard_builder = InlineKeyboardBuilder()
         keyboard_builder.add(kbc._inline(
-            button_text=f"✅ Оплатить {price}₽",
-            callback_data=f"confirm_token_purchase_{tokens}_{price}"
+            button_text=f"✅ Оплатить {int(price_rub)}₽",
+            callback_data=f"confirm_token_purchase_{tariff_id}"
         ))
         keyboard_builder.add(kbc._inline(
             button_text="❌ Отмена",
@@ -2617,8 +2627,15 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
     """Подтверждение и обработка покупки жетонов"""
     try:
         parts = callback.data.split('_')
-        tokens = int(parts[3])
-        price = int(parts[4])
+        tariff_id = int(parts[3])
+
+        # Получаем тариф из БД
+        from app.data.database.models import ContactTariff
+        tariff = await ContactTariff.get_by_id(tariff_id)
+        
+        if not tariff:
+            await callback.answer("❌ Тариф не найден", show_alert=True)
+            return
 
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
 
@@ -2631,24 +2648,25 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
 
         # Атомарное списание и обновление
         import aiosqlite
+        from datetime import datetime, timedelta
         conn = await aiosqlite.connect('app/data/database/database.db')
         try:
-            if tokens == -1:
+            if tariff.unlimited:
                 # Безлимит
-                from datetime import datetime, timedelta
-                months = 1  # Извлекаем из данных
-                until_date = (datetime.now() + timedelta(days=30 * months)).strftime('%Y-%m-%d')
+                until_date = (datetime.now() + timedelta(days=tariff.unlimited_days)).strftime('%Y-%m-%d')
 
                 await conn.execute(
                     'UPDATE workers SET unlimited_contacts_until = ? WHERE id = ?',
                     (until_date, worker.id)
                 )
+                tokens = -1
             else:
                 # Обычные жетоны
                 await conn.execute(
                     'UPDATE workers SET purchased_contacts = purchased_contacts + ? WHERE id = ?',
-                    (tokens, worker.id)
+                    (tariff.contacts_count, worker.id)
                 )
+                tokens = tariff.contacts_count
 
             await conn.commit()
 

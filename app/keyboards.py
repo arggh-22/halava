@@ -106,6 +106,7 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Работа с пользователями", callback_data="edit_user"))
         builder.add(self._inline(button_text="Редактировать подписки", callback_data="edit_subscription"))
         builder.add(self._inline(button_text="Изменить цену объявлений", callback_data="edit_order_price"))
+        builder.add(self._inline(button_text="💰 Управление тарифами контактов", callback_data="manage_contact_tariffs"))
         builder.add(self._inline(button_text="🔄 Обновить статистику", callback_data="refresh_admin_stats"))
         builder.adjust(1)
         return builder.as_markup()
@@ -125,6 +126,37 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Изменить цену", callback_data=f"edit-price-sub_{sub_id}"))
         builder.add(self._inline(button_text="Изменить количество откликов", callback_data=f"edit-orders-sub_{sub_id}"))
         builder.add(self._inline(button_text="Меню", callback_data="menu"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    async def admin_contact_tariffs_list(self) -> InlineKeyboardMarkup:
+        """Список тарифов контактов для админа"""
+        from app.data.database.models import ContactTariff
+        
+        builder = InlineKeyboardBuilder()
+        tariffs = await ContactTariff.get_all()
+        
+        for tariff in tariffs:
+            price_rub = tariff.price / 100
+            tariff_type = "🔥 Безлимит" if tariff.unlimited else f"📊 {tariff.contacts_count} конт."
+            button_text = f"{tariff_type} - {tariff.name} ({int(price_rub)}₽)"
+            builder.add(self._inline(button_text=button_text, callback_data=f"admin_view_tariff_{tariff.id}"))
+        
+        builder.add(self._inline(button_text="➕ Добавить тариф", callback_data="admin_add_tariff_type"))
+        builder.add(self._inline(button_text="◀️ Назад в меню", callback_data="menu_admin"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def admin_edit_contact_tariff(self, tariff_id: int) -> InlineKeyboardMarkup:
+        """Клавиатура редактирования тарифа контактов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✏️ Изменить название", callback_data=f"admin_edit_tariff_name_{tariff_id}"))
+        builder.add(self._inline(button_text="💰 Изменить цену", callback_data=f"admin_edit_tariff_price_{tariff_id}"))
+        builder.add(self._inline(button_text="📊 Изменить кол-во контактов", callback_data=f"admin_edit_tariff_contacts_{tariff_id}"))
+        builder.add(self._inline(button_text="⏰ Изменить срок (для безлимита)", callback_data=f"admin_edit_tariff_days_{tariff_id}"))
+        builder.add(self._inline(button_text="🗑️ Удалить тариф", callback_data=f"admin_delete_tariff_{tariff_id}"))
+        builder.add(self._inline(button_text="◀️ К списку тарифов", callback_data="manage_contact_tariffs"))
+        builder.add(self._inline(button_text="🏠 В меню", callback_data="menu_admin"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1033,17 +1065,21 @@ class KeyboardCollection:
     #     builder.adjust(1)
     #     return builder.as_markup()
 
-    def contact_purchase_tariffs(self):
-        """Тарифы на покупку контактов"""
+    async def contact_purchase_tariffs(self):
+        """Тарифы на покупку контактов (загружает из БД)"""
+        from app.data.database.models import ContactTariff
+        
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="190 ₽ — 1 контакт", callback_data="contact-tariff_1_190"))
-        builder.add(self._inline(button_text="290 ₽ — 2 контакта", callback_data="contact-tariff_2_290"))
-        builder.add(self._inline(button_text="690 ₽ — 5 контактов", callback_data="contact-tariff_5_690"))
-        builder.add(self._inline(button_text="1190 ₽ — 10 контактов", callback_data="contact-tariff_10_1190"))
-        builder.add(self._inline(button_text="1990 ₽ — Безлимит 1 месяц", callback_data="contact-tariff_unlimited_1_1990"))
-        builder.add(self._inline(button_text="4490 ₽ — Безлимит 3 месяца", callback_data="contact-tariff_unlimited_3_4490"))
-        builder.add(self._inline(button_text="6990 ₽ — Безлимит 6 месяцев", callback_data="contact-tariff_unlimited_6_6990"))
-        builder.add(self._inline(button_text="10990 ₽ — Безлимит 12 месяцев", callback_data="contact-tariff_unlimited_12_10990"))
+        tariffs = await ContactTariff.get_all()
+        
+        for tariff in tariffs:
+            price_rub = tariff.price / 100  # Конвертируем копейки в рубли
+            if tariff.unlimited:
+                button_text = f"{int(price_rub)} ₽ — {tariff.name}"
+            else:
+                button_text = f"{int(price_rub)} ₽ — {tariff.name}"
+            builder.add(self._inline(button_text=button_text, callback_data=f"contact-tariff_{tariff.id}"))
+        
         builder.add(self._inline(button_text="Назад", callback_data="worker_purchased_contacts"))
         builder.adjust(1)
         return builder.as_markup()
@@ -1093,17 +1129,21 @@ class KeyboardCollection:
         return builder.as_markup()
 
 
-    def new_contact_tariffs(self):
-        """Новые клавиатуры для тарифов контактов"""
+    async def new_contact_tariffs(self):
+        """Новые клавиатуры для тарифов контактов (загружает из БД)"""
+        from app.data.database.models import ContactTariff
+        
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="190 ₽ — 1 контакт", callback_data="contact-tariff_1_190"))
-        builder.add(self._inline(button_text="290 ₽ — 2 контакта", callback_data="contact-tariff_2_290"))
-        builder.add(self._inline(button_text="690 ₽ — 5 контактов", callback_data="contact-tariff_5_690"))
-        builder.add(self._inline(button_text="1190 ₽ — 10 контактов", callback_data="contact-tariff_10_1190"))
-        builder.add(self._inline(button_text="1990 ₽ — Безлимит 1 месяц", callback_data="contact-tariff_unlimited_1_1990"))
-        builder.add(self._inline(button_text="4490 ₽ — Безлимит 3 месяца", callback_data="contact-tariff_unlimited_3_4490"))
-        builder.add(self._inline(button_text="6990 ₽ — Безлимит 6 месяцев", callback_data="contact-tariff_unlimited_6_6990"))
-        builder.add(self._inline(button_text="10990 ₽ — Безлимит 12 месяцев", callback_data="contact-tariff_unlimited_12_10990"))
+        tariffs = await ContactTariff.get_all()
+        
+        for tariff in tariffs:
+            price_rub = tariff.price / 100  # Конвертируем копейки в рубли
+            if tariff.unlimited:
+                button_text = f"{int(price_rub)} ₽ — {tariff.name}"
+            else:
+                button_text = f"{int(price_rub)} ₽ — {tariff.name}"
+            builder.add(self._inline(button_text=button_text, callback_data=f"contact-tariff_{tariff.id}"))
+        
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1369,25 +1409,30 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def buy_tokens_tariffs(self) -> InlineKeyboardMarkup:
-        """Тарифы покупки жетонов"""
+    async def buy_tokens_tariffs(self) -> InlineKeyboardMarkup:
+        """Тарифы покупки жетонов (загружает из БД)"""
+        from app.data.database.models import ContactTariff
+        
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="1 жетон — 190₽", 
-                                 callback_data="buy_tokens_1_190"))
-        builder.add(self._inline(button_text="2 жетона — 290₽ (-24%)", 
-                                 callback_data="buy_tokens_2_290"))
-        builder.add(self._inline(button_text="5 жетонов — 690₽ (-27%)", 
-                                 callback_data="buy_tokens_5_690"))
-        builder.add(self._inline(button_text="10 жетонов — 1190₽ (-37%)", 
-                                 callback_data="buy_tokens_10_1190"))
-        builder.add(self._inline(button_text="🔥 Безлимит 1 месяц — 1990₽", 
-                                 callback_data="buy_tokens_unlimited_1_1990"))
-        builder.add(self._inline(button_text="🔥 Безлимит 3 месяца — 4490₽", 
-                                 callback_data="buy_tokens_unlimited_3_4490"))
-        builder.add(self._inline(button_text="🔥 Безлимит 6 месяцев — 6990₽", 
-                                 callback_data="buy_tokens_unlimited_6_6990"))
-        builder.add(self._inline(button_text="🔥 Безлимит 12 месяцев — 10990₽", 
-                                 callback_data="buy_tokens_unlimited_12_10990"))
+        tariffs = await ContactTariff.get_all()
+        
+        for tariff in tariffs:
+            price_rub = tariff.price / 100  # Конвертируем копейки в рубли
+            if tariff.unlimited:
+                button_text = f"🔥 {tariff.name} — {int(price_rub)}₽"
+            else:
+                # Вычисляем скидку для обычных тарифов (если есть)
+                discount_text = ""
+                if tariff.contacts_count > 1:
+                    base_price_per_contact = 190  # Базовая цена за 1 контакт
+                    total_base_price = base_price_per_contact * tariff.contacts_count
+                    actual_price = price_rub
+                    if actual_price < total_base_price:
+                        discount_percent = int(((total_base_price - actual_price) / total_base_price) * 100)
+                        discount_text = f" (-{discount_percent}%)"
+                button_text = f"{tariff.contacts_count} жетон{'а' if tariff.contacts_count == 2 else 'ов'} — {int(price_rub)}₽{discount_text}"
+            builder.add(self._inline(button_text=button_text, callback_data=f"buy_tokens_{tariff.id}"))
+        
         builder.add(self._inline(button_text="◀️ Отмена", 
                                  callback_data="cancel_token_purchase"))
         builder.adjust(1)

@@ -8,12 +8,13 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message, InputMediaPhoto
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.markdown import link
 
 # Импорт вспомогательных модулей и компонентов из приложения
 from app.data.database.models import (
     Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, City,
-    WorkerAndRefsAssociation, WorkType, Admin, WorkerAndBadResponse, WorkerAndReport
+    WorkerAndRefsAssociation, WorkType, Admin, WorkerAndBadResponse, WorkerAndReport, ContactTariff
 )
 from app.keyboards import KeyboardCollection
 from app.states import AdminStates, UserStates, BannedStates
@@ -47,7 +48,13 @@ def is_cache_valid():
                                                      AdminStates.check_subscription, AdminStates.edit_subscription,
                                                      AdminStates.get_customer, AdminStates.get_worker,
                                                      AdminStates.check_abs, AdminStates.check_banned_abs,
-                                                     AdminStates.get_user, AdminStates.send_to_user))
+                                                     AdminStates.get_user, AdminStates.send_to_user,
+                                                     AdminStates.manage_contact_tariffs, AdminStates.view_contact_tariff,
+                                                     AdminStates.edit_contact_tariff_name, AdminStates.edit_contact_tariff_price,
+                                                     AdminStates.edit_contact_tariff_contacts_count, AdminStates.edit_contact_tariff_unlimited_days,
+                                                     AdminStates.add_contact_tariff_type, AdminStates.add_contact_tariff_name,
+                                                     AdminStates.add_contact_tariff_contacts_count, AdminStates.add_contact_tariff_price,
+                                                     AdminStates.add_contact_tariff_unlimited_days))
 async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug('admin_menu...')
     kbc = KeyboardCollection()
@@ -1224,7 +1231,9 @@ async def menu_send_msg_admin_keyboard(callback: CallbackQuery, state: FSMContex
     await callback.message.answer(text=text, reply_markup=kbc.menu_send_msg_admin_keyboard())
 
 
-@router.callback_query(F.data == 'menu_admin', StateFilter(AdminStates.menu, UserStates.menu, BannedStates.banned))
+@router.callback_query(F.data == 'menu_admin', StateFilter(AdminStates.menu, UserStates.menu, BannedStates.banned,
+                                                             AdminStates.manage_contact_tariffs, AdminStates.view_contact_tariff,
+                                                             AdminStates.add_contact_tariff_type))
 async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug('admin_menu...')
     kbc = KeyboardCollection()
@@ -2655,6 +2664,606 @@ async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -
     except Exception as e:
         logger.error(f"Ошибка в admin_delete_worker_name: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+# ========== УПРАВЛЕНИЕ ТАРИФАМИ КОНТАКТОВ ==========
+
+@router.callback_query(F.data == 'manage_contact_tariffs', StateFilter(AdminStates.menu))
+async def manage_contact_tariffs(callback: CallbackQuery, state: FSMContext) -> None:
+    """Главное меню управления тарифами контактов"""
+    logger.debug('manage_contact_tariffs...')
+    kbc = KeyboardCollection()
+
+    tariffs = await ContactTariff.get_all()
+    text = f'💰 <b>Управление тарифами контактов</b>\n\n'
+    text += f'📊 Всего тарифов: {len(tariffs)}\n\n'
+    text += f'Выберите тариф для редактирования или добавьте новый:'
+
+    await state.set_state(AdminStates.manage_contact_tariffs)
+    await callback.message.answer(
+        text=text,
+        reply_markup=await kbc.admin_contact_tariffs_list(),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_view_tariff_'), StateFilter(AdminStates.manage_contact_tariffs))
+async def admin_view_tariff(callback: CallbackQuery, state: FSMContext) -> None:
+    """Просмотр информации о тарифе"""
+    logger.debug('admin_view_tariff...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[3])
+    tariff = await ContactTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    price_rub = tariff.price / 100
+    text = f'💰 <b>Информация о тарифе</b>\n\n'
+    text += f'📋 <b>Название:</b> {tariff.name}\n'
+    text += f'💵 <b>Цена:</b> {int(price_rub)}₽ ({tariff.price} копеек)\n'
+    
+    if tariff.unlimited:
+        text += f'🔥 <b>Тип:</b> Безлимитный\n'
+        text += f'⏰ <b>Срок действия:</b> {tariff.unlimited_days} дней'
+    else:
+        text += f'📊 <b>Тип:</b> Ограниченный\n'
+        text += f'📞 <b>Количество контактов:</b> {tariff.contacts_count}'
+
+    await state.set_state(AdminStates.view_contact_tariff)
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_edit_contact_tariff(tariff_id),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_name_'), StateFilter(AdminStates.view_contact_tariff))
+async def admin_edit_tariff_name_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик начала редактирования названия тарифа"""
+    logger.debug('admin_edit_tariff_name_handler...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[4])
+    tariff = await ContactTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    text = f'✏️ <b>Редактирование названия тарифа</b>\n\n'
+    text += f'Текущее название: <b>{tariff.name}</b>\n\n'
+    text += f'Введите новое название:'
+
+    await state.set_state(AdminStates.edit_contact_tariff_name)
+    await state.update_data(tariff_id=tariff_id)
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'),
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text, StateFilter(AdminStates.edit_contact_tariff_name))
+async def process_edit_tariff_name(message: Message, state: FSMContext) -> None:
+    """Обработка нового названия тарифа"""
+    logger.debug('process_edit_tariff_name...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    tariff_id = state_data.get('tariff_id')
+
+    try:
+        new_name = message.text.strip()
+        if not new_name or len(new_name) > 100:
+            await message.answer('❌ Название не может быть пустым или длиннее 100 символов', 
+                               reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'))
+            return
+
+        tariff = await ContactTariff.get_by_id(tariff_id)
+        if not tariff:
+            await message.answer('❌ Тариф не найден', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+            await state.set_state(AdminStates.menu)
+            return
+
+        await tariff.update(name=new_name)
+        await message.answer(
+            text=f'✅ <b>Название успешно изменено!</b>\n\nНовое название: <b>{new_name}</b>',
+            reply_markup=kbc.admin_edit_contact_tariff(tariff_id),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.view_contact_tariff)
+    except Exception as e:
+        logger.error(f"Ошибка при изменении названия тарифа: {e}")
+        await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_price_'), StateFilter(AdminStates.view_contact_tariff))
+async def admin_edit_tariff_price_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик начала редактирования цены тарифа"""
+    logger.debug('admin_edit_tariff_price_handler...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[4])
+    tariff = await ContactTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    price_rub = tariff.price / 100
+    text = f'💰 <b>Редактирование цены тарифа</b>\n\n'
+    text += f'Текущая цена: <b>{int(price_rub)}₽</b> ({tariff.price} копеек)\n\n'
+    text += f'Введите новую цену в рублях:'
+
+    await state.set_state(AdminStates.edit_contact_tariff_price)
+    await state.update_data(tariff_id=tariff_id)
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'),
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text, StateFilter(AdminStates.edit_contact_tariff_price))
+async def process_edit_tariff_price(message: Message, state: FSMContext) -> None:
+    """Обработка новой цены тарифа"""
+    logger.debug('process_edit_tariff_price...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    tariff_id = state_data.get('tariff_id')
+
+    try:
+        price_rub = float(message.text.replace(',', '.').strip())
+        if price_rub <= 0:
+            raise ValueError("Цена должна быть положительным числом")
+        
+        price_kopecks = int(price_rub * 100)
+
+        tariff = await ContactTariff.get_by_id(tariff_id)
+        if not tariff:
+            await message.answer('❌ Тариф не найден', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+            await state.set_state(AdminStates.menu)
+            return
+
+        await tariff.update(price=price_kopecks)
+        await message.answer(
+            text=f'✅ <b>Цена успешно изменена!</b>\n\nНовая цена: <b>{int(price_rub)}₽</b> ({price_kopecks} копеек)',
+            reply_markup=kbc.admin_edit_contact_tariff(tariff_id),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.view_contact_tariff)
+    except ValueError as e:
+        await message.answer(
+            text=f'❌ <b>Ошибка!</b>\n\nПожалуйста, введите корректную цену (положительное число).\nНапример: 190, 290, 1990',
+            reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'),
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при изменении цены тарифа: {e}")
+        await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_contacts_'), StateFilter(AdminStates.view_contact_tariff))
+async def admin_edit_tariff_contacts_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик начала редактирования количества контактов"""
+    logger.debug('admin_edit_tariff_contacts_handler...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[4])
+    tariff = await ContactTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    if tariff.unlimited:
+        await callback.answer("⚠️ Для безлимитных тарифов количество контактов не редактируется", show_alert=True)
+        return
+
+    text = f'📊 <b>Редактирование количества контактов</b>\n\n'
+    text += f'Текущее количество: <b>{tariff.contacts_count}</b>\n\n'
+    text += f'Введите новое количество контактов (положительное число):'
+
+    await state.set_state(AdminStates.edit_contact_tariff_contacts_count)
+    await state.update_data(tariff_id=tariff_id)
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'),
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text, StateFilter(AdminStates.edit_contact_tariff_contacts_count))
+async def process_edit_tariff_contacts(message: Message, state: FSMContext) -> None:
+    """Обработка нового количества контактов"""
+    logger.debug('process_edit_tariff_contacts...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    tariff_id = state_data.get('tariff_id')
+
+    try:
+        contacts_count = int(message.text.strip())
+        if contacts_count <= 0:
+            raise ValueError("Количество должно быть положительным числом")
+
+        tariff = await ContactTariff.get_by_id(tariff_id)
+        if not tariff:
+            await message.answer('❌ Тариф не найден', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+            await state.set_state(AdminStates.menu)
+            return
+
+        await tariff.update(contacts_count=contacts_count)
+        await message.answer(
+            text=f'✅ <b>Количество контактов успешно изменено!</b>\n\nНовое количество: <b>{contacts_count}</b>',
+            reply_markup=kbc.admin_edit_contact_tariff(tariff_id),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.view_contact_tariff)
+    except ValueError:
+        await message.answer(
+            text=f'❌ <b>Ошибка!</b>\n\nПожалуйста, введите корректное количество (положительное число).',
+            reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'),
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при изменении количества контактов: {e}")
+        await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_days_'), StateFilter(AdminStates.view_contact_tariff))
+async def admin_edit_tariff_days_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик начала редактирования срока безлимита"""
+    logger.debug('admin_edit_tariff_days_handler...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[4])
+    tariff = await ContactTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    if not tariff.unlimited:
+        await callback.answer("⚠️ Это поле редактируется только для безлимитных тарифов", show_alert=True)
+        return
+
+    text = f'⏰ <b>Редактирование срока действия безлимита</b>\n\n'
+    text += f'Текущий срок: <b>{tariff.unlimited_days}</b> дней ({tariff.unlimited_days // 30} месяцев)\n\n'
+    text += f'Введите новое количество дней:'
+
+    await state.set_state(AdminStates.edit_contact_tariff_unlimited_days)
+    await state.update_data(tariff_id=tariff_id)
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'),
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text, StateFilter(AdminStates.edit_contact_tariff_unlimited_days))
+async def process_edit_tariff_days(message: Message, state: FSMContext) -> None:
+    """Обработка нового срока безлимита"""
+    logger.debug('process_edit_tariff_days...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    tariff_id = state_data.get('tariff_id')
+
+    try:
+        days = int(message.text.strip())
+        if days <= 0:
+            raise ValueError("Количество дней должно быть положительным числом")
+
+        tariff = await ContactTariff.get_by_id(tariff_id)
+        if not tariff:
+            await message.answer('❌ Тариф не найден', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+            await state.set_state(AdminStates.menu)
+            return
+
+        await tariff.update(unlimited_days=days)
+        await message.answer(
+            text=f'✅ <b>Срок действия успешно изменен!</b>\n\nНовый срок: <b>{days}</b> дней ({days // 30} месяцев)',
+            reply_markup=kbc.admin_edit_contact_tariff(tariff_id),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.view_contact_tariff)
+    except ValueError:
+        await message.answer(
+            text=f'❌ <b>Ошибка!</b>\n\nПожалуйста, введите корректное количество дней (положительное число).',
+            reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'),
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при изменении срока безлимита: {e}")
+        await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_delete_tariff_'), StateFilter(AdminStates.view_contact_tariff))
+async def admin_delete_tariff_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик удаления тарифа"""
+    logger.debug('admin_delete_tariff_handler...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[3])
+    tariff = await ContactTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    price_rub = tariff.price / 100
+    text = f'🗑️ <b>Подтверждение удаления тарифа</b>\n\n'
+    text += f'Вы действительно хотите удалить тариф:\n'
+    text += f'📋 <b>{tariff.name}</b>\n'
+    text += f'💵 Цена: {int(price_rub)}₽\n\n'
+    text += f'⚠️ <b>Это действие нельзя отменить!</b>'
+
+    builder = InlineKeyboardBuilder()
+    builder.add(kbc._inline("✅ Да, удалить", f"admin_confirm_delete_tariff_{tariff_id}"))
+    builder.add(kbc._inline("❌ Отмена", f"admin_view_tariff_{tariff_id}"))
+    builder.adjust(1)
+
+    await callback.message.answer(
+        text=text,
+        reply_markup=builder.as_markup(),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_confirm_delete_tariff_'))
+async def admin_confirm_delete_tariff(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтверждение удаления тарифа"""
+    logger.debug('admin_confirm_delete_tariff...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[4])
+    tariff = await ContactTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    try:
+        tariff_name = tariff.name
+        await tariff.delete()
+        
+        await callback.message.answer(
+            text=f'✅ <b>Тариф "{tariff_name}" успешно удален!</b>',
+            reply_markup=await kbc.admin_contact_tariffs_list(),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.manage_contact_tariffs)
+        await callback.answer("✅ Тариф удален", show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка при удалении тарифа: {e}")
+        await callback.answer("❌ Произошла ошибка при удалении", show_alert=True)
+
+
+@router.callback_query(F.data == 'admin_add_tariff_type', StateFilter(AdminStates.manage_contact_tariffs))
+async def admin_add_tariff_type(callback: CallbackQuery, state: FSMContext) -> None:
+    """Выбор типа нового тарифа"""
+    logger.debug('admin_add_tariff_type...')
+    kbc = KeyboardCollection()
+
+    text = f'➕ <b>Добавление нового тарифа</b>\n\n'
+    text += f'Выберите тип тарифа:'
+
+    builder = InlineKeyboardBuilder()
+    builder.add(kbc._inline("📊 Ограниченный (с количеством контактов)", "admin_add_tariff_limited"))
+    builder.add(kbc._inline("🔥 Безлимитный (на срок)", "admin_add_tariff_unlimited"))
+    builder.add(kbc._inline("◀️ Назад", "manage_contact_tariffs"))
+    builder.adjust(1)
+
+    await state.set_state(AdminStates.add_contact_tariff_type)
+    await callback.message.answer(
+        text=text,
+        reply_markup=builder.as_markup(),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(F.data == 'admin_add_tariff_limited', StateFilter(AdminStates.add_contact_tariff_type))
+async def admin_add_tariff_limited_name(callback: CallbackQuery, state: FSMContext) -> None:
+    """Ввод названия для ограниченного тарифа"""
+    logger.debug('admin_add_tariff_limited_name...')
+    kbc = KeyboardCollection()
+
+    text = f'📊 <b>Добавление ограниченного тарифа</b>\n\n'
+    text += f'Введите название тарифа (например: "5 контактов"):'
+
+    await state.set_state(AdminStates.add_contact_tariff_name)
+    await state.update_data(tariff_type='limited')
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn('admin_add_tariff_type'),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(F.data == 'admin_add_tariff_unlimited', StateFilter(AdminStates.add_contact_tariff_type))
+async def admin_add_tariff_unlimited_name(callback: CallbackQuery, state: FSMContext) -> None:
+    """Ввод названия для безлимитного тарифа"""
+    logger.debug('admin_add_tariff_unlimited_name...')
+    kbc = KeyboardCollection()
+
+    text = f'🔥 <b>Добавление безлимитного тарифа</b>\n\n'
+    text += f'Введите название тарифа (например: "Безлимит 1 месяц"):'
+
+    await state.set_state(AdminStates.add_contact_tariff_name)
+    await state.update_data(tariff_type='unlimited')
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn('admin_add_tariff_type'),
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text, StateFilter(AdminStates.add_contact_tariff_name))
+async def process_add_tariff_name(message: Message, state: FSMContext) -> None:
+    """Обработка названия нового тарифа"""
+    logger.debug('process_add_tariff_name...')
+    kbc = KeyboardCollection()
+
+    tariff_name = message.text.strip()
+    if not tariff_name or len(tariff_name) > 100:
+        await message.answer('❌ Название не может быть пустым или длиннее 100 символов',
+                           reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
+        return
+
+    state_data = await state.get_data()
+    tariff_type = state_data.get('tariff_type')
+
+    await state.update_data(tariff_name=tariff_name)
+
+    if tariff_type == 'limited':
+        text = f'📊 <b>Количество контактов</b>\n\n'
+        text += f'Название: <b>{tariff_name}</b>\n\n'
+        text += f'Введите количество контактов (положительное число):'
+        
+        await state.set_state(AdminStates.add_contact_tariff_contacts_count)
+        await message.answer(text=text, reply_markup=kbc.admin_back_btn('admin_add_tariff_type'), parse_mode='HTML')
+    else:  # unlimited
+        text = f'⏰ <b>Срок действия</b>\n\n'
+        text += f'Название: <b>{tariff_name}</b>\n\n'
+        text += f'Введите количество дней действия безлимита (например: 30 для месяца):'
+        
+        await state.set_state(AdminStates.add_contact_tariff_unlimited_days)
+        await message.answer(text=text, reply_markup=kbc.admin_back_btn('admin_add_tariff_type'), parse_mode='HTML')
+
+
+@router.message(F.text, StateFilter(AdminStates.add_contact_tariff_contacts_count))
+async def process_add_tariff_contacts(message: Message, state: FSMContext) -> None:
+    """Обработка количества контактов для нового тарифа"""
+    logger.debug('process_add_tariff_contacts...')
+    kbc = KeyboardCollection()
+
+    try:
+        contacts_count = int(message.text.strip())
+        if contacts_count <= 0:
+            raise ValueError("Количество должно быть положительным числом")
+
+        await state.update_data(contacts_count=contacts_count)
+        
+        state_data = await state.get_data()
+        tariff_name = state_data.get('tariff_name')
+        
+        text = f'💰 <b>Цена тарифа</b>\n\n'
+        text += f'Название: <b>{tariff_name}</b>\n'
+        text += f'Количество контактов: <b>{contacts_count}</b>\n\n'
+        text += f'Введите цену в рублях:'
+
+        await state.set_state(AdminStates.add_contact_tariff_price)
+        await message.answer(text=text, reply_markup=kbc.admin_back_btn('admin_add_tariff_type'), parse_mode='HTML')
+    except ValueError:
+        await message.answer('❌ Пожалуйста, введите корректное количество (положительное число)',
+                          reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
+
+
+@router.message(F.text, StateFilter(AdminStates.add_contact_tariff_unlimited_days))
+async def process_add_tariff_days(message: Message, state: FSMContext) -> None:
+    """Обработка срока для нового безлимитного тарифа"""
+    logger.debug('process_add_tariff_days...')
+    kbc = KeyboardCollection()
+
+    try:
+        days = int(message.text.strip())
+        if days <= 0:
+            raise ValueError("Количество дней должно быть положительным числом")
+
+        await state.update_data(unlimited_days=days)
+        
+        state_data = await state.get_data()
+        tariff_name = state_data.get('tariff_name')
+        
+        text = f'💰 <b>Цена тарифа</b>\n\n'
+        text += f'Название: <b>{tariff_name}</b>\n'
+        text += f'Срок действия: <b>{days}</b> дней ({days // 30} месяцев)\n\n'
+        text += f'Введите цену в рублях:'
+
+        await state.set_state(AdminStates.add_contact_tariff_price)
+        await message.answer(text=text, reply_markup=kbc.admin_back_btn('admin_add_tariff_type'), parse_mode='HTML')
+    except ValueError:
+        await message.answer('❌ Пожалуйста, введите корректное количество дней (положительное число)',
+                          reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
+
+
+@router.message(F.text, StateFilter(AdminStates.add_contact_tariff_price))
+async def process_add_tariff_price(message: Message, state: FSMContext) -> None:
+    """Обработка цены нового тарифа и создание"""
+    logger.debug('process_add_tariff_price...')
+    kbc = KeyboardCollection()
+
+    try:
+        price_rub = float(message.text.replace(',', '.').strip())
+        if price_rub <= 0:
+            raise ValueError("Цена должна быть положительным числом")
+        
+        price_kopecks = int(price_rub * 100)
+
+        state_data = await state.get_data()
+        tariff_name = state_data.get('tariff_name')
+        tariff_type = state_data.get('tariff_type')
+
+        if tariff_type == 'limited':
+            contacts_count = state_data.get('contacts_count')
+            new_tariff = ContactTariff(
+                id=None,
+                name=tariff_name,
+                contacts_count=contacts_count,
+                price=price_kopecks,
+                unlimited=False,
+                unlimited_days=None
+            )
+        else:  # unlimited
+            unlimited_days = state_data.get('unlimited_days')
+            new_tariff = ContactTariff(
+                id=None,
+                name=tariff_name,
+                contacts_count=-1,
+                price=price_kopecks,
+                unlimited=True,
+                unlimited_days=unlimited_days
+            )
+
+        await new_tariff.save()
+        
+        # Формируем дополнительную информацию для сообщения
+        if tariff_type == 'limited':
+            contacts_count = state_data.get('contacts_count')
+            extra_info = f'📊 Контактов: <b>{contacts_count}</b>'
+        else:
+            unlimited_days = state_data.get('unlimited_days')
+            extra_info = f'⏰ Срок: <b>{unlimited_days}</b> дней'
+        
+        await message.answer(
+            text=f'✅ <b>Тариф успешно создан!</b>\n\n'
+                 f'📋 Название: <b>{tariff_name}</b>\n'
+                 f'💵 Цена: <b>{int(price_rub)}₽</b>\n'
+                 f'{extra_info}',
+            reply_markup=await kbc.admin_contact_tariffs_list(),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.manage_contact_tariffs)
+        
+    except ValueError:
+        await message.answer('❌ Пожалуйста, введите корректную цену (положительное число)',
+                          reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
+    except Exception as e:
+        logger.error(f"Ошибка при создании тарифа: {e}")
+        await message.answer('❌ Произошла ошибка при создании тарифа',
+                          reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+
+
+# Обработка возврата к списку тарифов из просмотра
+@router.callback_query(F.data == 'manage_contact_tariffs', StateFilter(AdminStates.view_contact_tariff))
+async def back_to_tariffs_list(callback: CallbackQuery, state: FSMContext) -> None:
+    """Возврат к списку тарифов"""
+    await manage_contact_tariffs(callback, state)
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

@@ -44,6 +44,13 @@ async def init_db() -> None:
     except Exception:
         pass
 
+    # Инициализация тарифов контактов по умолчанию
+    try:
+        await models.ContactTariff.init_default_tariffs()
+    except Exception as e:
+        # Silently ignore if tariffs already exist or other init errors
+        pass
+
 
 def init_db_sync() -> None:
     asyncio.run(init_db())
