@@ -1,9 +1,9 @@
 import os
 import json
+import html
 import config
 import logging
 import aiosqlite
-import html
 
 from datetime import timedelta, datetime, date
 from typing import List
@@ -70,7 +70,6 @@ async def update_worker_activity_fallback(worker, new_activity):
         await worker.update_activity_level(new_activity)
     else:
         # Fallback: обновляем напрямую через SQL
-        import aiosqlite
         conn = await aiosqlite.connect('app/data/database/database.db')
         try:
             cursor = await conn.execute(
@@ -355,7 +354,6 @@ async def enter_worker_name(message: Message, state: FSMContext) -> None:
 
     # Отправляем имя на модерацию в админ-чат
     try:
-        from aiogram.utils.keyboard import InlineKeyboardBuilder
         builder = InlineKeyboardBuilder()
         builder.add(kbc._inline("❌ Удалить", f"admin_delete_worker_name_{new_worker.id}_{new_worker.tg_id}"))
         builder.adjust(1)
@@ -398,8 +396,6 @@ async def choose_work_types_start(callback: CallbackQuery, state: FSMContext) ->
     kbc = KeyboardCollection()
 
     # Переходим к выбору направлений работ
-    # Получаем все типы работ для отображения
-    from app.data.database.models import WorkType
     work_types = await WorkType.get_all()
 
     msg = await callback.message.answer(
@@ -568,10 +564,6 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
 async def show_worker_menu_for_message(message: Message, state: FSMContext, user_worker: 'Worker') -> None:
     """Общая функция для отображения меню исполнителя (для Message)"""
     kbc = KeyboardCollection()
-
-    # Получаем данные для профиля
-    from app.data.database.models import WorkerRank, WorkerStatus, ContactExchange, WorkerCitySubscription
-    import aiosqlite
 
     # Получаем подписку
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=user_worker.id)
@@ -1118,6 +1110,11 @@ async def my_portfolio(callback: CallbackQuery) -> None:
         logger.info(f"[PORTFOLIO_DELETE] Количество фото после удаления: {photo_len}")
 
         if photo_len == 0:
+            try:
+                await callback.message.delete()
+            except TelegramBadRequest:
+                pass
+
             await callback.message.answer(
                 text='У вас пока нет фото в портфолио',
                 reply_markup=kbc.my_portfolio()
@@ -1204,15 +1201,16 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
 
     try:
         import asyncio
-        
+
         # Получаем текущее портфолио исполнителя для проверки общего лимита
         worker = await Worker.get_worker(tg_id=message.chat.id)
         existing_portfolio_count = len(worker.portfolio_photo) if worker.portfolio_photo else 0
         max_portfolio_photos = 10
         available_slots = max_portfolio_photos - existing_portfolio_count
-        
-        logger.info(f"[PORTFOLIO] Существующих фото в портфолио: {existing_portfolio_count}, доступно слотов: {available_slots}")
-        
+
+        logger.info(
+            f"[PORTFOLIO] Существующих фото в портфолио: {existing_portfolio_count}, доступно слотов: {available_slots}")
+
         # Загружаем данные состояния
         data = await state.get_data()
         album = data.get('album', [])
@@ -1221,7 +1219,7 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
         # Проверяем, является ли это частью медиа-группы
         if message.media_group_id:
             media_group_id_str = str(message.media_group_id)
-            
+
             # Атомарная проверка и блокировка: сначала проверяем, потом помечаем
             # Это критично для предотвращения параллельной обработки
             if media_group_id_str not in processed_groups:
@@ -1233,22 +1231,23 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                 # Группа уже обрабатывается - только добавляем в альбом и выходим
                 album.append(message)
                 await state.update_data(album=album)
-                logger.debug(f"[PORTFOLIO] Фото из уже обрабатываемой группы {message.media_group_id} - добавлено в альбом, обработка пропущена")
+                logger.debug(
+                    f"[PORTFOLIO] Фото из уже обрабатываемой группы {message.media_group_id} - добавлено в альбом, обработка пропущена")
                 return
-            
+
             # Добавляем первое сообщение из группы в альбом (после блокировки)
             album.append(message)
             await state.update_data(album=album)
-            
+
             logger.info(f"[PORTFOLIO] Начинаю обработку медиа-группы {message.media_group_id}")
-            
+
             # Ждем немного, чтобы получить все сообщения из группы
             await asyncio.sleep(2.0)  # Увеличиваем время ожидания до 2 секунд
-            
+
             # Перезагружаем данные состояния после ожидания
             data = await state.get_data()
             album = data.get('album', [])
-            
+
             # Получаем все сообщения из этой медиа-группы
             # Фильтруем по media_group_id
             media_group_messages = []
@@ -1256,7 +1255,7 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                 if hasattr(msg, 'media_group_id') and str(msg.media_group_id) == media_group_id_str:
                     media_group_messages.append(msg)
             logger.info(f"[PORTFOLIO] Найдено {len(media_group_messages)} фото в медиа-группе {message.media_group_id}")
-            
+
             # Проверяем общий лимит (существующие + новые)
             total_after_upload = existing_portfolio_count + len(album)
             if total_after_upload > max_portfolio_photos:
@@ -1274,7 +1273,7 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                         text=f'❌ Достигнут лимит портфолио!\n\nУ вас уже {existing_portfolio_count} фото. Максимум 10 фото.\n\nУдалите старые фото, чтобы добавить новые.'
                     )
                     return
-                
+
                 # Обрезаем альбом до доступных слотов
                 album = album[:max_new_photos]
                 await state.update_data(album=album)
@@ -1292,16 +1291,16 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                 )
                 await state.update_data(msg=msg.message_id)
                 return
-            
+
             # Обрабатываем все фото из медиа-группы (проверка OCR)
             invalid_photos_count = 0
-            
+
             for photo_msg in media_group_messages:
                 photo = photo_msg.photo[-1].file_id
                 # Сохраняем временно для проверки OCR
                 file_path_photo = await help_defs.save_photo(id=message.from_user.id)
                 await bot.download(file=photo, destination=file_path_photo)
-                
+
                 text_photo = yandex_ocr.analyze_file(file_path_photo)
                 if text_photo:
                     invalid_photos_count += 1
@@ -1315,12 +1314,16 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                         escaped_text = escaped_text[:max_text_length] + '... (обрезано)'
                     caption = base_text + escaped_text
                     await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
-                                       caption=caption,
-                                       photo=FSInputFile(file_path_photo),
-                                       protect_content=False,
-                                       reply_markup=kbc.delite_it_photo(worker_id=worker.id))
+                                         caption=caption,
+                                         photo=FSInputFile(file_path_photo),
+                                         protect_content=False,
+                                         reply_markup=kbc.delite_it_photo(worker_id=worker.id))
                     # Удаляем невалидное фото из альбома
-                    album = [msg for msg in album if not (hasattr(msg, 'message_id') and msg.message_id == photo_msg.message_id)]
+                    album = [
+                        msg for msg in album if not (
+                                hasattr(msg, 'message_id') and msg.message_id == photo_msg.message_id
+                        )
+                    ]
                     # Удаляем временный файл
                     help_defs.delete_file(file_path_photo)
                 else:
@@ -1330,27 +1333,27 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                             help_defs.delete_file(file_path_photo)
                     except Exception as e:
                         logger.debug(f"[PORTFOLIO] Ошибка при удалении временного файла {file_path_photo}: {e}")
-            
+
             await state.update_data(album=album)
-            
+
             # Сообщаем об ошибках если есть
             if invalid_photos_count > 0:
                 await message.answer(
                     text=f"❌ {invalid_photos_count} фото нарушают правила платформы (содержат текст) 🚫\n\nОстальные фото добавлены."
                 )
-            
+
             # Отправляем новое сообщение о загрузке (вместо редактирования)
             # Это нужно, чтобы сообщение было после всех загруженных фото
             album_count = len(album)
             msg_id = data.get('msg')
-            
+
             # Удаляем старое сообщение, если оно есть
             if msg_id:
                 try:
                     await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
                 except TelegramBadRequest:
                     pass  # Сообщение уже удалено или недоступно
-            
+
             # Отправляем новое сообщение (будет после всех фото)
             # Показываем сколько загружено новых и сколько всего будет
             total_count = existing_portfolio_count + album_count
@@ -1358,14 +1361,15 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                 status_text = f'Загружено новых фото: {album_count}/{available_slots}\nВсего в портфолио будет: {total_count}/10\n\nНажмите, чтобы закончить загрузку'
             else:
                 status_text = f'Загружено фото: {album_count}/10\n\nНажмите, чтобы закончить загрузку'
-            
+
             msg = await message.answer(
                 text=status_text,
                 reply_markup=kbc.done_btn()
             )
             await state.update_data(msg=msg.message_id)
-            logger.info(f"[PORTFOLIO] Отправлено новое сообщение о загрузке (медиа-группа): новых {album_count}, всего будет {total_count}/10")
-            
+            logger.info(
+                f"[PORTFOLIO] Отправлено новое сообщение о загрузке (медиа-группа): новых {album_count}, всего будет {total_count}/10")
+
             return
 
         # Если это одиночное фото (не медиа-группа)
@@ -1380,7 +1384,8 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                         await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
                     except TelegramBadRequest:
                         pass
-                await message.answer(f'❌ Достигнут лимит портфолио!\n\nУ вас уже {existing_portfolio_count} фото. Максимум 10 фото.\n\nУдалите старые фото, чтобы добавить новые.')
+                await message.answer(
+                    f'❌ Достигнут лимит портфолио!\n\nУ вас уже {existing_portfolio_count} фото. Максимум 10 фото.\n\nУдалите старые фото, чтобы добавить новые.')
                 msg = await message.answer(
                     text=f'Всего в портфолио: {existing_portfolio_count}/10\n\nБольше фото загрузить нельзя\nНажмите, чтобы закончить загрузку',
                     reply_markup=kbc.done_btn()
@@ -1395,7 +1400,8 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                         await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
                     except TelegramBadRequest:
                         pass
-                await message.answer(f'❌ Можно загрузить только {available_slots} фото (у вас уже {existing_portfolio_count} фото в портфолио)')
+                await message.answer(
+                    f'❌ Можно загрузить только {available_slots} фото (у вас уже {existing_portfolio_count} фото в портфолио)')
                 msg = await message.answer(
                     text=f'Загружено фото: {len(album)}/{available_slots}\n\nВсего будет: {existing_portfolio_count + len(album)}/10\n\nНажмите, чтобы закончить загрузку',
                     reply_markup=kbc.done_btn()
@@ -1408,7 +1414,7 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
         photo = message.photo[-1].file_id
         file_path_photo = await help_defs.save_photo(id=message.from_user.id)
         logger.debug(f"[PORTFOLIO] Временный файл для OCR проверки: {file_path_photo}")
-        
+
         await bot.download(file=photo, destination=file_path_photo)
 
         text_photo = yandex_ocr.analyze_file(file_path_photo)
@@ -1453,7 +1459,7 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
         # Если текст не найден - проверяем лимит перед добавлением
         # Проверяем, не превысит ли добавление этого фото общий лимит
         total_after_add = existing_portfolio_count + len(album) + 1  # +1 для текущего фото
-        
+
         if total_after_add > max_portfolio_photos:
             # Превышен лимит - не добавляем это фото
             msg_id = data.get('msg')
@@ -1467,7 +1473,7 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
                 reply_markup=kbc.done_btn()
             )
             return
-        
+
         # Добавляем фото в альбом (лимит не превышен)
         album.append(message)
         await state.update_data(album=album)
@@ -1476,14 +1482,14 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
         # Это нужно, чтобы сообщение было после всех загруженных фото
         album_count = len(album)
         msg_id = data.get('msg')
-        
+
         # Удаляем старое сообщение, если оно есть
         if msg_id:
             try:
                 await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
             except TelegramBadRequest:
                 pass  # Сообщение уже удалено или недоступно
-        
+
         # Отправляем новое сообщение (будет после всех фото)
         # Показываем сколько загружено новых и сколько всего будет
         total_count = existing_portfolio_count + album_count
@@ -1491,13 +1497,14 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
             status_text = f'Загружено новых фото: {album_count}/{available_slots}\nВсего в портфолио будет: {total_count}/10\n\nНажмите, чтобы закончить загрузку'
         else:
             status_text = f'Загружено фото: {album_count}/10\n\nНажмите, чтобы закончить загрузку'
-        
+
         msg = await message.answer(
             text=status_text,
             reply_markup=kbc.done_btn()
         )
         await state.update_data(msg=msg.message_id)
-        logger.info(f"[PORTFOLIO] Отправлено новое сообщение о загрузке: новых {album_count}, всего будет {total_count}/10")
+        logger.info(
+            f"[PORTFOLIO] Отправлено новое сообщение о загрузке: новых {album_count}, всего будет {total_count}/10")
 
     except Exception as e:
         logger.error(f"Error in upload_photo_portfolio: {e}")
@@ -1526,15 +1533,15 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         if not album:
             # Если альбом пустой, просто возвращаем пользователя в меню портфолио
             await state.clear()
-            
+
             worker = await Worker.get_worker(tg_id=callback.message.chat.id)
             kbc = KeyboardCollection()
-            
+
             if worker.portfolio_photo:
                 # Показываем портфолио
                 photo_len = len(worker.portfolio_photo)
                 first_photo_key = min(worker.portfolio_photo.keys(), key=int)
-                
+
                 await callback.message.answer_photo(
                     photo=FSInputFile(worker.portfolio_photo[first_photo_key]),
                     reply_markup=kbc.my_portfolio(
@@ -1548,7 +1555,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
                     text='У вас пока нет фото в портфолио',
                     reply_markup=kbc.my_portfolio()
                 )
-            
+
             await state.set_state(WorkStates.create_portfolio)
             return
 
@@ -1577,7 +1584,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         existing_count = len(worker.portfolio_photo) if worker.portfolio_photo else 0
         new_photos_count = len(album)
         total_after_save = existing_count + new_photos_count
-        
+
         if total_after_save > 10:
             # Ограничиваем количество новых фото до доступных слотов
             available_slots = 10 - existing_count
@@ -1586,11 +1593,11 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
                     text=f'❌ Достигнут лимит портфолио!\n\nУ вас уже {existing_count} фото. Максимум 10 фото.\n\nУдалите старые фото, чтобы добавить новые.'
                 )
                 return
-            
+
             # Обрезаем альбом до доступных слотов
             album = album[:available_slots]
             logger.info(f"[PORTFOLIO_UPLOAD] Альбом обрезан до {available_slots} фото из-за лимита")
-        
+
         # Получаем максимальный ключ из существующего портфолио
         max_key = 0
         if worker.portfolio_photo:
@@ -1614,17 +1621,17 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
             )
             file_path_photo = os.path.join(portfolio_dir, filename)
             logger.info(f"[PORTFOLIO_UPLOAD] Сохраняю фото в portfolio: {file_path_photo}")
-            
+
             await bot.download(file=file_id, destination=file_path_photo)
             logger.info(f"[PORTFOLIO_UPLOAD] Фото скачано в: {file_path_photo}")
-            
+
             # Проверяем файл на наличие после скачивания
             if not os.path.exists(file_path_photo):
                 logger.error(f"[PORTFOLIO_UPLOAD] ОШИБКА: Файл не найден после скачивания: {file_path_photo}")
             else:
                 file_size = os.path.getsize(file_path_photo)
                 logger.info(f"[PORTFOLIO_UPLOAD] Файл успешно сохранен: {file_path_photo}, размер: {file_size} байт")
-            
+
             text_photo = yandex_ocr.analyze_file(file_path_photo)
 
             if text_photo:
@@ -1692,15 +1699,15 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
 async def skip_it_photo_in_portfolio_view(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик кнопки 'Завершить загрузку' при просмотре портфолио (после удаления фото админом)"""
     logger.debug(f'skip_it_photo_in_portfolio_view...')
-    
+
     kbc = KeyboardCollection()
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-    
+
     if worker.portfolio_photo:
         # Показываем портфолио
         photo_len = len(worker.portfolio_photo)
         first_photo_key = min(worker.portfolio_photo.keys(), key=int)
-        
+
         await callback.message.answer_photo(
             photo=FSInputFile(worker.portfolio_photo[first_photo_key]),
             reply_markup=kbc.my_portfolio(
@@ -1714,7 +1721,7 @@ async def skip_it_photo_in_portfolio_view(callback: CallbackQuery, state: FSMCon
             text='У вас пока нет фото в портфолио',
             reply_markup=kbc.my_portfolio()
         )
-    
+
     await state.set_state(WorkStates.create_portfolio)
 
 
@@ -1722,28 +1729,28 @@ async def skip_it_photo_in_portfolio_view(callback: CallbackQuery, state: FSMCon
 async def skip_it_photo_universal(callback: CallbackQuery, state: FSMContext) -> None:
     """Универсальный обработчик кнопки 'Завершить загрузку' для любого состояния (когда админ удаляет фото)"""
     logger.debug(f'skip_it_photo_universal (состояние: {await state.get_state()})...')
-    
+
     # Проверяем, не обрабатывается ли это уже другими обработчиками с фильтрами состояния
     current_state = await state.get_state()
-    
+
     # Если уже есть обработчики для конкретных состояний, пропускаем
     if current_state == WorkStates.portfolio_upload_photo.state or \
-       current_state == WorkStates.create_portfolio.state:
+            current_state == WorkStates.create_portfolio.state:
         return  # Пусть обрабатывают специализированные обработчики
-    
+
     kbc = KeyboardCollection()
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-    
+
     if not worker:
         await callback.message.answer(text='❌ Исполнитель не найден')
         return
-    
+
     # Показываем меню портфолио
     if worker.portfolio_photo:
         # Показываем портфолио
         photo_len = len(worker.portfolio_photo)
         first_photo_key = min(worker.portfolio_photo.keys(), key=int)
-        
+
         await callback.message.answer_photo(
             photo=FSInputFile(worker.portfolio_photo[first_photo_key]),
             reply_markup=kbc.my_portfolio(
@@ -1767,41 +1774,209 @@ async def create_photo_profile(callback: CallbackQuery, state: FSMContext) -> No
     kbc = KeyboardCollection()
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
-    text = f'Загрузите фото'
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
 
     is_photo = True if worker.profile_photo else False
 
-    msg = await callback.message.answer(
-        text=text, reply_markup=kbc.photo_work_keyboard(is_photo=is_photo)
-    )
-    if not is_photo:
+    if is_photo:
+        # Показываем текущее фото с кнопками управления
+        msg = await callback.message.answer_photo(
+            photo=FSInputFile(worker.profile_photo),
+            reply_markup=kbc.photo_work_keyboard(is_photo=True)
+        )
+    else:
+        # Показываем текст с кнопками загрузки
+        msg = await callback.message.answer(
+            text='Загрузите фото',
+            reply_markup=kbc.photo_work_keyboard(is_photo=False)
+        )
         await callback.answer(
             text=f"На снимке должно быть хорошо видно ваше лицо;\n\n"
                  f"В кадре нет других людей.\nСамое главное на фотографии — Вы!",
             show_alert=True
         )
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
+
     await state.set_state(WorkStates.create_photo_profile)
     await state.update_data(msg_id=msg.message_id)
 
 
-@router.callback_query(lambda c: c.data.startswith('photo_delite'))
-async def block_photo_profile(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug(f'block_photo_profile...')
-
+@router.callback_query(F.data == "profile_photo_upload_new", StateFilter(WorkStates.create_photo_profile))
+async def profile_photo_upload_new(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик кнопки 'Загрузить новое фото'"""
+    logger.debug(f'profile_photo_upload_new...')
     kbc = KeyboardCollection()
 
-    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
-    await worker.update_profile_photo(profile_photo=None)
-    await callback.message.delete_reply_markup()
+    # Отвечаем на callback
+    await callback.answer()
 
-    await state.set_state(WorkStates.worker_menu)
-    await callback.message.delete()
-    msg = await callback.message.answer(text=f'Фото профиля удалено!', reply_markup=kbc.menu())
-    await state.update_data(worker_id=worker.tg_id, msg_id=msg.message_id)
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+
+    await callback.message.answer(
+        text='Отправьте новое фото для замены текущего.',
+        reply_markup=kbc.photo_upload_keyboard()
+    )
+    await state.set_state(WorkStates.create_photo_profile)
+
+
+@router.callback_query(F.data == "profile_photo_back", StateFilter(WorkStates.create_photo_profile))
+async def profile_photo_back(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик кнопки 'Назад' - возвращает к экрану управления фото профиля"""
+    logger.debug(f'profile_photo_back...')
+    kbc = KeyboardCollection()
+
+    # Отвечаем на callback
+    await callback.answer()
+
+    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    is_photo = True if worker.profile_photo else False
+
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+
+    if is_photo:
+        # Показываем текущее фото с кнопками управления
+        await callback.message.answer_photo(
+            photo=FSInputFile(worker.profile_photo),
+            reply_markup=kbc.photo_work_keyboard(is_photo=True)
+        )
+    else:
+        # Показываем текст с кнопками загрузки
+        await callback.message.answer(
+            text='Загрузите фото',
+            reply_markup=kbc.photo_work_keyboard(is_photo=False)
+        )
+
+    await state.set_state(WorkStates.create_photo_profile)
+
+
+@router.callback_query(F.data == "profile_photo_delete", StateFilter(WorkStates.create_photo_profile))
+async def profile_photo_delete(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик кнопки 'Удалить фото' - показывает подтверждение"""
+    logger.debug(f'profile_photo_delete...')
+    kbc = KeyboardCollection()
+
+    # Отвечаем на callback, чтобы убрать индикатор загрузки
+    await callback.answer()
+
+    try:
+        # Пытаемся редактировать caption у фото
+        await callback.message.edit_caption(
+            caption='Уверен, что хочешь удалить текущее фото?',
+            reply_markup=kbc.profile_photo_delete_confirm_keyboard()
+        )
+    except TelegramBadRequest:
+        # Если это текстовое сообщение, редактируем текст
+        try:
+            await callback.message.edit_text(
+                text='Уверен, что хочешь удалить текущее фото?',
+                reply_markup=kbc.profile_photo_delete_confirm_keyboard()
+            )
+        except TelegramBadRequest:
+            # Если не удалось отредактировать, отправляем новое сообщение
+            try:
+                await callback.message.delete()
+            except TelegramBadRequest:
+                pass
+            await callback.message.answer(
+                text='Уверен, что хочешь удалить текущее фото?',
+                reply_markup=kbc.profile_photo_delete_confirm_keyboard()
+            )
+
+
+@router.callback_query(F.data == "profile_photo_delete_yes", StateFilter(WorkStates.create_photo_profile))
+async def profile_photo_delete_yes(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтверждение удаления фото профиля"""
+    logger.debug(f'profile_photo_delete_yes...')
+    kbc = KeyboardCollection()
+
+    # Отвечаем на callback
+    # await callback.answer("Фото удалено")
+
+    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+
+    # Удаляем старое фото если оно есть
+    if worker.profile_photo:
+        help_defs.delete_file(worker.profile_photo)
+
+    await worker.update_profile_photo(profile_photo=None)
+
+    # Показываем уведомление об удалении
+    await callback.answer(
+        text='Фото профиля успешно удалено!',
+        show_alert=True
+    )
+
+    # Показываем экран загрузки нового фото после удаления
+    await callback.message.answer(
+        text='Загрузите фото',
+        reply_markup=kbc.photo_work_keyboard(is_photo=False)
+    )
+
+    await state.set_state(WorkStates.create_photo_profile)
+
+
+@router.callback_query(F.data == "profile_photo_delete_cancel", StateFilter(WorkStates.create_photo_profile))
+async def profile_photo_delete_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    """Отмена удаления фото профиля - возвращаем к экрану управления"""
+    logger.debug(f'profile_photo_delete_cancel...')
+    kbc = KeyboardCollection()
+
+    # Отвечаем на callback
+    await callback.answer()
+
+    worker = await Worker.get_worker(tg_id=callback.message.chat.id)
+    is_photo = True if worker.profile_photo else False
+
+    try:
+        if is_photo:
+            # Возвращаем к исходному фото с caption и клавиатурой
+            if worker.profile_photo:
+                await callback.message.edit_caption(
+                    caption=None,  # Убираем caption с вопросом
+                    reply_markup=kbc.photo_work_keyboard(is_photo=True)
+                )
+            else:
+                await callback.message.edit_caption(
+                    reply_markup=kbc.photo_work_keyboard(is_photo=True)
+                )
+        else:
+            await callback.message.edit_text(
+                text='Загрузите фото',
+                reply_markup=kbc.photo_work_keyboard(is_photo=False)
+            )
+    except TelegramBadRequest:
+        # Если не удалось отредактировать, отправляем новое сообщение
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
+
+        if is_photo and worker.profile_photo:
+            await callback.message.answer_photo(
+                photo=FSInputFile(worker.profile_photo),
+                reply_markup=kbc.photo_work_keyboard(is_photo=True)
+            )
+        else:
+            await callback.message.answer(
+                text='Загрузите фото',
+                reply_markup=kbc.photo_work_keyboard(is_photo=False)
+            )
+
+
+# Старый обработчик для обратной совместимости
+@router.callback_query(lambda c: c.data.startswith('photo_delite'))
+async def block_photo_profile(callback: CallbackQuery, state: FSMContext) -> None:
+    """Старый обработчик - перенаправляем на новый"""
+    logger.debug(f'block_photo_profile (legacy)...')
+    await profile_photo_delete(callback, state)
 
 
 @router.message(F.photo, WorkStates.create_photo_profile)
@@ -1844,11 +2019,30 @@ async def process_photos(message: Message, state: FSMContext):
         return
 
     # Если текст не найден - сохраняем фото
+    had_photo = bool(worker.profile_photo)
+
+    # Удаляем старое фото если оно было
+    if had_photo and worker.profile_photo:
+        help_defs.delete_file(worker.profile_photo)
+
     await worker.update_profile_photo(profile_photo=file_path_photo)
 
-    await state.set_state(WorkStates.worker_menu)
+    # Показываем соответствующее сообщение с фото
+    if had_photo:
 
-    await message.answer(text='Фото профиля успешно загружено!', reply_markup=kbc.menu_btn())
+        await message.answer_photo(
+            photo=FSInputFile(file_path_photo),
+            caption='Фото обновлено ✅',
+            reply_markup=kbc.photo_work_keyboard(is_photo=True)
+        )
+    else:
+        await message.answer_photo(
+            photo=FSInputFile(file_path_photo),
+            caption='Фото профиля успешно загружено!',
+            reply_markup=kbc.photo_work_keyboard(is_photo=True)
+        )
+
+    await state.set_state(WorkStates.create_photo_profile)
 
     await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
                          caption=f'ID #{message.chat.id}\nЗагружено новое фото профиля',
@@ -1960,11 +2154,11 @@ async def process_worker_name(message: Message, state: FSMContext):
 
     await state.set_state(WorkStates.worker_menu)
 
-    await message.answer(text='✅ Ваше имя успешно изменено!\n\nИмя будет проверено модератором.',
+    await message.answer(text='✅ Ваше имя успешно изменено!',
                          reply_markup=kbc.menu_btn())
     try:
         await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-    except:
+    except TelegramBadRequest:
         pass
 
 
@@ -2603,7 +2797,7 @@ async def navigate_photo_worker(callback: CallbackQuery, state: FSMContext) -> N
         # Для рассылки не нужна навигация по объявлениям
         btn_next = False
         btn_back = False
-        
+
         # Обновляем медиа (безопасно: если сообщение уже удалено, отправляем новое)
         try:
             if 'https' in photo_path:
@@ -4545,14 +4739,21 @@ async def add_city(callback: CallbackQuery, state: FSMContext) -> None:
 
     text += "Выберите дополнительное количество городов для получения заказов:"
 
+    # Загружаем тарифы из БД
+    from app.data.database.models import CitySubscriptionTariff
+    tariffs = await CitySubscriptionTariff.get_all()
+
+    if not tariffs:
+        await callback.answer("❌ Нет доступных тарифов. Обратитесь к администратору.", show_alert=True)
+        return
+
     builder = InlineKeyboardBuilder()
-    builder.add(kbc._inline("+1 city", "city_count_1"))
-    builder.add(kbc._inline("+2 city", "city_count_2"))
-    builder.add(kbc._inline("+3 city", "city_count_3"))
-    builder.add(kbc._inline("+4 city", "city_count_4"))
-    builder.add(kbc._inline("+5 city", "city_count_5"))
-    builder.add(kbc._inline("+10 city", "city_count_10"))
-    builder.add(kbc._inline("+20 city", "city_count_20"))
+    # Создаем кнопки для всех доступных тарифов (тарифы уже отсортированы по city_count в get_all)
+    for tariff in tariffs:
+        price_rub = tariff.price_per_month / 100
+        builder.add(
+            kbc._inline(f"+{tariff.city_count} city ({int(price_rub)}₽/мес)", f"city_count_{tariff.city_count}"))
+
     builder.add(kbc._inline("🏠 В меню", "worker_menu"))
     builder.adjust(1)
 
@@ -4588,43 +4789,52 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
     data = await state.get_data()
     change_subscription_id = data.get('change_subscription_id')
     await state.update_data(city_count=city_count)
-    
+
     # Восстанавливаем change_subscription_id если он был
     if change_subscription_id:
         await state.update_data(change_subscription_id=change_subscription_id)
 
-    # Цены за месяц для каждого количества городов
-    prices = {
-        1: 90,  # 1 месяц = 90₽
-        2: 180,  # 2 месяца = 171₽, но за месяц = 90₽
-        3: 270,  # 3 месяца = 243₽, но за месяц = 90₽
-        4: 360,  # 4 месяца = 360₽ за месяц
-        5: 450,  # 5 месяцев = 450₽ за месяц
-        10: 900,  # 10 месяцев = 900₽ за месяц
-        20: 1800  # 20 месяцев = 1800₽ за месяц
-    }
+    # Загружаем тарифы из БД
+    from app.data.database.models import CitySubscriptionTariff, CitySubscriptionDiscount
 
-    base_price = prices[city_count]
+    # Получаем базовую цену за месяц для указанного количества городов
+    tariff = await CitySubscriptionTariff.get_by_city_count(city_count)
+    if not tariff:
+        # Если тарифа нет, используем дефолтную цену 90₽
+        base_price_rub = 90
+        base_price_kopecks = 9000
+    else:
+        base_price_kopecks = tariff.price_per_month
+        base_price_rub = base_price_kopecks / 100
 
+    # Получаем все доступные скидки из БД
+    discounts = await CitySubscriptionDiscount.get_all()
+
+    # Формируем текст с ценами
     text = f"🏙️ **+{city_count} city**\n\n"
     text += f"Выберите срок рассылки:\n\n"
     text += f"💰 Цены за {city_count} город(ов):\n"
-    text += f"• 1 месяц: {base_price}₽\n"
-    text += f"• 2 месяца: {int(base_price * 2 * 0.95)}₽ (скидка 5%)\n"
-    text += f"• 3 месяца: {int(base_price * 3 * 0.9)}₽ (скидка 10%)\n"
-    text += f"• 6 месяцев: {int(base_price * 6 * 0.8)}₽ (скидка 20%)\n"
-    text += f"• 12 месяцев: {int(base_price * 12 * 0.7)}₽ (скидка 30%)"
+
+    # Загружаем все доступные периоды из БД (скидки)
+    prices_info = []
+
+    for discount in discounts:
+        months = discount.months
+        final_price = await CitySubscriptionDiscount.calculate_price(base_price_kopecks, months)
+        final_price_rub = final_price / 100
+
+        discount_text = f" (скидка {discount.discount_percent}%)" if discount.discount_percent > 0 else ""
+
+        text += f"• {months} месяц{'ев' if months > 1 else ''}: {int(final_price_rub)}₽{discount_text}\n"
+        prices_info.append((months, int(final_price)))
 
     builder = InlineKeyboardBuilder()
-    builder.add(kbc._inline(f"Купить 1 месяц {base_price}₽", f"city_period_1_{base_price}"))
-    builder.add(
-        kbc._inline(f"Купить 2 месяца {int(base_price * 2 * 0.95)}₽", f"city_period_2_{int(base_price * 2 * 0.95)}"))
-    builder.add(
-        kbc._inline(f"Купить 3 месяца {int(base_price * 3 * 0.9)}₽", f"city_period_3_{int(base_price * 3 * 0.9)}"))
-    builder.add(
-        kbc._inline(f"Купить 6 месяцев {int(base_price * 6 * 0.8)}₽", f"city_period_6_{int(base_price * 6 * 0.8)}"))
-    builder.add(
-        kbc._inline(f"Купить 12 месяцев {int(base_price * 12 * 0.7)}₽", f"city_period_12_{int(base_price * 12 * 0.7)}"))
+    # Добавляем кнопки с ценами из БД
+    for months, price_kopecks in prices_info:
+        price_rub = price_kopecks / 100
+        builder.add(kbc._inline(f"Купить {months} месяц{'ев' if months > 1 else ''} {int(price_rub)}₽",
+                                f"city_period_{months}_{int(price_rub)}"))
+
     builder.add(kbc._inline("◀️ К выбору количества городов", "add_city"))
     builder.adjust(1)
 
@@ -4650,22 +4860,22 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
     data = await state.get_data()
     renew_subscription_id = data.get('renew_subscription_id')
     change_subscription_id = data.get('change_subscription_id')
-    
+
     # Сохраняем change_subscription_id явно, чтобы не потерялся
     if change_subscription_id:
         await state.update_data(change_subscription_id=change_subscription_id)
-    
+
     # Проверяем, это продление или новая покупка
     if renew_subscription_id:
         # Это продление - используем данные из состояния
         city_count = data.get('renew_city_count', 1)
         renew_city_ids = data.get('renew_city_ids', [])
-        
+
         text = f"💰 **Подтверждение продления подписки**\n\n"
         text += f"🏙️ Количество городов: {city_count}\n"
         text += f"📅 Период: {months} месяц(ев)\n"
         text += f"💵 Стоимость: {price}₽\n\n"
-        
+
         # Показываем существующие города
         if renew_city_ids:
             city_names = []
@@ -4678,18 +4888,19 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
                 for name in city_names:
                     text += f"• {name}\n"
                 text += "\n"
-        
+
         text += f"После продления вы будете продолжать получать заказы из этих городов в течение {months} месяца(ев).\n\n"
         text += f"Подтвердить продление?"
 
         builder = InlineKeyboardBuilder()
-        builder.add(kbc._inline("✅ Подтвердить продление", f"confirm_city_renew_{renew_subscription_id}_{months}_{price}"))
+        builder.add(
+            kbc._inline("✅ Подтвердить продление", f"confirm_city_renew_{renew_subscription_id}_{months}_{price}"))
         builder.add(kbc._inline("❌ Отмена", "add_city"))
         builder.adjust(1)
     else:
         # Это новая покупка или смена тарифа
         city_count = data.get('city_count', 1)
-        
+
         # Проверяем, это смена тарифа или новая покупка
         if change_subscription_id:
             # Смена тарифа
@@ -4701,7 +4912,8 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
             text += f"Подтвердить смену тарифа?"
 
             builder = InlineKeyboardBuilder()
-            builder.add(kbc._inline("✅ Подтвердить смену тарифа", f"confirm_city_purchase_{city_count}_{months}_{price}"))
+            builder.add(
+                kbc._inline("✅ Подтвердить смену тарифа", f"confirm_city_purchase_{city_count}_{months}_{price}"))
         else:
             # Новая покупка
             text = f"💰 **Подтверждение покупки**\n\n"
@@ -4713,7 +4925,7 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
 
             builder = InlineKeyboardBuilder()
             builder.add(kbc._inline("✅ Подтвердить покупку", f"confirm_city_purchase_{city_count}_{months}_{price}"))
-        
+
         builder.add(kbc._inline("❌ Отмена", "add_city"))
         builder.adjust(1)
 
@@ -4741,7 +4953,8 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
     renew_subscription_id = data.get('renew_subscription_id')
     if renew_subscription_id:
         # Это должно быть продление - отклоняем вызов
-        logger.warning(f"confirm_city_purchase called during renewal. subscription_id: {renew_subscription_id}. This should not happen!")
+        logger.warning(
+            f"confirm_city_purchase called during renewal. subscription_id: {renew_subscription_id}. This should not happen!")
         await callback.answer("❌ Ошибка: используйте кнопку продления для этой подписки", show_alert=True)
         return
 
@@ -4749,7 +4962,8 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
     change_subscription_id = data.get('change_subscription_id')
 
     # Логируем для отладки
-    logger.info(f'confirm_city_purchase: change_subscription_id={change_subscription_id}, city_count={city_count}, months={months}, price={price}, worker_id={worker.id}')
+    logger.info(
+        f'confirm_city_purchase: change_subscription_id={change_subscription_id}, city_count={city_count}, months={months}, price={price}, worker_id={worker.id}')
 
     try:
         # Проверяем, это смена тарифа или новая покупка
@@ -4763,30 +4977,31 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
                 [change_subscription_id])
             record = await cursor.fetchone()
             await cursor.close()
-            
+
             if not record:
                 await conn.close()
                 await callback.answer("❌ Подписка не найдена", show_alert=True)
                 return
-            
+
             # Вычисляем новые даты (начинаем с сегодня)
             start_date = datetime.now()
             end_date = start_date + timedelta(days=months * 30)
-            
+
             # Обновляем подписку (пока без городов, они будут выбраны позже)
-            logger.info(f'Updating subscription {change_subscription_id}: start={start_date.strftime("%Y-%m-%d")}, end={end_date.strftime("%Y-%m-%d")}, months={months}, price={price}, city_count={city_count}')
+            logger.info(
+                f'Updating subscription {change_subscription_id}: start={start_date.strftime("%Y-%m-%d")}, end={end_date.strftime("%Y-%m-%d")}, months={months}, price={price}, city_count={city_count}')
             cursor = await conn.execute(
-                '''UPDATE worker_city_subscriptions 
-                   SET subscription_start = ?, 
-                       subscription_end = ?, 
-                       subscription_months = ?, 
-                       price = ?,
+                '''UPDATE worker_city_subscriptions
+                   SET subscription_start   = ?,
+                       subscription_end     = ?,
+                       subscription_months  = ?,
+                       price                = ?,
                        purchased_city_count = ?,
-                       active = 1
+                       active               = 1
                    WHERE id = ?''',
-                [start_date.strftime('%Y-%m-%d'), 
-                 end_date.strftime('%Y-%m-%d'), 
-                 months, 
+                [start_date.strftime('%Y-%m-%d'),
+                 end_date.strftime('%Y-%m-%d'),
+                 months,
                  price,
                  city_count,
                  change_subscription_id])
@@ -4794,14 +5009,14 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
             await conn.commit()
             await cursor.close()
             await conn.close()
-            
+
             logger.info(f'Subscription {change_subscription_id} updated. Rows affected: {rows_affected}')
-            
+
             if rows_affected == 0:
                 logger.error(f'Failed to update subscription {change_subscription_id} - no rows affected!')
                 await callback.answer("❌ Ошибка: не удалось обновить подписку", show_alert=True)
                 return
-            
+
             # Сохраняем subscription_id для последующего выбора городов
             subscription_id = change_subscription_id
         else:
@@ -4852,7 +5067,8 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
             subscription_id=subscription_id,
             city_count=city_count,
             selected_cities=[],
-            change_subscription_id=change_subscription_id if change_subscription_id else None  # Сохраняем для определения смены тарифа
+            change_subscription_id=change_subscription_id if change_subscription_id else None
+            # Сохраняем для определения смены тарифа
         )
 
         if is_tariff_change:
@@ -4914,16 +5130,16 @@ async def confirm_city_renew(callback: CallbackQuery, state: FSMContext) -> None
             [subscription_id])
         record = await cursor.fetchone()
         await cursor.close()
-        
+
         if not record:
             await conn.close()
             await callback.answer("❌ Подписка не найдена", show_alert=True)
             return
-        
+
         # Используем существующие города из подписки или из состояния
         existing_city_ids = [int(x) for x in record[2].split('|')] if record[2] else []
         city_ids_to_use = renew_city_ids if renew_city_ids else existing_city_ids
-        
+
         # Вычисляем новые даты (продлеваем от текущей даты окончания или от сегодня)
         current_end_date = datetime.strptime(record[4], '%Y-%m-%d')
         # Продлеваем от сегодня, если подписка уже истекла, или от текущей даты окончания
@@ -4931,55 +5147,55 @@ async def confirm_city_renew(callback: CallbackQuery, state: FSMContext) -> None
             start_date = datetime.now()
         else:
             start_date = current_end_date
-        
+
         end_date = start_date + timedelta(days=months * 30)
-        
+
         # Обновляем подписку (НЕ создаем новую!)
         city_ids_str = '|'.join(map(str, city_ids_to_use))
         await conn.execute(
-            '''UPDATE worker_city_subscriptions 
-               SET city_ids = ?, 
-                   subscription_start = ?, 
-                   subscription_end = ?, 
-                   subscription_months = ?, 
-                   price = ?,
+            '''UPDATE worker_city_subscriptions
+               SET city_ids             = ?,
+                   subscription_start   = ?,
+                   subscription_end     = ?,
+                   subscription_months  = ?,
+                   price                = ?,
                    purchased_city_count = ?,
-                   active = 1
+                   active               = 1
                WHERE id = ?''',
-            [city_ids_str, 
-             start_date.strftime('%Y-%m-%d'), 
-             end_date.strftime('%Y-%m-%d'), 
-             months, 
+            [city_ids_str,
+             start_date.strftime('%Y-%m-%d'),
+             end_date.strftime('%Y-%m-%d'),
+             months,
              price,
              renew_city_count,  # Обновляем количество городов
              subscription_id])
         await conn.commit()
         await conn.close()
-        
+
         # Получаем названия городов для сообщения
         city_names = []
         for city_id in city_ids_to_use:
             city = await City.get_city(id=city_id)
             if city:
                 city_names.append(city.city)
-        
+
         text = f"✅ **Подписка успешно продлена!**\n\n"
         text += f"🏙️ Количество городов: {renew_city_count}\n"
         text += f"📅 Период: {months} месяц(ев)\n"
         text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
-        
+
         if city_names:
             text += f"📍 Города:\n"
             for name in city_names:
                 text += f"• {name}\n"
             text += f"\n💡 Вы будете продолжать получать заказы из этих городов!"
-        
+
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
             parse_mode='Markdown'
         )
-        
+
         # Очищаем данные продления из состояния
         await state.update_data(
             renew_subscription_id=None,
@@ -4999,7 +5215,7 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
     data = await state.get_data()
     city_count = data.get('city_count', 1)
     selected_cities = data.get('selected_cities', [])
-    
+
     # Проверяем, это смена тарифа - если да, гарантируем что selected_cities пустой
     change_subscription_id = data.get('change_subscription_id')
     subscription_id = data.get('subscription_id')
@@ -5041,7 +5257,7 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
 
     # Определяем доступные невыбранные города
     unselected_available = [city for city in available_cities if city.id not in selected_cities]
-    
+
     text = f"🏙️ **Выберите города для подписки**\n\n"
     text += f"📊 Выбрано: {len(selected_cities)} из {city_count}\n\n"
 
@@ -5076,7 +5292,7 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
         if selected_cities:
             # Можно добавить пустую строку для визуального разделения (если нужно)
             pass
-        
+
         page = data.get('city_page', 0)
         cities_per_page = 8 - len(selected_cities)  # Учитываем место для выбранных городов
         if cities_per_page < 1:
@@ -5220,7 +5436,7 @@ async def subscription_cities_final_confirm(callback: CallbackQuery, state: FSMC
     try:
         # Проверяем, это смена тарифа или новая покупка
         change_subscription_id = data.get('change_subscription_id')
-        
+
         # Получаем текущую подписку
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
         active_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
@@ -5243,7 +5459,8 @@ async def subscription_cities_final_confirm(callback: CallbackQuery, state: FSMC
                 all_selected_cities = existing_subscription.city_ids + selected_cities
                 # Убираем дубликаты
                 all_selected_cities = list(set(all_selected_cities))
-                logger.info(f'New purchase: merging cities. Old: {existing_subscription.city_ids}, New: {selected_cities}, Result: {all_selected_cities}')
+                logger.info(
+                    f'New purchase: merging cities. Old: {existing_subscription.city_ids}, New: {selected_cities}, Result: {all_selected_cities}')
         else:
             all_selected_cities = selected_cities
 
@@ -5428,7 +5645,7 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
             record = await cursor.fetchone()
             await cursor.close()
             await conn.close()
-            
+
             if record:
                 city_ids = [int(x) for x in record[2].split('|')] if record[2] else []
                 subscription = WorkerCitySubscription(
@@ -5444,14 +5661,14 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
                 )
         except Exception as e:
             logger.error(f"Error getting subscription: {e}")
-        
+
         if not subscription:
             await callback.answer("❌ Подписка не найдена", show_alert=True)
             return
 
         # Используем purchased_city_count для правильного расчёта цены
         city_count = subscription.purchased_city_count
-        
+
         # Сохраняем subscription_id в состояние для последующего продления
         await state.update_data(
             renew_subscription_id=subscription_id,
@@ -5461,14 +5678,14 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
 
         text = f"🔄 **Продление подписки**\n\n"
         text += f"🏙️ Количество городов: {city_count}\n"
-        
+
         # Получаем названия городов
         city_names = []
         for city_id in subscription.city_ids[:3]:
             city = await City.get_city(id=city_id)
             if city:
                 city_names.append(city.city)
-        
+
         if city_names:
             text += f"📍 Города: {', '.join(city_names)}"
             if len(subscription.city_ids) > 3:
@@ -5477,25 +5694,36 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
                 text += "\n"
         else:
             text += "📍 Города не выбраны\n"
-        
+
         text += f"\nВыберите новый срок подписки:"
 
-        # Цены за месяц для каждого количества городов
-        prices = {
-            1: 90, 2: 180, 3: 270, 4: 360, 5: 450, 10: 900, 20: 1800
-        }
-        base_price = prices.get(city_count, 90)
+        # Загружаем тарифы из БД
+        from app.data.database.models import CitySubscriptionTariff, CitySubscriptionDiscount
+
+        # Получаем базовую цену за месяц для указанного количества городов
+        tariff = await CitySubscriptionTariff.get_by_city_count(city_count)
+        if not tariff:
+            # Если тарифа нет, используем дефолтную цену 90₽
+            base_price_kopecks = 9000
+        else:
+            base_price_kopecks = tariff.price_per_month
+
+        # Загружаем все доступные периоды из БД (скидки)
+        discounts = await CitySubscriptionDiscount.get_all()
+        prices_info = []
+
+        for discount in discounts:
+            months = discount.months
+            final_price = await CitySubscriptionDiscount.calculate_price(base_price_kopecks, months)
+            final_price_rub = final_price / 100
+            prices_info.append((months, int(final_price_rub)))
 
         builder = InlineKeyboardBuilder()
-        builder.add(kbc._inline(f"Продлить на 1 месяц {base_price}₽", f"city_period_1_{base_price}"))
-        builder.add(kbc._inline(f"Продлить на 2 месяца {int(base_price * 2 * 0.95)}₽",
-                                f"city_period_2_{int(base_price * 2 * 0.95)}"))
-        builder.add(kbc._inline(f"Продлить на 3 месяца {int(base_price * 3 * 0.9)}₽",
-                                f"city_period_3_{int(base_price * 3 * 0.9)}"))
-        builder.add(kbc._inline(f"Продлить на 6 месяцев {int(base_price * 6 * 0.8)}₽",
-                                f"city_period_6_{int(base_price * 6 * 0.8)}"))
-        builder.add(kbc._inline(f"Продлить на 12 месяцев {int(base_price * 12 * 0.7)}₽",
-                                f"city_period_12_{int(base_price * 12 * 0.7)}"))
+        # Добавляем кнопки с ценами из БД
+        for months, price_rub in prices_info:
+            builder.add(kbc._inline(f"Продлить на {months} месяц{'ев' if months > 1 else ''} {price_rub}₽",
+                                    f"city_period_{months}_{price_rub}"))
+
         builder.add(kbc._inline("◀️ Назад", "add_city"))
         builder.adjust(1)
 
@@ -5503,10 +5731,10 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
         # Смена тарифа - переход к выбору количества городов
         # Сначала сохраняем subscription_id для последующего обновления
         change_sub_id = subscription_id
-        
+
         # Вызываем add_city (он очистит change_subscription_id, но мы восстановим)
         await add_city(callback, state)
-        
+
         # Восстанавливаем change_subscription_id ПОСЛЕ вызова add_city
         await state.update_data(
             change_subscription_id=change_sub_id  # Восстанавливаем ID подписки для смены тарифа
@@ -5636,22 +5864,22 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
             text += f"⏰ Безлимит истек\n\n"
 
     # Загружаем тарифы из БД
-    from app.data.database.models import ContactTariff
-    tariffs = await ContactTariff.get_all()
-    
-    text += f"📦 **Доступные тарифы:**\n\n"
-    for tariff in tariffs:
-        price_rub = tariff.price / 100
-        discount_text = ""
-        if not tariff.unlimited and tariff.contacts_count > 1:
-            # Вычисляем скидку
-            base_price_per_contact = 190
-            total_base_price = base_price_per_contact * tariff.contacts_count
-            actual_price = price_rub
-            if actual_price < total_base_price:
-                discount_percent = int(((total_base_price - actual_price) / total_base_price) * 100)
-                discount_text = f" (-{discount_percent}%)"
-        text += f"🔸 {tariff.name} - {int(price_rub)}₽{discount_text}\n"
+    # from app.data.database.models import ContactTariff
+    # tariffs = await ContactTariff.get_all()
+
+    # text += f"📦 **Доступные тарифы:**\n\n"
+    # for tariff in tariffs:
+    #     price_rub = tariff.price / 100
+    #     discount_text = ""
+    #     if not tariff.unlimited and tariff.contacts_count > 1:
+    #         # Вычисляем скидку
+    #         base_price_per_contact = 190
+    #         total_base_price = base_price_per_contact * tariff.contacts_count
+    #         actual_price = price_rub
+    #         if actual_price < total_base_price:
+    #             discount_percent = int(((total_base_price - actual_price) / total_base_price) * 100)
+    #             discount_text = f" (-{discount_percent}%)"
+    #     text += f"🔸 {tariff.name} - {int(price_rub)}₽{discount_text}\n"
     text += f"\n💡 Контакты нужны для получения телефонов заказчиков"
 
     # Используем клавиатуру с тарифами из БД
@@ -5709,13 +5937,13 @@ async def buy_contacts_handler(callback: CallbackQuery, state: FSMContext) -> No
     from app.data.database.models import ContactTariff
     tariff_id = int(parts[1])
     tariff = await ContactTariff.get_by_id(tariff_id)
-    
+
     if not tariff:
         await callback.answer("❌ Тариф не найден", show_alert=True)
         return
 
     price_rub = tariff.price / 100
-    
+
     # Формируем информацию о тарифе
     if tariff.unlimited:
         tariff_name = tariff.name
@@ -5765,7 +5993,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
     # Получаем тариф из БД
     from app.data.database.models import ContactTariff
     tariff = await ContactTariff.get_by_id(tariff_id)
-    
+
     if not tariff:
         await callback.answer("❌ Тариф не найден", show_alert=True)
         return
@@ -5780,7 +6008,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
             # Устанавливаем безлимитный доступ на указанное количество дней
             until_date = datetime.now() + timedelta(days=tariff.unlimited_days)
             await worker.update_purchased_contacts(unlimited_contacts_until=until_date.isoformat())
-            
+
             months = tariff.unlimited_days // 30 if tariff.unlimited_days else 1
 
             text = f"""

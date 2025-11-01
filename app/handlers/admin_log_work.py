@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import os
+import aiosqlite
 from datetime import datetime, timedelta
 
 from aiogram import Router, F
@@ -466,30 +467,65 @@ async def block_photo_profile(callback: CallbackQuery, state: FSMContext) -> Non
 
     is_photo = True if worker.profile_photo else False
 
-    if is_photo:
+    if not is_photo:
         await callback.message.answer(
-            text=f'Пользователь уже сам удалил фото профиля')
+            text=f'У пользователя нет фото профиля для удаления')
         return
 
-    await worker.update_profile_photo(profile_photo=None)
+    # Сохраняем путь к фото перед удалением, чтобы отправить его исполнителю
+    photo_path = worker.profile_photo
+    logger.info(f"[ADMIN_DELETE_PHOTO] Сохраняю путь к фото: {photo_path}, exists={os.path.exists(photo_path) if photo_path else False}")
+    
     await callback.message.delete_reply_markup()
 
     await state.set_state(AdminStates.add_comment_to_lock_profile_photo)
     await callback.message.delete()
     msg = await callback.message.answer(text=f'Аватарка пользователя с общим ID: {worker.tg_id} удалена\nВведите комментарий', reply_markup=kbc.skip_btn_admin())
-    await state.update_data(worker_id=worker.tg_id, msg_id=msg.message_id)
+    await state.update_data(worker_id=worker.tg_id, msg_id=msg.message_id, photo_path=photo_path)
+    logger.info(f"[ADMIN_DELETE_PHOTO] Сохранил в state: worker_id={worker.tg_id}, photo_path={photo_path}")
 
 
 @router.callback_query(F.data == 'skip_it', AdminStates.add_comment_to_lock_profile_photo)
 async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'block_advertisement skip_it...')
+    kbc = KeyboardCollection()
     state_data = await state.get_data()
-    worker_id = int(state_data.get('worker_id'))
-    text = 'К сожалению фото профиля не соответствует установленным требованиям, повторите попытку пожалуйста снова 😞'
+    worker_tg_id = int(state_data.get('worker_id'))  # Это tg_id, не id из БД
+    photo_path = state_data.get('photo_path')
+    text = 'Фото профиля нарушает правила платформы 🚫\n\nЗагрузите другое!'
+    
+    logger.info(f"[ADMIN_DELETE_PHOTO] Отправка уведомления worker_tg_id={worker_tg_id}, photo_path={photo_path}, exists={os.path.exists(photo_path) if photo_path else False}")
+    
+    # Сначала отправляем уведомление с фото (если есть)
     try:
-        await bot.send_message(chat_id=worker_id, text=text)
-    except TelegramBadRequest:
-        pass
+        if photo_path and os.path.exists(photo_path):
+            logger.info(f"[ADMIN_DELETE_PHOTO] Отправляю фото: {photo_path}")
+            # Отправляем уведомление с фото
+            await bot.send_photo(
+                chat_id=worker_tg_id,
+                photo=FSInputFile(photo_path),
+                caption=text,
+                reply_markup=kbc.photo_work_keyboard(is_photo=False)
+            )
+            logger.info(f"[ADMIN_DELETE_PHOTO] Фото успешно отправлено")
+        else:
+            logger.warning(f"[ADMIN_DELETE_PHOTO] Фото не найдено или путь пустой, отправляю только текст")
+            # Если фото нет или файл удален, отправляем только текст
+            await bot.send_message(chat_id=worker_tg_id, text=text, reply_markup=kbc.photo_work_keyboard(is_photo=False))
+    except Exception as e:
+        logger.error(f"[ADMIN_DELETE_PHOTO] Ошибка при отправке фото: {e}", exc_info=True)
+        # Если не удалось отправить с фото, отправляем только текст
+        try:
+            await bot.send_message(chat_id=worker_tg_id, text=text, reply_markup=kbc.photo_work_keyboard(is_photo=False))
+        except TelegramBadRequest:
+            pass
+    
+    # ПОСЛЕ отправки уведомления удаляем фото из БД и файл
+    if photo_path:
+        worker = await Worker.get_worker(tg_id=worker_tg_id)
+        if worker:
+            logger.info(f"[ADMIN_DELETE_PHOTO] Удаляю фото из БД и файл")
+            await worker.update_profile_photo(profile_photo=None)
 
     await state.clear()
     await callback.message.delete()
@@ -498,20 +534,52 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
 @router.message(F.text, AdminStates.add_comment_to_lock_profile_photo)
 async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     logger.debug(f'block_advertisement text...')
+    kbc = KeyboardCollection()
 
     state_data = await state.get_data()
     worker_id = int(state_data.get('worker_id'))
+    photo_path = state_data.get('photo_path')
     # msg_id = int(state_data.get('msg_id'))
 
     msg_to_send = message.text
+    text = f'Фото профиля нарушает правила платформы 🚫\n\nЗагрузите другое!\n\nСообщение от администрации: "{msg_to_send}"'
 
     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
 
     await message.answer(text='Сообщение пользователю отправлено')
+    
+    logger.info(f"[ADMIN_DELETE_PHOTO] Отправка уведомления с комментарием worker_id={worker_id}, photo_path={photo_path}, exists={os.path.exists(photo_path) if photo_path else False}")
+    
+    # Сначала отправляем уведомление с фото (если есть)
     try:
-        await bot.send_message(chat_id=worker_id, text=f'Сообщение от администрации бота: "{msg_to_send}"')
-    except TelegramBadRequest:
-        pass
+        if photo_path and os.path.exists(photo_path):
+            logger.info(f"[ADMIN_DELETE_PHOTO] Отправляю фото с комментарием: {photo_path}")
+            # Отправляем уведомление с фото
+            await bot.send_photo(
+                chat_id=worker_id,
+                photo=FSInputFile(photo_path),
+                caption=text,
+                reply_markup=kbc.photo_work_keyboard(is_photo=False)
+            )
+            logger.info(f"[ADMIN_DELETE_PHOTO] Фото с комментарием успешно отправлено")
+        else:
+            logger.warning(f"[ADMIN_DELETE_PHOTO] Фото не найдено или путь пустой, отправляю только текст")
+            # Если фото нет или файл удален, отправляем только текст
+            await bot.send_message(chat_id=worker_id, text=text, reply_markup=kbc.photo_work_keyboard(is_photo=False))
+    except Exception as e:
+        logger.error(f"[ADMIN_DELETE_PHOTO] Ошибка при отправке фото с комментарием: {e}", exc_info=True)
+        # Если не удалось отправить с фото, отправляем только текст
+        try:
+            await bot.send_message(chat_id=worker_id, text=text, reply_markup=kbc.photo_work_keyboard(is_photo=False))
+        except TelegramBadRequest:
+            pass
+    
+    # ПОСЛЕ отправки уведомления удаляем фото из БД и файл
+    if photo_path:
+        worker = await Worker.get_worker(tg_id=worker_id)
+        if worker:
+            logger.info(f"[ADMIN_DELETE_PHOTO] Удаляю фото из БД и файл после отправки комментария")
+            await worker.update_profile_photo(profile_photo=None)
 
 
 @router.callback_query(F.data == 'skip_it', AdminStates.add_comment_to_lock_abs_chat)

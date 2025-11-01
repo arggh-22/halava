@@ -3274,6 +3274,313 @@ class WorkerCitySubscription:
             await conn.close()
 
 
+class CitySubscriptionTariff:
+    """Модель для тарифов подписки на города (цена за месяц в зависимости от количества городов)"""
+
+    def __init__(self, id: int | None, city_count: int, price_per_month: int):
+        self.id = id
+        self.city_count = city_count  # Количество городов
+        self.price_per_month = price_per_month  # Цена за месяц в копейках
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS city_subscription_tariffs
+                               (
+                                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   city_count      INTEGER NOT NULL UNIQUE,
+                                   price_per_month INTEGER NOT NULL
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    async def save(self) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                'INSERT OR REPLACE INTO city_subscription_tariffs (city_count, price_per_month) VALUES (?, ?)',
+                (self.city_count, self.price_per_month))
+            await conn.commit()
+            if self.id is None:
+                self.id = cursor.lastrowid
+            await cursor.close()
+        finally:
+            await conn.close()
+
+    async def update(self, city_count: int = None, price_per_month: int = None) -> None:
+        """Обновление тарифа"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            updates = []
+            params = []
+            
+            if city_count is not None:
+                updates.append('city_count = ?')
+                params.append(city_count)
+            if price_per_month is not None:
+                updates.append('price_per_month = ?')
+                params.append(price_per_month)
+            
+            if updates:
+                params.append(self.id)
+                query = f'UPDATE city_subscription_tariffs SET {", ".join(updates)} WHERE id = ?'
+                await conn.execute(query, params)
+                await conn.commit()
+                
+                if city_count is not None:
+                    self.city_count = city_count
+                if price_per_month is not None:
+                    self.price_per_month = price_per_month
+        finally:
+            await conn.close()
+
+    async def delete(self) -> None:
+        """Удаление тарифа"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('DELETE FROM city_subscription_tariffs WHERE id = ?', [self.id])
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_all(cls) -> list['CitySubscriptionTariff']:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT * FROM city_subscription_tariffs ORDER BY city_count ASC')
+            records = await cursor.fetchall()
+            await cursor.close()
+            if records:
+                return [
+                    cls(
+                        id=record[0],
+                        city_count=record[1],
+                        price_per_month=record[2]
+                    )
+                    for record in records
+                ]
+            return []
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_by_city_count(cls, city_count: int) -> Optional['CitySubscriptionTariff']:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT * FROM city_subscription_tariffs WHERE city_count = ?', [city_count])
+            record = await cursor.fetchone()
+            await cursor.close()
+            if record:
+                return cls(
+                    id=record[0],
+                    city_count=record[1],
+                    price_per_month=record[2]
+                )
+            return None
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_by_id(cls, id: int) -> Optional['CitySubscriptionTariff']:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT * FROM city_subscription_tariffs WHERE id = ?', [id])
+            record = await cursor.fetchone()
+            await cursor.close()
+            if record:
+                return cls(
+                    id=record[0],
+                    city_count=record[1],
+                    price_per_month=record[2]
+                )
+            return None
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def init_default_tariffs(cls) -> None:
+        """Инициализация тарифов по умолчанию, если их нет в БД"""
+        existing = await cls.get_all()
+        if existing:
+            return  # Тарифы уже есть
+        
+        # Создаем тарифы по умолчанию (цена в копейках)
+        default_tariffs = [
+            cls(id=None, city_count=1, price_per_month=9000),   # 90₽
+            cls(id=None, city_count=2, price_per_month=18000),  # 180₽
+            cls(id=None, city_count=3, price_per_month=27000),  # 270₽
+            cls(id=None, city_count=4, price_per_month=36000),  # 360₽
+            cls(id=None, city_count=5, price_per_month=45000),  # 450₽
+            cls(id=None, city_count=10, price_per_month=90000), # 900₽
+            cls(id=None, city_count=20, price_per_month=180000), # 1800₽
+        ]
+        
+        for tariff in default_tariffs:
+            await tariff.save()
+
+
+class CitySubscriptionDiscount:
+    """Модель для скидок на подписки городов в зависимости от периода (количество месяцев)"""
+
+    def __init__(self, id: int | None, months: int, discount_percent: int):
+        self.id = id
+        self.months = months  # Количество месяцев (1, 2, 3, 6, 12)
+        self.discount_percent = discount_percent  # Процент скидки (0, 5, 10, 20, 30)
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS city_subscription_discounts
+                               (
+                                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   months          INTEGER NOT NULL UNIQUE,
+                                   discount_percent INTEGER NOT NULL
+                               )
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    async def save(self) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                'INSERT OR REPLACE INTO city_subscription_discounts (months, discount_percent) VALUES (?, ?)',
+                (self.months, self.discount_percent))
+            await conn.commit()
+            if self.id is None:
+                self.id = cursor.lastrowid
+            await cursor.close()
+        finally:
+            await conn.close()
+
+    async def update(self, months: int = None, discount_percent: int = None) -> None:
+        """Обновление скидки"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            updates = []
+            params = []
+            
+            if months is not None:
+                updates.append('months = ?')
+                params.append(months)
+            if discount_percent is not None:
+                updates.append('discount_percent = ?')
+                params.append(discount_percent)
+            
+            if updates:
+                params.append(self.id)
+                query = f'UPDATE city_subscription_discounts SET {", ".join(updates)} WHERE id = ?'
+                await conn.execute(query, params)
+                await conn.commit()
+                
+                if months is not None:
+                    self.months = months
+                if discount_percent is not None:
+                    self.discount_percent = discount_percent
+        finally:
+            await conn.close()
+
+    async def delete(self) -> None:
+        """Удаление скидки"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('DELETE FROM city_subscription_discounts WHERE id = ?', [self.id])
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_all(cls) -> list['CitySubscriptionDiscount']:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT * FROM city_subscription_discounts ORDER BY months ASC')
+            records = await cursor.fetchall()
+            await cursor.close()
+            if records:
+                return [
+                    cls(
+                        id=record[0],
+                        months=record[1],
+                        discount_percent=record[2]
+                    )
+                    for record in records
+                ]
+            return []
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_by_months(cls, months: int) -> Optional['CitySubscriptionDiscount']:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT * FROM city_subscription_discounts WHERE months = ?', [months])
+            record = await cursor.fetchone()
+            await cursor.close()
+            if record:
+                return cls(
+                    id=record[0],
+                    months=record[1],
+                    discount_percent=record[2]
+                )
+            return None
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_by_id(cls, id: int) -> Optional['CitySubscriptionDiscount']:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT * FROM city_subscription_discounts WHERE id = ?', [id])
+            record = await cursor.fetchone()
+            await cursor.close()
+            if record:
+                return cls(
+                    id=record[0],
+                    months=record[1],
+                    discount_percent=record[2]
+                )
+            return None
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def init_default_discounts(cls) -> None:
+        """Инициализация скидок по умолчанию, если их нет в БД"""
+        existing = await cls.get_all()
+        if existing:
+            return  # Скидки уже есть
+        
+        # Создаем скидки по умолчанию
+        default_discounts = [
+            cls(id=None, months=1, discount_percent=0),   # Без скидки
+            cls(id=None, months=2, discount_percent=5),   # 5% скидка
+            cls(id=None, months=3, discount_percent=10),  # 10% скидка
+            cls(id=None, months=6, discount_percent=20),  # 20% скидка
+            cls(id=None, months=12, discount_percent=30), # 30% скидка
+        ]
+        
+        for discount in default_discounts:
+            await discount.save()
+
+    @classmethod
+    async def calculate_price(cls, base_price: int, months: int) -> int:
+        """Вычисляет финальную цену с учетом скидки для указанного количества месяцев"""
+        discount = await cls.get_by_months(months)
+        if discount:
+            discount_multiplier = (100 - discount.discount_percent) / 100
+            return int(base_price * months * discount_multiplier)
+        else:
+            # Если скидки нет - просто умножаем на месяцы
+            return base_price * months
+
+
 class ContactExchange:
     """Модель для отслеживания обмена контактами"""
 

@@ -51,6 +51,20 @@ async def init_db() -> None:
         # Silently ignore if tariffs already exist or other init errors
         pass
 
+    # Инициализация тарифов городов по умолчанию
+    try:
+        await models.CitySubscriptionTariff.init_default_tariffs()
+    except Exception as e:
+        # Silently ignore if tariffs already exist or other init errors
+        pass
+
+    # Инициализация скидок городов по умолчанию
+    try:
+        await models.CitySubscriptionDiscount.init_default_discounts()
+    except Exception as e:
+        # Silently ignore if discounts already exist or other init errors
+        pass
+
 
 def init_db_sync() -> None:
     asyncio.run(init_db())

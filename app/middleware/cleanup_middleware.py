@@ -68,8 +68,8 @@ class DeletePreviousMiddleware(BaseMiddleware):
             # Исключения для состояний, где не нужно удалять сообщения
             skip_cleanup_states = [
                 "WorkStates:portfolio_upload_photo",  # Загрузка фото в портфолио
-                "WorkStates:create_photo_profile",    # Загрузка фото профиля
-                "WorkStates:create_portfolio",        # Просмотр портфолио
+                # "WorkStates:create_photo_profile",    # Загрузка фото профиля
+                # "WorkStates:create_portfolio",        # Просмотр портфолио
                 "CustomerStates:customer_create_abs_add_photo",  # Загрузка фото в объявления
                 "WorkStates:worker_choose_work_types",  # Выбор направлений работы (редактирование сообщений)
                 "WorkStates:worker_choose_subscription_cities",  # Выбор городов для подписки (редактирование сообщений)

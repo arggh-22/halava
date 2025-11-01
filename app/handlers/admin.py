@@ -14,7 +14,8 @@ from aiogram.utils.markdown import link
 # Импорт вспомогательных модулей и компонентов из приложения
 from app.data.database.models import (
     Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, City,
-    WorkerAndRefsAssociation, WorkType, Admin, WorkerAndBadResponse, WorkerAndReport, ContactTariff
+    WorkerAndRefsAssociation, WorkType, Admin, WorkerAndBadResponse, WorkerAndReport, ContactTariff,
+    CitySubscriptionTariff, CitySubscriptionDiscount
 )
 from app.keyboards import KeyboardCollection
 from app.states import AdminStates, UserStates, BannedStates
@@ -54,7 +55,12 @@ def is_cache_valid():
                                                      AdminStates.edit_contact_tariff_contacts_count, AdminStates.edit_contact_tariff_unlimited_days,
                                                      AdminStates.add_contact_tariff_type, AdminStates.add_contact_tariff_name,
                                                      AdminStates.add_contact_tariff_contacts_count, AdminStates.add_contact_tariff_price,
-                                                     AdminStates.add_contact_tariff_unlimited_days))
+                                                     AdminStates.add_contact_tariff_unlimited_days,
+                                                     AdminStates.manage_city_tariffs, AdminStates.view_city_tariff,
+                                                     AdminStates.edit_city_tariff_price, AdminStates.add_city_tariff_count,
+                                                     AdminStates.add_city_tariff_price, AdminStates.manage_city_discounts,
+                                                     AdminStates.view_city_discount, AdminStates.edit_city_discount_percent,
+                                                     AdminStates.add_city_discount_months, AdminStates.add_city_discount_percent))
 async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug('admin_menu...')
     kbc = KeyboardCollection()
@@ -1233,7 +1239,11 @@ async def menu_send_msg_admin_keyboard(callback: CallbackQuery, state: FSMContex
 
 @router.callback_query(F.data == 'menu_admin', StateFilter(AdminStates.menu, UserStates.menu, BannedStates.banned,
                                                              AdminStates.manage_contact_tariffs, AdminStates.view_contact_tariff,
-                                                             AdminStates.add_contact_tariff_type))
+                                                             AdminStates.add_contact_tariff_type,
+                                                             AdminStates.manage_city_tariffs, AdminStates.view_city_tariff,
+                                                             AdminStates.manage_city_discounts, AdminStates.view_city_discount,
+                                                             AdminStates.add_city_tariff_count, AdminStates.add_city_tariff_price,
+                                                             AdminStates.add_city_discount_months, AdminStates.add_city_discount_percent))
 async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug('admin_menu...')
     kbc = KeyboardCollection()
@@ -2668,7 +2678,17 @@ async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -
 
 # ========== УПРАВЛЕНИЕ ТАРИФАМИ КОНТАКТОВ ==========
 
-@router.callback_query(F.data == 'manage_contact_tariffs', StateFilter(AdminStates.menu))
+@router.callback_query(F.data == 'manage_contact_tariffs', StateFilter(AdminStates.menu,
+                                                                        AdminStates.view_contact_tariff,
+                                                                        AdminStates.edit_contact_tariff_name,
+                                                                        AdminStates.edit_contact_tariff_price,
+                                                                        AdminStates.edit_contact_tariff_contacts_count,
+                                                                        AdminStates.edit_contact_tariff_unlimited_days,
+                                                                        AdminStates.add_contact_tariff_type,
+                                                                        AdminStates.add_contact_tariff_name,
+                                                                        AdminStates.add_contact_tariff_contacts_count,
+                                                                        AdminStates.add_contact_tariff_price,
+                                                                        AdminStates.add_contact_tariff_unlimited_days))
 async def manage_contact_tariffs(callback: CallbackQuery, state: FSMContext) -> None:
     """Главное меню управления тарифами контактов"""
     logger.debug('manage_contact_tariffs...')
@@ -2687,7 +2707,12 @@ async def manage_contact_tariffs(callback: CallbackQuery, state: FSMContext) -> 
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_view_tariff_'), StateFilter(AdminStates.manage_contact_tariffs))
+@router.callback_query(lambda c: c.data.startswith('admin_view_tariff_'), StateFilter(AdminStates.manage_contact_tariffs, 
+                                                                                      AdminStates.view_contact_tariff,
+                                                                                      AdminStates.edit_contact_tariff_name,
+                                                                                      AdminStates.edit_contact_tariff_price,
+                                                                                      AdminStates.edit_contact_tariff_contacts_count,
+                                                                                      AdminStates.edit_contact_tariff_unlimited_days))
 async def admin_view_tariff(callback: CallbackQuery, state: FSMContext) -> None:
     """Просмотр информации о тарифе"""
     logger.debug('admin_view_tariff...')
@@ -3044,7 +3069,11 @@ async def admin_confirm_delete_tariff(callback: CallbackQuery, state: FSMContext
         await callback.answer("❌ Произошла ошибка при удалении", show_alert=True)
 
 
-@router.callback_query(F.data == 'admin_add_tariff_type', StateFilter(AdminStates.manage_contact_tariffs))
+@router.callback_query(F.data == 'admin_add_tariff_type', StateFilter(AdminStates.manage_contact_tariffs,
+                                                                       AdminStates.add_contact_tariff_name,
+                                                                       AdminStates.add_contact_tariff_contacts_count,
+                                                                       AdminStates.add_contact_tariff_price,
+                                                                       AdminStates.add_contact_tariff_unlimited_days))
 async def admin_add_tariff_type(callback: CallbackQuery, state: FSMContext) -> None:
     """Выбор типа нового тарифа"""
     logger.debug('admin_add_tariff_type...')
@@ -3260,10 +3289,683 @@ async def process_add_tariff_price(message: Message, state: FSMContext) -> None:
 
 
 # Обработка возврата к списку тарифов из просмотра
-@router.callback_query(F.data == 'manage_contact_tariffs', StateFilter(AdminStates.view_contact_tariff))
+@router.callback_query(F.data == 'manage_contact_tariffs', StateFilter(AdminStates.view_contact_tariff,
+                                                                        AdminStates.edit_contact_tariff_name,
+                                                                        AdminStates.edit_contact_tariff_price,
+                                                                        AdminStates.edit_contact_tariff_contacts_count,
+                                                                        AdminStates.edit_contact_tariff_unlimited_days,
+                                                                        AdminStates.add_contact_tariff_type,
+                                                                        AdminStates.add_contact_tariff_name,
+                                                                        AdminStates.add_contact_tariff_contacts_count,
+                                                                        AdminStates.add_contact_tariff_price,
+                                                                        AdminStates.add_contact_tariff_unlimited_days))
 async def back_to_tariffs_list(callback: CallbackQuery, state: FSMContext) -> None:
     """Возврат к списку тарифов"""
     await manage_contact_tariffs(callback, state)
+
+
+# ========== УПРАВЛЕНИЕ ТАРИФАМИ ГОРОДОВ ==========
+
+@router.callback_query(F.data == 'manage_city_tariffs', StateFilter(AdminStates.menu, AdminStates.manage_city_discounts,
+                                                                     AdminStates.add_city_tariff_count, AdminStates.add_city_tariff_price,
+                                                                     AdminStates.view_city_tariff, AdminStates.edit_city_tariff_price,
+                                                                     AdminStates.view_city_discount))
+async def manage_city_tariffs(callback: CallbackQuery, state: FSMContext) -> None:
+    """Главное меню управления тарифами городов"""
+    logger.debug('manage_city_tariffs...')
+    kbc = KeyboardCollection()
+
+    tariffs = await CitySubscriptionTariff.get_all()
+    text = f'🏙️ <b>Управление тарифами городов</b>\n\n'
+    text += f'📊 Всего тарифов: {len(tariffs)}\n\n'
+    text += f'Тарифы определяют цену за месяц подписки в зависимости от количества городов.\n\n'
+    text += f'Выберите тариф для редактирования или добавьте новый:'
+
+    await state.set_state(AdminStates.manage_city_tariffs)
+    await callback.message.answer(
+        text=text,
+        reply_markup=await kbc.admin_city_tariffs_list(),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_view_city_tariff_'), StateFilter(AdminStates.manage_city_tariffs, AdminStates.edit_city_tariff_price, AdminStates.view_city_tariff))
+async def admin_view_city_tariff(callback: CallbackQuery, state: FSMContext) -> None:
+    """Просмотр информации о тарифе городов"""
+    logger.debug('admin_view_city_tariff...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[4])
+    tariff = await CitySubscriptionTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    price_rub = tariff.price_per_month / 100
+    
+    # Показываем примеры цен с учетом скидок
+    discounts = await CitySubscriptionDiscount.get_all()
+    text = f'🏙️ <b>Информация о тарифе</b>\n\n'
+    text += f'📊 <b>Количество городов:</b> {tariff.city_count}\n'
+    text += f'💵 <b>Цена за месяц:</b> {int(price_rub)}₽ ({tariff.price_per_month} копеек)\n\n'
+    text += f'<b>Примеры цен с учетом скидок:</b>\n'
+    
+    periods = [1, 2, 3, 6, 12]
+    for months in periods:
+        final_price = await CitySubscriptionDiscount.calculate_price(tariff.price_per_month, months)
+        final_price_rub = final_price / 100
+        discount = await CitySubscriptionDiscount.get_by_months(months)
+        discount_text = f" (скидка {discount.discount_percent}%)" if discount and discount.discount_percent > 0 else ""
+        text += f'• {months} месяц{"ев" if months > 1 else ""}: {int(final_price_rub)}₽{discount_text}\n'
+
+    await state.set_state(AdminStates.view_city_tariff)
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_edit_city_tariff(tariff_id),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_edit_city_tariff_count_'), StateFilter(AdminStates.view_city_tariff))
+async def admin_edit_city_tariff_count_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик начала редактирования количества городов"""
+    logger.debug('admin_edit_city_tariff_count_handler...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[5])
+    tariff = await CitySubscriptionTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    text = f'🏙️ <b>Редактирование количества городов</b>\n\n'
+    text += f'Текущее количество: <b>{tariff.city_count}</b>\n\n'
+    text += f'Введите новое количество городов (положительное число):'
+
+    await state.set_state(AdminStates.edit_city_tariff_price)  # Используем существующее состояние
+    await state.update_data(tariff_id=tariff_id, editing_field='city_count')
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn(f'admin_view_city_tariff_{tariff_id}'),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_edit_city_tariff_price_'), StateFilter(AdminStates.view_city_tariff))
+async def admin_edit_city_tariff_price_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик начала редактирования цены тарифа городов"""
+    logger.debug('admin_edit_city_tariff_price_handler...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[5])
+    tariff = await CitySubscriptionTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    price_rub = tariff.price_per_month / 100
+    text = f'💰 <b>Редактирование цены тарифа</b>\n\n'
+    text += f'Количество городов: <b>{tariff.city_count}</b>\n'
+    text += f'Текущая цена за месяц: <b>{int(price_rub)}₽</b> ({tariff.price_per_month} копеек)\n\n'
+    text += f'Введите новую цену в рублях за месяц:'
+
+    await state.set_state(AdminStates.edit_city_tariff_price)
+    await state.update_data(tariff_id=tariff_id, editing_field='price')
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn(f'admin_view_city_tariff_{tariff_id}'),
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text, StateFilter(AdminStates.edit_city_tariff_price))
+async def process_edit_city_tariff(message: Message, state: FSMContext) -> None:
+    """Обработка редактирования тарифа городов"""
+    logger.debug('process_edit_city_tariff...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    tariff_id = state_data.get('tariff_id')
+    editing_field = state_data.get('editing_field')
+
+    try:
+        tariff = await CitySubscriptionTariff.get_by_id(tariff_id)
+        if not tariff:
+            await message.answer('❌ Тариф не найден', reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+            await state.set_state(AdminStates.menu)
+            return
+
+        if editing_field == 'city_count':
+            city_count = int(message.text.strip())
+            if city_count <= 0:
+                raise ValueError("Количество должно быть положительным числом")
+            
+            # Проверяем, нет ли уже тарифа с таким количеством городов
+            existing = await CitySubscriptionTariff.get_by_city_count(city_count)
+            if existing and existing.id != tariff_id:
+                await message.answer('❌ Тариф с таким количеством городов уже существует!', 
+                                   reply_markup=kbc.admin_back_btn(f'admin_view_city_tariff_{tariff_id}'))
+                return
+            
+            await tariff.update(city_count=city_count)
+            await message.answer(
+                text=f'✅ <b>Количество городов успешно изменено!</b>\n\nНовое количество: <b>{city_count}</b>',
+                reply_markup=kbc.admin_edit_city_tariff(tariff_id),
+                parse_mode='HTML'
+            )
+        else:  # editing_field == 'price'
+            price_rub = float(message.text.replace(',', '.').strip())
+            if price_rub <= 0:
+                raise ValueError("Цена должна быть положительным числом")
+            
+            price_kopecks = int(price_rub * 100)
+            await tariff.update(price_per_month=price_kopecks)
+            await message.answer(
+                text=f'✅ <b>Цена успешно изменена!</b>\n\nНовая цена за месяц: <b>{int(price_rub)}₽</b> ({price_kopecks} копеек)',
+                reply_markup=kbc.admin_edit_city_tariff(tariff_id),
+                parse_mode='HTML'
+            )
+        
+        await state.set_state(AdminStates.view_city_tariff)
+    except ValueError as e:
+        if "Количество" in str(e):
+            await message.answer(
+                text=f'❌ <b>Ошибка!</b>\n\nПожалуйста, введите корректное количество городов (положительное число).',
+                reply_markup=kbc.admin_back_btn(f'admin_view_city_tariff_{tariff_id}'),
+                parse_mode='HTML'
+            )
+        else:
+            await message.answer(
+                text=f'❌ <b>Ошибка!</b>\n\nПожалуйста, введите корректную цену (положительное число).\nНапример: 90, 180, 270',
+                reply_markup=kbc.admin_back_btn(f'admin_view_city_tariff_{tariff_id}'),
+                parse_mode='HTML'
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при редактировании тарифа городов: {e}")
+        await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_delete_city_tariff_'), StateFilter(AdminStates.view_city_tariff))
+async def admin_delete_city_tariff_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик удаления тарифа городов"""
+    logger.debug('admin_delete_city_tariff_handler...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[4])
+    tariff = await CitySubscriptionTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    price_rub = tariff.price_per_month / 100
+    text = f'🗑️ <b>Подтверждение удаления тарифа</b>\n\n'
+    text += f'Вы действительно хотите удалить тариф:\n'
+    text += f'🏙️ <b>{tariff.city_count} городов</b>\n'
+    text += f'💵 Цена за месяц: {int(price_rub)}₽\n\n'
+    text += f'⚠️ <b>Это действие нельзя отменить!</b>'
+
+    builder = InlineKeyboardBuilder()
+    builder.add(kbc._inline("✅ Да, удалить", f"admin_confirm_delete_city_tariff_{tariff_id}"))
+    builder.add(kbc._inline("❌ Отмена", f"admin_view_city_tariff_{tariff_id}"))
+    builder.adjust(1)
+
+    await callback.message.answer(
+        text=text,
+        reply_markup=builder.as_markup(),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_confirm_delete_city_tariff_'))
+async def admin_confirm_delete_city_tariff(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтверждение удаления тарифа городов"""
+    logger.debug('admin_confirm_delete_city_tariff...')
+    kbc = KeyboardCollection()
+
+    tariff_id = int(callback.data.split('_')[5])
+    tariff = await CitySubscriptionTariff.get_by_id(tariff_id)
+
+    if not tariff:
+        await callback.answer("❌ Тариф не найден", show_alert=True)
+        return
+
+    try:
+        city_count = tariff.city_count
+        await tariff.delete()
+        
+        await callback.message.answer(
+            text=f'✅ <b>Тариф "{city_count} городов" успешно удален!</b>',
+            reply_markup=await kbc.admin_city_tariffs_list(),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.manage_city_tariffs)
+        await callback.answer("✅ Тариф удален", show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка при удалении тарифа городов: {e}")
+        await callback.answer("❌ Произошла ошибка при удалении", show_alert=True)
+
+
+@router.callback_query(F.data == 'admin_add_city_tariff', StateFilter(AdminStates.manage_city_tariffs, AdminStates.add_city_tariff_count, AdminStates.add_city_tariff_price))
+async def admin_add_city_tariff_count(callback: CallbackQuery, state: FSMContext) -> None:
+    """Ввод количества городов для нового тарифа"""
+    logger.debug('admin_add_city_tariff_count...')
+    kbc = KeyboardCollection()
+
+    text = f'➕ <b>Добавление нового тарифа городов</b>\n\n'
+    text += f'Введите количество городов (положительное число):'
+
+    await state.set_state(AdminStates.add_city_tariff_count)
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn('manage_city_tariffs'),
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text, StateFilter(AdminStates.add_city_tariff_count))
+async def process_add_city_tariff_count(message: Message, state: FSMContext) -> None:
+    """Обработка количества городов для нового тарифа"""
+    logger.debug('process_add_city_tariff_count...')
+    kbc = KeyboardCollection()
+
+    try:
+        city_count = int(message.text.strip())
+        if city_count <= 0:
+            raise ValueError("Количество должно быть положительным числом")
+
+        # Проверяем, нет ли уже тарифа с таким количеством
+        existing = await CitySubscriptionTariff.get_by_city_count(city_count)
+        if existing:
+            await message.answer('❌ Тариф с таким количеством городов уже существует!',
+                               reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+            return
+
+        await state.update_data(city_count=city_count)
+        
+        text = f'💰 <b>Цена за месяц</b>\n\n'
+        text += f'Количество городов: <b>{city_count}</b>\n\n'
+        text += f'Введите цену в рублях за месяц:'
+
+        await state.set_state(AdminStates.add_city_tariff_price)
+        await message.answer(text=text, reply_markup=kbc.admin_back_btn('manage_city_tariffs'), parse_mode='HTML')
+    except ValueError:
+        await message.answer('❌ Пожалуйста, введите корректное количество городов (положительное число)',
+                          reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+
+
+@router.message(F.text, StateFilter(AdminStates.add_city_tariff_price))
+async def process_add_city_tariff_price(message: Message, state: FSMContext) -> None:
+    """Обработка цены нового тарифа городов и создание"""
+    logger.debug('process_add_city_tariff_price...')
+    kbc = KeyboardCollection()
+
+    try:
+        price_rub = float(message.text.replace(',', '.').strip())
+        if price_rub <= 0:
+            raise ValueError("Цена должна быть положительным числом")
+        
+        price_kopecks = int(price_rub * 100)
+
+        state_data = await state.get_data()
+        city_count = state_data.get('city_count')
+
+        new_tariff = CitySubscriptionTariff(
+            id=None,
+            city_count=city_count,
+            price_per_month=price_kopecks
+        )
+
+        await new_tariff.save()
+        
+        await message.answer(
+            text=f'✅ <b>Тариф успешно создан!</b>\n\n'
+                 f'🏙️ Количество городов: <b>{city_count}</b>\n'
+                 f'💵 Цена за месяц: <b>{int(price_rub)}₽</b>',
+            reply_markup=await kbc.admin_city_tariffs_list(),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.manage_city_tariffs)
+        
+    except ValueError:
+        await message.answer('❌ Пожалуйста, введите корректную цену (положительное число)',
+                          reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+    except Exception as e:
+        logger.error(f"Ошибка при создании тарифа городов: {e}")
+        await message.answer('❌ Произошла ошибка при создании тарифа',
+                          reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+
+
+# ========== УПРАВЛЕНИЕ СКИДКАМИ ГОРОДОВ ==========
+
+@router.callback_query(F.data == 'manage_city_discounts', StateFilter(AdminStates.manage_city_tariffs, 
+                                                                       AdminStates.add_city_discount_months,
+                                                                       AdminStates.add_city_discount_percent,
+                                                                       AdminStates.view_city_discount, AdminStates.edit_city_discount_percent))
+async def manage_city_discounts(callback: CallbackQuery, state: FSMContext) -> None:
+    """Главное меню управления скидками городов"""
+    logger.debug('manage_city_discounts...')
+    kbc = KeyboardCollection()
+
+    discounts = await CitySubscriptionDiscount.get_all()
+    text = f'💰 <b>Управление скидками городов</b>\n\n'
+    text += f'📊 Всего скидок: {len(discounts)}\n\n'
+    text += f'Скидки применяются к финальной цене в зависимости от периода подписки.\n\n'
+    text += f'Выберите скидку для редактирования или добавьте новую:'
+
+    await state.set_state(AdminStates.manage_city_discounts)
+    await callback.message.answer(
+        text=text,
+        reply_markup=await kbc.admin_city_discounts_list(),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_view_city_discount_'), StateFilter(AdminStates.manage_city_discounts, AdminStates.edit_city_discount_percent, AdminStates.view_city_discount))
+async def admin_view_city_discount(callback: CallbackQuery, state: FSMContext) -> None:
+    """Просмотр информации о скидке городов"""
+    logger.debug('admin_view_city_discount...')
+    kbc = KeyboardCollection()
+
+    discount_id = int(callback.data.split('_')[4])
+    discount = await CitySubscriptionDiscount.get_by_id(discount_id)
+
+    if not discount:
+        await callback.answer("❌ Скидка не найдена", show_alert=True)
+        return
+
+    text = f'💰 <b>Информация о скидке</b>\n\n'
+    text += f'⏰ <b>Период:</b> {discount.months} месяц{"ев" if discount.months > 1 else ""}\n'
+    text += f'💵 <b>Процент скидки:</b> {discount.discount_percent}%\n\n'
+    
+    if discount.discount_percent > 0:
+        text += f'<b>Пример расчета:</b>\n'
+        text += f'При базовой цене 100₽ за месяц:\n'
+        text += f'• {discount.months} месяц{"ев" if discount.months > 1 else ""} = {discount.months * 100}₽ (без скидки)\n'
+        final_price = int(100 * discount.months * (100 - discount.discount_percent) / 100)
+        text += f'• Со скидкой {discount.discount_percent}% = {final_price}₽\n'
+        text += f'• Экономия: {discount.months * 100 - final_price}₽'
+    else:
+        text += f'Скидка не применяется (0%)'
+
+    await state.set_state(AdminStates.view_city_discount)
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_edit_city_discount(discount_id),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_edit_city_discount_months_'), StateFilter(AdminStates.view_city_discount))
+async def admin_edit_city_discount_months_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик начала редактирования периода скидки"""
+    logger.debug('admin_edit_city_discount_months_handler...')
+    kbc = KeyboardCollection()
+
+    discount_id = int(callback.data.split('_')[5])
+    discount = await CitySubscriptionDiscount.get_by_id(discount_id)
+
+    if not discount:
+        await callback.answer("❌ Скидка не найдена", show_alert=True)
+        return
+
+    text = f'⏰ <b>Редактирование периода скидки</b>\n\n'
+    text += f'Текущий период: <b>{discount.months}</b> месяц{"ев" if discount.months > 1 else ""}\n\n'
+    text += f'Введите новое количество месяцев (положительное число):'
+
+    await state.set_state(AdminStates.edit_city_discount_percent)  # Используем существующее состояние
+    await state.update_data(discount_id=discount_id, editing_field='months')
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn(f'admin_view_city_discount_{discount_id}'),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_edit_city_discount_percent_'), StateFilter(AdminStates.view_city_discount))
+async def admin_edit_city_discount_percent_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик начала редактирования процента скидки"""
+    logger.debug('admin_edit_city_discount_percent_handler...')
+    kbc = KeyboardCollection()
+
+    discount_id = int(callback.data.split('_')[5])
+    discount = await CitySubscriptionDiscount.get_by_id(discount_id)
+
+    if not discount:
+        await callback.answer("❌ Скидка не найдена", show_alert=True)
+        return
+
+    text = f'💰 <b>Редактирование процента скидки</b>\n\n'
+    text += f'Период: <b>{discount.months}</b> месяц{"ев" if discount.months > 1 else ""}\n'
+    text += f'Текущий процент скидки: <b>{discount.discount_percent}%</b>\n\n'
+    text += f'Введите новый процент скидки (от 0 до 100):'
+
+    await state.set_state(AdminStates.edit_city_discount_percent)
+    await state.update_data(discount_id=discount_id, editing_field='percent')
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn(f'admin_view_city_discount_{discount_id}'),
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text, StateFilter(AdminStates.edit_city_discount_percent))
+async def process_edit_city_discount(message: Message, state: FSMContext) -> None:
+    """Обработка редактирования скидки городов"""
+    logger.debug('process_edit_city_discount...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    discount_id = state_data.get('discount_id')
+    editing_field = state_data.get('editing_field')
+
+    try:
+        discount = await CitySubscriptionDiscount.get_by_id(discount_id)
+        if not discount:
+            await message.answer('❌ Скидка не найдена', reply_markup=kbc.admin_back_btn('manage_city_discounts'))
+            await state.set_state(AdminStates.menu)
+            return
+
+        if editing_field == 'months':
+            months = int(message.text.strip())
+            if months <= 0:
+                raise ValueError("Количество месяцев должно быть положительным числом")
+            
+            # Проверяем, нет ли уже скидки с таким периодом
+            existing = await CitySubscriptionDiscount.get_by_months(months)
+            if existing and existing.id != discount_id:
+                await message.answer('❌ Скидка с таким периодом уже существует!', 
+                                   reply_markup=kbc.admin_back_btn(f'admin_view_city_discount_{discount_id}'))
+                return
+            
+            await discount.update(months=months)
+            await message.answer(
+                text=f'✅ <b>Период успешно изменен!</b>\n\nНовый период: <b>{months}</b> месяц{"ев" if months > 1 else ""}',
+                reply_markup=kbc.admin_edit_city_discount(discount_id),
+                parse_mode='HTML'
+            )
+        else:  # editing_field == 'percent'
+            discount_percent = int(message.text.strip())
+            if discount_percent < 0 or discount_percent > 100:
+                raise ValueError("Процент скидки должен быть от 0 до 100")
+            
+            await discount.update(discount_percent=discount_percent)
+            await message.answer(
+                text=f'✅ <b>Процент скидки успешно изменен!</b>\n\nНовый процент: <b>{discount_percent}%</b>',
+                reply_markup=kbc.admin_edit_city_discount(discount_id),
+                parse_mode='HTML'
+            )
+        
+        await state.set_state(AdminStates.view_city_discount)
+    except ValueError as e:
+        if "месяцев" in str(e) or "положительным" in str(e):
+            await message.answer(
+                text=f'❌ <b>Ошибка!</b>\n\nПожалуйста, введите корректное количество месяцев (положительное число).',
+                reply_markup=kbc.admin_back_btn(f'admin_view_city_discount_{discount_id}'),
+                parse_mode='HTML'
+            )
+        else:
+            await message.answer(
+                text=f'❌ <b>Ошибка!</b>\n\nПожалуйста, введите корректный процент скидки (от 0 до 100).',
+                reply_markup=kbc.admin_back_btn(f'admin_view_city_discount_{discount_id}'),
+                parse_mode='HTML'
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при редактировании скидки городов: {e}")
+        await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_city_discounts'))
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_delete_city_discount_'), StateFilter(AdminStates.view_city_discount))
+async def admin_delete_city_discount_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик удаления скидки городов"""
+    logger.debug('admin_delete_city_discount_handler...')
+    kbc = KeyboardCollection()
+
+    discount_id = int(callback.data.split('_')[4])
+    discount = await CitySubscriptionDiscount.get_by_id(discount_id)
+
+    if not discount:
+        await callback.answer("❌ Скидка не найдена", show_alert=True)
+        return
+
+    text = f'🗑️ <b>Подтверждение удаления скидки</b>\n\n'
+    text += f'Вы действительно хотите удалить скидку:\n'
+    text += f'⏰ <b>{discount.months} месяц{"ев" if discount.months > 1 else ""}</b>\n'
+    text += f'💵 Процент скидки: {discount.discount_percent}%\n\n'
+    text += f'⚠️ <b>Это действие нельзя отменить!</b>'
+
+    builder = InlineKeyboardBuilder()
+    builder.add(kbc._inline("✅ Да, удалить", f"admin_confirm_delete_city_discount_{discount_id}"))
+    builder.add(kbc._inline("❌ Отмена", f"admin_view_city_discount_{discount_id}"))
+    builder.adjust(1)
+
+    await callback.message.answer(
+        text=text,
+        reply_markup=builder.as_markup(),
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_confirm_delete_city_discount_'))
+async def admin_confirm_delete_city_discount(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтверждение удаления скидки городов"""
+    logger.debug('admin_confirm_delete_city_discount...')
+    kbc = KeyboardCollection()
+
+    discount_id = int(callback.data.split('_')[5])
+    discount = await CitySubscriptionDiscount.get_by_id(discount_id)
+
+    if not discount:
+        await callback.answer("❌ Скидка не найдена", show_alert=True)
+        return
+
+    try:
+        months = discount.months
+        await discount.delete()
+        
+        await callback.message.answer(
+            text=f'✅ <b>Скидка "{months} месяц{"ев" if months > 1 else ""}" успешно удалена!</b>',
+            reply_markup=await kbc.admin_city_discounts_list(),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.manage_city_discounts)
+        await callback.answer("✅ Скидка удалена", show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка при удалении скидки городов: {e}")
+        await callback.answer("❌ Произошла ошибка при удалении", show_alert=True)
+
+
+@router.callback_query(F.data == 'admin_add_city_discount', StateFilter(AdminStates.manage_city_discounts))
+async def admin_add_city_discount_months(callback: CallbackQuery, state: FSMContext) -> None:
+    """Ввод периода для новой скидки"""
+    logger.debug('admin_add_city_discount_months...')
+    kbc = KeyboardCollection()
+
+    text = f'➕ <b>Добавление новой скидки</b>\n\n'
+    text += f'Введите количество месяцев (положительное число):'
+
+    await state.set_state(AdminStates.add_city_discount_months)
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.admin_back_btn('manage_city_discounts'),
+        parse_mode='HTML'
+    )
+
+
+@router.message(F.text, StateFilter(AdminStates.add_city_discount_months))
+async def process_add_city_discount_months(message: Message, state: FSMContext) -> None:
+    """Обработка периода для новой скидки"""
+    logger.debug('process_add_city_discount_months...')
+    kbc = KeyboardCollection()
+
+    try:
+        months = int(message.text.strip())
+        if months <= 0:
+            raise ValueError("Количество месяцев должно быть положительным числом")
+
+        # Проверяем, нет ли уже скидки с таким периодом
+        existing = await CitySubscriptionDiscount.get_by_months(months)
+        if existing:
+            await message.answer('❌ Скидка с таким периодом уже существует!',
+                               reply_markup=kbc.admin_back_btn('manage_city_discounts'))
+            return
+
+        await state.update_data(months=months)
+        
+        text = f'💰 <b>Процент скидки</b>\n\n'
+        text += f'Период: <b>{months}</b> месяц{"ев" if months > 1 else ""}\n\n'
+        text += f'Введите процент скидки (от 0 до 100):'
+
+        await state.set_state(AdminStates.add_city_discount_percent)
+        await message.answer(text=text, reply_markup=kbc.admin_back_btn('manage_city_discounts'), parse_mode='HTML')
+    except ValueError:
+        await message.answer('❌ Пожалуйста, введите корректное количество месяцев (положительное число)',
+                          reply_markup=kbc.admin_back_btn('manage_city_discounts'))
+
+
+@router.message(F.text, StateFilter(AdminStates.add_city_discount_percent))
+async def process_add_city_discount_percent(message: Message, state: FSMContext) -> None:
+    """Обработка процента новой скидки и создание"""
+    logger.debug('process_add_city_discount_percent...')
+    kbc = KeyboardCollection()
+
+    try:
+        discount_percent = int(message.text.strip())
+        if discount_percent < 0 or discount_percent > 100:
+            raise ValueError("Процент скидки должен быть от 0 до 100")
+
+        state_data = await state.get_data()
+        months = state_data.get('months')
+
+        new_discount = CitySubscriptionDiscount(
+            id=None,
+            months=months,
+            discount_percent=discount_percent
+        )
+
+        await new_discount.save()
+        
+        await message.answer(
+            text=f'✅ <b>Скидка успешно создана!</b>\n\n'
+                 f'⏰ Период: <b>{months}</b> месяц{"ев" if months > 1 else ""}\n'
+                 f'💵 Процент скидки: <b>{discount_percent}%</b>',
+            reply_markup=await kbc.admin_city_discounts_list(),
+            parse_mode='HTML'
+        )
+        await state.set_state(AdminStates.manage_city_discounts)
+        
+    except ValueError:
+        await message.answer('❌ Пожалуйста, введите корректный процент скидки (от 0 до 100)',
+                          reply_markup=kbc.admin_back_btn('manage_city_discounts'))
+    except Exception as e:
+        logger.error(f"Ошибка при создании скидки городов: {e}")
+        await message.answer('❌ Произошла ошибка при создании скидки',
+                          reply_markup=kbc.admin_back_btn('manage_city_discounts'))
+
+
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

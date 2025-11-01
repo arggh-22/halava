@@ -358,7 +358,7 @@ async def validate_worker_name(name: str) -> tuple[bool, str]:
     # Проверка стоп-слов (используем те же стоп-слова что и для сообщений)
     stop_words_check = await fool_check(name, is_message=True)
     if stop_words_check:
-        return False, f"❌ Имя содержит запрещенные слова: {stop_words_check}"
+        return False, f"❌ Имя содержит запрещенные слова: {stop_words_check.replace('Найдено:', '')}"
     
     # Проверка на телефонные номера
     if phone_finder(name):

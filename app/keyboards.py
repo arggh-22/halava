@@ -68,8 +68,24 @@ class KeyboardCollection:
     def photo_work_keyboard(self, is_photo) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         if is_photo:
-            builder.add(self._inline(button_text="Удалить", callback_data="photo_delite"))
-        builder.add(self._inline(button_text="Назад", callback_data="menu"))
+            builder.add(self._inline(button_text="🔄 Загрузить новое фото", callback_data="profile_photo_upload_new"))
+            builder.add(self._inline(button_text="🗑 Удалить фото", callback_data="profile_photo_delete"))
+        builder.add(self._inline(button_text="↩️ Назад", callback_data="menu"))
+        builder.adjust(1)
+        return builder.as_markup()
+    
+    def photo_upload_keyboard(self) -> InlineKeyboardMarkup:
+        """Клавиатура только с кнопкой 'Назад' для экрана загрузки фото"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="↩️ Назад", callback_data="profile_photo_back"))
+        builder.adjust(1)
+        return builder.as_markup()
+    
+    def profile_photo_delete_confirm_keyboard(self) -> InlineKeyboardMarkup:
+        """Клавиатура для подтверждения удаления фото профиля"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="✅ Да, удалить", callback_data="profile_photo_delete_yes"))
+        builder.add(self._inline(button_text="❌ Отмена", callback_data="profile_photo_delete_cancel"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -107,6 +123,7 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Редактировать подписки", callback_data="edit_subscription"))
         builder.add(self._inline(button_text="Изменить цену объявлений", callback_data="edit_order_price"))
         builder.add(self._inline(button_text="💰 Управление тарифами контактов", callback_data="manage_contact_tariffs"))
+        builder.add(self._inline(button_text="🏙️ Управление тарифами городов", callback_data="manage_city_tariffs"))
         builder.add(self._inline(button_text="🔄 Обновить статистику", callback_data="refresh_admin_stats"))
         builder.adjust(1)
         return builder.as_markup()
@@ -156,6 +173,64 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="⏰ Изменить срок (для безлимита)", callback_data=f"admin_edit_tariff_days_{tariff_id}"))
         builder.add(self._inline(button_text="🗑️ Удалить тариф", callback_data=f"admin_delete_tariff_{tariff_id}"))
         builder.add(self._inline(button_text="◀️ К списку тарифов", callback_data="manage_contact_tariffs"))
+        builder.add(self._inline(button_text="🏠 В меню", callback_data="menu_admin"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    async def admin_city_tariffs_list(self) -> InlineKeyboardMarkup:
+        """Список тарифов городов для админа"""
+        from app.data.database.models import CitySubscriptionTariff
+        
+        builder = InlineKeyboardBuilder()
+        tariffs = await CitySubscriptionTariff.get_all()
+        
+        for tariff in tariffs:
+            price_rub = tariff.price_per_month / 100
+            button_text = f"🏙️ {tariff.city_count} гор. - {int(price_rub)}₽/мес"
+            builder.add(self._inline(button_text=button_text, callback_data=f"admin_view_city_tariff_{tariff.id}"))
+        
+        builder.add(self._inline(button_text="➕ Добавить тариф", callback_data="admin_add_city_tariff"))
+        builder.add(self._inline(button_text="💰 Управление скидками", callback_data="manage_city_discounts"))
+        builder.add(self._inline(button_text="◀️ Назад в меню", callback_data="menu_admin"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def admin_edit_city_tariff(self, tariff_id: int) -> InlineKeyboardMarkup:
+        """Клавиатура редактирования тарифа городов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="🏙️ Изменить количество городов", callback_data=f"admin_edit_city_tariff_count_{tariff_id}"))
+        builder.add(self._inline(button_text="💰 Изменить цену за месяц", callback_data=f"admin_edit_city_tariff_price_{tariff_id}"))
+        builder.add(self._inline(button_text="🗑️ Удалить тариф", callback_data=f"admin_delete_city_tariff_{tariff_id}"))
+        builder.add(self._inline(button_text="◀️ К списку тарифов", callback_data="manage_city_tariffs"))
+        builder.add(self._inline(button_text="🏠 В меню", callback_data="menu_admin"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    async def admin_city_discounts_list(self) -> InlineKeyboardMarkup:
+        """Список скидок городов для админа"""
+        from app.data.database.models import CitySubscriptionDiscount
+        
+        builder = InlineKeyboardBuilder()
+        discounts = await CitySubscriptionDiscount.get_all()
+        
+        for discount in discounts:
+            discount_text = f"{discount.discount_percent}%" if discount.discount_percent > 0 else "Без скидки"
+            button_text = f"⏰ {discount.months} мес. - скидка {discount_text}"
+            builder.add(self._inline(button_text=button_text, callback_data=f"admin_view_city_discount_{discount.id}"))
+        
+        builder.add(self._inline(button_text="➕ Добавить скидку", callback_data="admin_add_city_discount"))
+        builder.add(self._inline(button_text="◀️ К тарифам городов", callback_data="manage_city_tariffs"))
+        builder.add(self._inline(button_text="🏠 В меню", callback_data="menu_admin"))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def admin_edit_city_discount(self, discount_id: int) -> InlineKeyboardMarkup:
+        """Клавиатура редактирования скидки городов"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="⏰ Изменить период (месяцы)", callback_data=f"admin_edit_city_discount_months_{discount_id}"))
+        builder.add(self._inline(button_text="💰 Изменить процент скидки", callback_data=f"admin_edit_city_discount_percent_{discount_id}"))
+        builder.add(self._inline(button_text="🗑️ Удалить скидку", callback_data=f"admin_delete_city_discount_{discount_id}"))
+        builder.add(self._inline(button_text="◀️ К списку скидок", callback_data="manage_city_discounts"))
         builder.add(self._inline(button_text="🏠 В меню", callback_data="menu_admin"))
         builder.adjust(1)
         return builder.as_markup()

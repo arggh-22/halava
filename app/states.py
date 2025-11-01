@@ -163,6 +163,18 @@ class AdminStates(StatesGroup):
     add_contact_tariff_contacts_count = State()
     add_contact_tariff_price = State()
     add_contact_tariff_unlimited_days = State()
+    # Состояния для управления тарифами городов
+    manage_city_tariffs = State()
+    view_city_tariff = State()
+    edit_city_tariff_price = State()
+    add_city_tariff_count = State()
+    add_city_tariff_price = State()
+    # Состояния для управления скидками городов
+    manage_city_discounts = State()
+    view_city_discount = State()
+    edit_city_discount_percent = State()
+    add_city_discount_months = State()
+    add_city_discount_percent = State()
 
 
 class BannedStates(StatesGroup):
