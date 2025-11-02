@@ -1415,22 +1415,40 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
         logger.info(f"[CONTACT_REJECT] Worker rejects contact offer")
 
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
-        customer = await Customer.get_customer(id=(await Abs.get_one(id=abs_id)).customer_id)
-
-        if not worker or not customer:
+        if not worker:
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
 
-        # Уведомляем заказчика
-        await bot.send_message(
-            chat_id=customer.tg_id,
-            text=f"❌ <b>Исполнитель отклонил получение контактов</b>\n\n"
-                 f"📋 Объявление: #{abs_id}\n"
-                 f"👤 Исполнитель: {f'ID#{worker.id}'}\n\n"
-                 f"Исполнитель не готов получить контакты в данный момент.",
-            parse_mode='HTML'
-        )
+        # Проверяем, что объявление существует (может быть уже удалено)
+        advertisement = await Abs.get_one(id=abs_id)
+        customer = None
+        
+        if advertisement:
+            customer = await Customer.get_customer(id=advertisement.customer_id)
+            if customer:
+                # Уведомляем заказчика только если объявление и заказчик еще существуют
+                try:
+                    await bot.send_message(
+                        chat_id=customer.tg_id,
+                        text=f"❌ <b>Исполнитель отклонил получение контактов</b>\n\n"
+                             f"📋 Объявление: #{abs_id}\n"
+                             f"👤 Исполнитель: ID#{worker.id}\n\n"
+                             f"Исполнитель не готов получить контакты в данный момент.",
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not notify customer about contact rejection: {e}")
+        
+        # Удаляем запись ContactExchange если она существует
+        try:
+            contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
+            if contact_exchange:
+                await contact_exchange.delete()
+                logger.info(f"[CONTACT_REJECT] Deleted ContactExchange for worker {worker.id}, abs {abs_id}")
+        except Exception as e:
+            logger.warning(f"Could not delete ContactExchange: {e}")
 
+        # Отправляем подтверждение исполнителю (даже если объявление уже удалено)
         try:
             await callback.message.answer(
                 text="❌ <b>Предложение контактов отклонено</b>\n\n"
@@ -1445,7 +1463,7 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
                 parse_mode='HTML'
             )
 
-        await callback.answer("❌ Предложение отклонено")
+        await callback.answer("✅ Предложение отклонено")
 
     except Exception as e:
         logger.error(f"Error in reject_contact_offer: {e}")
@@ -1753,7 +1771,6 @@ async def reply_in_worker_chat(callback: CallbackQuery, state: FSMContext):
                  f"📋 Объявление: #{abs_id}\n"
                  f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
                  f"Напишите сообщение заказчику:",
-            parse_mode='HTML'
         )
 
         await callback.answer("💬 Напишите сообщение заказчику")
@@ -2075,7 +2092,6 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                         count_photo=count_photo,
                         photo_num=0
                     ),
-                    parse_mode='HTML'
                 )
         else:
             # Нет фото или ошибка парсинга
@@ -2094,7 +2110,6 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                     count_photo=count_photo,
                     photo_num=0
                 ),
-                parse_mode='HTML'
             )
 
     except Exception as e:
@@ -2172,7 +2187,6 @@ async def cancel_worker_response_confirm(callback: CallbackQuery, state: FSMCont
             callback=callback,
             text=confirmation_text,
             reply_markup=builder.as_markup(),
-            parse_mode='HTML'
         )
         await callback.answer()
 
@@ -2550,7 +2564,6 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
                 abs_id=abs_id,
                 contacts_requested=True
             ),
-            parse_mode='HTML'
         )
 
     except Exception as e:
@@ -2874,7 +2887,6 @@ async def cancel_contact_request(callback: CallbackQuery):
             callback=callback,
             text="❌ <b>Запрос контакта отменен</b>\n\nВы можете запросить контакт позже.",
             reply_markup=kbc.anonymous_chat_worker_buttons(abs_id=abs_id),
-            parse_mode='HTML'
         )
 
         await callback.answer("❌ Запрос контакта отменен")

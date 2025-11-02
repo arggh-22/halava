@@ -358,7 +358,7 @@ async def enter_worker_name(message: Message, state: FSMContext) -> None:
         builder.add(kbc._inline("❌ Удалить", f"admin_delete_worker_name_{new_worker.id}_{new_worker.tg_id}"))
         builder.adjust(1)
 
-        admin_text = f"👤 **Новое имя исполнителя**\n\n"
+        admin_text = f"👤 <b>Новое имя исполнителя</b>\n\n"
         admin_text += f"ID: {new_worker.id}\n"
         admin_text += f"TG ID: {new_worker.tg_id}\n"
         admin_text += f"Имя: {worker_name}\n"
@@ -368,7 +368,7 @@ async def enter_worker_name(message: Message, state: FSMContext) -> None:
             chat_id=config.NAME_MODERATION_CHAT,
             text=admin_text,
             reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     except Exception as e:
         logger.error(f"Ошибка при отправке имени на модерацию: {e}")
@@ -499,7 +499,7 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
         rating_text = f"Рейтинг: 0 ⭐ (0 оценок)"
 
     # Формируем текст профиля
-    text = f"**Ваш профиль**\n\n"
+    text = f"<b>Ваш профиль</b>\n\n"
     text += f"ID: {user_worker.id} {user_worker.profile_name or user_worker.tg_name}\n"
     text += f"{rating_text}\n"
     text += f"Ранг: {rank_name} {rank_emoji}\n"
@@ -542,7 +542,7 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
                 create_name=profile_name,
                 has_status=has_status
             ),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     else:
         await callback.message.answer(
@@ -555,7 +555,7 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
                 create_name=profile_name,
                 has_status=has_status
             ),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
     await state.set_state(WorkStates.worker_menu)
@@ -646,7 +646,7 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
         rating_text = f"Рейтинг: 0 ⭐ (0 оценок)"
 
     # Формируем текст профиля
-    text = f"**Ваш профиль**\n\n"
+    text = f"<b>Ваш профиль</b>\n\n"
     text += f"ID: {user_worker.id} {user_worker.profile_name or user_worker.tg_name}\n"
     text += f"{rating_text}\n"
     text += f"Ранг: {rank_name} {rank_emoji}\n"
@@ -689,7 +689,7 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
                 create_name=profile_name,
                 has_status=has_status
             ),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     else:
         await message.answer(
@@ -702,7 +702,7 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
                 create_name=profile_name,
                 has_status=has_status
             ),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     await state.set_state(WorkStates.worker_menu)
 
@@ -794,7 +794,7 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
         rating_text = f"Рейтинг: 0 ⭐ (0 оценок)"
 
     # Формируем текст профиля
-    text = f"**Ваш профиль**\n\n"
+    text = f"<b>Ваш профиль</b>\n\n"
     text += f"ID: {user_worker.id} {user_worker.profile_name or user_worker.tg_name}\n"
     text += f"{rating_text}\n"
     text += f"Ранг: {rank_name} {rank_emoji}\n"
@@ -842,7 +842,7 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
                 create_name=profile_name,
                 has_status=has_status
             ),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     else:
         await callback.message.answer(
@@ -855,7 +855,7 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
                 create_name=profile_name,
                 has_status=has_status
             ),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     await state.set_state(WorkStates.worker_menu)
 
@@ -1201,9 +1201,29 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
 
     try:
         import asyncio
-
-        # Получаем текущее портфолио исполнителя для проверки общего лимита
+        
+        # КРИТИЧЕСКАЯ ПРОВЕРКА ПЕРВОЙ ОЧЕРЕДИ: проверяем, что пользователь НЕ находится в состоянии создания объявления
+        # Это важно, так как фильтры состояния могут работать не так строго при параллельных роутерах
+        from app.states import CustomerStates
+        current_state = await state.get_state()
+        
+        # Если состояние - создание объявления заказчиком, немедленно выходим
+        if current_state == CustomerStates.customer_create_abs_add_photo:
+            logger.warning(f"[PORTFOLIO] КРИТИЧНО: Пропуск обработчика портфолио - пользователь создает объявление! Состояние: {current_state}")
+            return
+        
+        # Проверяем, что состояние соответствует загрузке портфолио
+        if current_state != WorkStates.portfolio_upload_photo:
+            logger.warning(f"[PORTFOLIO] Пропуск обработчика портфолио - неправильное состояние: {current_state}")
+            return
+        
+        # Проверяем, что пользователь является активным исполнителем
         worker = await Worker.get_worker(tg_id=message.chat.id)
+        if not worker or not worker.active:
+            logger.warning(f"[PORTFOLIO] Пропуск обработчика портфолио - пользователь не является активным исполнителем")
+            return
+        
+        # Получаем текущее портфолио исполнителя для проверки общего лимита
         existing_portfolio_count = len(worker.portfolio_photo) if worker.portfolio_photo else 0
         max_portfolio_photos = 10
         available_slots = max_portfolio_photos - existing_portfolio_count
@@ -2136,7 +2156,7 @@ async def process_worker_name(message: Message, state: FSMContext):
         builder.add(kbc._inline("❌ Удалить", f"admin_delete_worker_name_{worker.id}_{worker.tg_id}"))
         builder.adjust(1)
 
-        admin_text = f"✏️ **Исполнитель изменил имя**\n\n"
+        admin_text = f"✏️ <b>Исполнитель изменил имя</b>\n\n"
         admin_text += f"ID: {worker.id}\n"
         admin_text += f"TG ID: {worker.tg_id}\n"
         admin_text += f"Новое имя: {name}\n"
@@ -2147,7 +2167,7 @@ async def process_worker_name(message: Message, state: FSMContext):
             chat_id=config.NAME_MODERATION_CHAT,
             text=admin_text,
             reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     except Exception as e:
         logger.error(f"Ошибка при отправке имени на модерацию: {e}")
@@ -2270,7 +2290,7 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    text = f'Объявление {abs_now.id}\n\n' + text
+    text = f'Объявление #{abs_now.id}\n\n' + text
 
     if abs_now.photo_path:
         try:
@@ -2404,7 +2424,7 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
     await advertisement_now.update(views=1)
 
     text = help_defs.read_text_file(advertisement_now.text_path)
-    text = f'Объявление {advertisement_now.id}\n\n' + text
+    text = f'Объявление #{advertisement_now.id}\n\n' + text
 
     # Парсим JSON строку photo_path для получения количества фото
     import json
@@ -2574,7 +2594,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    text = f'Объявление {abs_now.id}\n\n' + text
+    text = f'Объявление #{abs_now.id}\n\n' + text
 
     # Парсим JSON строку photo_path для получения количества фото
     import json
@@ -3091,7 +3111,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
         limit_text = f"до {work_types_limit}"
 
     text = f"🎯 Выберите направления работы\n\n"
-    text += f"🏆 **Ваш ранг:** {rank.current_rank} {rank.get_rank_name()}\n"
+    text += f"🏆 <b>Ваш ранг:</b> {rank.current_rank} {rank.get_rank_name()}\n"
     text += f"📊 Выбрано: {selected_count}/{available_count} {limit_text}\n"
 
     # ИЗМЕНЕНО: Убрана информация о лимитах изменений
@@ -3120,7 +3140,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
             page=0,
             btn_back=True
         ),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
     try:
@@ -3364,7 +3384,7 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
         limit_text = f"до {work_types_limit}"
 
     text = f"🎯 Выберите направления работы\n\n"
-    text += f"🏆 **Ваш ранг:** {rank.current_rank} {rank.get_rank_name()}\n"
+    text += f"🏆 <b>Ваш ранг:</b> {rank.current_rank} {rank.get_rank_name()}\n"
     text += f"📊 Выбрано: {selected_count}/{available_count} {limit_text}\n"
 
     # ИЗМЕНЕНО: Убрана информация о лимитах изменений
@@ -3405,7 +3425,7 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
                     name_btn_back='Сохранить',
                     removal_blocked=removal_blocked
                 ),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         else:
             # Первый раз отправляем сообщение и сохраняем ID
@@ -3420,7 +3440,7 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
                     name_btn_back='Сохранить',
                     removal_blocked=removal_blocked
                 ),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
             await state.update_data(msg_id=msg.message_id)
     except Exception as e:
@@ -3437,7 +3457,7 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
                 name_btn_back='Сохранить',
                 removal_blocked=removal_blocked
             ),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.update_data(msg_id=msg.message_id)
 
@@ -3820,11 +3840,11 @@ async def worker_activity(callback: CallbackQuery, state: FSMContext) -> None:
     else:
         zone_emoji, zone_message = worker.get_activity_zone()
 
-    text = f"📈 **Ваша активность: {worker.activity_level}**\n\n"
+    text = f"📈 <b>Ваша активность: {worker.activity_level}</b>\n\n"
     text += f"{zone_emoji} {zone_message}\n\n"
 
     # Добавляем информацию о восстановлении активности
-    text += "**Как восстановить активность?**\n"
+    text += "<b>Как восстановить активность?</b>\n"
     text += "✅ Выполнение заказов = +20\n"
     text += "✅ Каждую неделю без нарушений = +1\n\n"
 
@@ -3838,7 +3858,7 @@ async def worker_activity(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     except Exception:
         try:
@@ -3848,7 +3868,7 @@ async def worker_activity(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     await state.set_state(WorkStates.worker_menu)
 
@@ -3865,11 +3885,11 @@ async def worker_status(callback: CallbackQuery, state: FSMContext) -> None:
     from app.data.database.models import WorkerStatus
     worker_status_obj = await WorkerStatus.get_or_create(worker.id)
 
-    text = "📋 **Подтверждение статуса исполнителя**\n\n"
+    text = "📋 <b>Подтверждение статуса исполнителя</b>\n\n"
     text += "Для повышения доверия заказчиков вы можете подтвердить наличие:\n\n"
-    text += "✅ **ИП** (Индивидуального предпринимателя)\n"
-    text += "✅ **ООО** (Общество с ограниченной ответственностью)\n"
-    text += "✅ **СЗ** (Самозанятости)\n\n"
+    text += "✅ <b>ИП</b> (Индивидуального предпринимателя)\n"
+    text += "✅ <b>ООО</b> (Общество с ограниченной ответственностью)\n"
+    text += "✅ <b>СЗ</b> (Самозанятости)\n\n"
     text += "После подтверждения в вашем профиле появится соответствующая отметка — это увеличивает шансы получить заказ.\n\n"
 
     # Проверяем, есть ли уже подтвержденный статус
@@ -3877,11 +3897,11 @@ async def worker_status(callback: CallbackQuery, state: FSMContext) -> None:
 
     # Показываем текущий статус
     if worker_status_obj.has_ip:
-        text += "**Ваш статус:**\n✅ ИП подтвержден\n"
+        text += "<b>Ваш статус:</b>\n✅ ИП подтвержден\n"
     elif worker_status_obj.has_ooo:
-        text += "**Ваш статус:**\n✅ ООО подтверждено\n"
+        text += "<b>Ваш статус:</b>\n✅ ООО подтверждено\n"
     elif worker_status_obj.has_sz:
-        text += "**Ваш статус:**\n✅ Самозанятость подтверждена\n"
+        text += "<b>Ваш статус:</b>\n✅ Самозанятость подтверждена\n"
     else:
         text += "⚠️ Статус не подтвержден\n"
 
@@ -3903,7 +3923,7 @@ async def worker_status(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     except Exception:
         try:
@@ -3913,7 +3933,7 @@ async def worker_status(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     await state.set_state(WorkStates.worker_menu)
 
@@ -3935,8 +3955,8 @@ async def confirm_ip_status(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("❌ У вас уже есть подтвержденный статус", show_alert=True)
         return
 
-    text = "👤 **Подтверждение ИП**\n\n"
-    text += "Введите Ваш **ОГРНИП**\n\n"
+    text = "👤 <b>Подтверждение ИП</b>\n\n"
+    text += "Введите Ваш <b>ОГРНИП</b>\n\n"
     text += "💡 ОГРНИП — это 15-значный номер индивидуального предпринимателя"
 
     await state.set_state(WorkStates.individual_entrepreneur)
@@ -3944,7 +3964,7 @@ async def confirm_ip_status(callback: CallbackQuery, state: FSMContext) -> None:
     msg = await callback.message.answer(
         text=text,
         reply_markup=kbc.back_btn(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
     try:
@@ -3970,8 +3990,8 @@ async def confirm_ooo_status(callback: CallbackQuery, state: FSMContext) -> None
         await callback.answer("❌ У вас уже есть подтвержденный статус", show_alert=True)
         return
 
-    text = "🏢 **Подтверждение ООО**\n\n"
-    text += "Введите Ваш **ОГРН**\n\n"
+    text = "🏢 <b>Подтверждение ООО</b>\n\n"
+    text += "Введите Ваш <b>ОГРН</b>\n\n"
     text += "💡 ОГРН — это 13-значный номер юридического лица"
 
     await state.set_state(WorkStates.confirm_ooo_status)
@@ -3979,7 +3999,7 @@ async def confirm_ooo_status(callback: CallbackQuery, state: FSMContext) -> None
     msg = await callback.message.answer(
         text=text,
         reply_markup=kbc.back_btn(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
     try:
@@ -4005,8 +4025,8 @@ async def confirm_sz_status(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("❌ У вас уже есть подтвержденный статус", show_alert=True)
         return
 
-    text = "🏭 **Подтверждение Самозанятости**\n\n"
-    text += "Введите Ваш **ИНН**\n\n"
+    text = "🏭 <b>Подтверждение Самозанятости</b>\n\n"
+    text += "Введите Ваш <b>ИНН</b>\n\n"
     text += "💡 ИНН — это 12-значный номер налогоплательщика"
 
     await state.set_state(WorkStates.confirm_sz_status)
@@ -4014,7 +4034,7 @@ async def confirm_sz_status(callback: CallbackQuery, state: FSMContext) -> None:
     msg = await callback.message.answer(
         text=text,
         reply_markup=kbc.back_btn(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
     try:
@@ -4082,9 +4102,9 @@ async def process_ip_confirmation(message: Message, state: FSMContext) -> None:
         await worker.update_individual_entrepreneur(individual_entrepreneur=True)
 
         await message.answer(
-            text=f"✅ **Ваш статус ИП подтвержден!**\n\n{result}",
+            text=f"✅ <b>Ваш статус ИП подтвержден!</b>\n\n{result}",
             reply_markup=kbc.menu(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     else:
         await message.answer(
@@ -4153,9 +4173,9 @@ async def process_ooo_confirmation(message: Message, state: FSMContext) -> None:
         await worker_status.save()
 
         await message.answer(
-            text="✅ **Ваш статус ООО подтвержден!**",
+            text="✅ <b>Ваш статус ООО подтвержден!</b>",
             reply_markup=kbc.menu(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     else:
         await message.answer(
@@ -4224,9 +4244,9 @@ async def process_sz_confirmation(message: Message, state: FSMContext) -> None:
         await worker_status.save()
 
         await message.answer(
-            text="✅ **Ваш статус Самозанятости подтвержден!**",
+            text="✅ <b>Ваш статус Самозанятости подтвержден!</b>",
             reply_markup=kbc.menu(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     else:
         await message.answer(
@@ -4323,7 +4343,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #             await callback.message.answer(
 #                 text=message + "\n\n💡 Вы сможете изменить направления после истечения периода ожидания.",
 #                 reply_markup=kbc.menu_btn(),
-#                 parse_mode='Markdown'
+#                 parse_mode='HTML'
 #             )
 #         except Exception:
 #             try:
@@ -4333,7 +4353,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #             await callback.message.answer(
 #                 text=message + "\n\n💡 Вы сможете изменить направления после истечения периода ожидания.",
 #                 reply_markup=kbc.menu_btn(),
-#                 parse_mode='Markdown'
+#                 parse_mode='HTML'
 #             )
 #         return
 
@@ -4400,7 +4420,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #                 btn_back=True,
 #                 name_btn_back='◀️ Назад в меню'
 #             ),
-#             parse_mode='Markdown'
+#             parse_mode='HTML'
 #         )
 #     except Exception:
 #         try:
@@ -4417,7 +4437,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #                 btn_back=True,
 #                 name_btn_back='◀️ Назад в меню'
 #             ),
-#             parse_mode='Markdown'
+#             parse_mode='HTML'
 #         )
 
 
@@ -4475,7 +4495,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #                 btn_back=True,
 #                 name_btn_back='◀️ Назад в меню'
 #             ),
-#             parse_mode='Markdown'
+#             parse_mode='HTML'
 #         )
 #     except Exception:
 #         await callback.answer("✅ Направление добавлено!")
@@ -4540,7 +4560,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #                 btn_back=True,
 #                 name_btn_back='◀️ Назад в меню'
 #             ),
-#             parse_mode='Markdown'
+#             parse_mode='HTML'
 #         )
 #     except Exception:
 #         await callback.answer("❌ Направление удалено!")
@@ -4596,7 +4616,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #                 btn_back=True,
 #                 name_btn_back='◀️ Назад в меню'
 #             ),
-#             parse_mode='Markdown'
+#             parse_mode='HTML'
 #         )
 #     except Exception:
 #         pass
@@ -4647,7 +4667,7 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #                 selected_work_types=selected_work_types,
 #                 count_work_types=count_work_types
 #             ),
-#             parse_mode='Markdown'
+#             parse_mode='HTML'
 #         )
 #     except Exception:
 #         pass
@@ -4721,10 +4741,10 @@ async def add_city(callback: CallbackQuery, state: FSMContext) -> None:
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
     active_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
 
-    text = "🏙️ **Добавить город ₽**\n\n"
+    text = "🏙️ <b>Добавить город ₽</b>\n\n"
 
     if active_subscriptions:
-        text += "**Активные города:**\n"
+        text += "<b>Активные города:</b>\n"
         for subscription in active_subscriptions:
             # Получаем названия городов
             city_names = []
@@ -4762,7 +4782,7 @@ async def add_city(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     except Exception:
         try:
@@ -4772,7 +4792,7 @@ async def add_city(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
 
@@ -4869,7 +4889,7 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
         city_count = data.get('renew_city_count', 1)
         renew_city_ids = data.get('renew_city_ids', [])
 
-        text = f"💰 **Подтверждение продления подписки**\n\n"
+        text = f"💰 <b>Подтверждение продления подписки</b>\n\n"
         text += f"🏙️ Количество городов: {city_count}\n"
         text += f"📅 Период: {months} месяц\n"
         text += f"💵 Стоимость: {price}₽\n\n"
@@ -4902,7 +4922,7 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
         # Проверяем, это смена тарифа или новая покупка
         if change_subscription_id:
             # Смена тарифа
-            text = f"💰 **Подтверждение смены тарифа**\n\n"
+            text = f"💰 <b>Подтверждение смены тарифа</b>\n\n"
             text += f"🏙️ Новое количество городов: {city_count}\n"
             text += f"📅 Период: {months} месяц\n"
             text += f"💵 Стоимость: {price}₽\n\n"
@@ -4914,7 +4934,7 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
                 kbc._inline("✅ Подтвердить смену тарифа", f"confirm_city_purchase_{city_count}_{months}_{price}"))
         else:
             # Новая покупка
-            text = f"💰 **Подтверждение покупки**\n\n"
+            text = f"💰 <b>Подтверждение покупки</b>\n\n"
             text += f"🏙️ Количество городов: {city_count}\n"
             text += f"📅 Период: {months} месяц\n"
             text += f"💵 Стоимость: {price}₽\n\n"
@@ -4930,7 +4950,7 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
     await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 
@@ -5070,23 +5090,23 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
         )
 
         if is_tariff_change:
-            text = f"✅ **Тариф успешно изменён!**\n\n"
+            text = f"✅ <b>Тариф успешно изменён!</b>\n\n"
             text += f"🔄 Подписка обновлена на {city_count} город\n"
         else:
-            text = f"✅ **Покупка успешно выполнена!**\n\n"
+            text = f"✅ <b>Покупка успешно выполнена!</b>\n\n"
             text += f"🎉 Подписка на {city_count} город активирована!\n"
         text += f"📅 Период: {months} месяц\n"
         text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
 
         if len(available_cities) == 0:
-            text += f"⚠️ **Нет доступных городов для выбора!**\n"
+            text += f"⚠️ <b>Нет доступных городов для выбора!</b>\n"
             text += f"Все города уже выбраны в других подписках или являются основными.\n"
             text += f"Подписка сохранена, вы сможете выбрать города позже."
 
             await callback.message.answer(
                 text=text,
                 reply_markup=kbc.menu_btn(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
             await state.set_state(WorkStates.worker_menu)
         else:
@@ -5177,7 +5197,7 @@ async def confirm_city_renew(callback: CallbackQuery, state: FSMContext) -> None
             if city:
                 city_names.append(city.city)
 
-        text = f"✅ **Подписка успешно продлена!**\n\n"
+        text = f"✅ <b>Подписка успешно продлена!</b>\n\n"
         text += f"🏙️ Количество городов: {renew_city_count}\n"
         text += f"📅 Период: {months} месяц\n"
         text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
@@ -5191,7 +5211,7 @@ async def confirm_city_renew(callback: CallbackQuery, state: FSMContext) -> None
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
         # Очищаем данные продления из состояния
@@ -5256,11 +5276,11 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
     # Определяем доступные невыбранные города
     unselected_available = [city for city in available_cities if city.id not in selected_cities]
 
-    text = f"🏙️ **Выберите города для подписки**\n\n"
+    text = f"🏙️ <b>Выберите города для подписки</b>\n\n"
     text += f"📊 Выбрано: {len(selected_cities)} из {city_count}\n\n"
 
     if len(unselected_available) == 0 and len(selected_cities) == 0:
-        text += f"❌ **Нет доступных городов для выбора!**\n"
+        text += f"❌ <b>Нет доступных городов для выбора!</b>\n"
         text += f"Все города уже выбраны в других подписках или являются основными."
     elif len(selected_cities) >= city_count:
         text += f"✅ Вы выбрали максимальное количество городов!\n"
@@ -5268,7 +5288,7 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
             text += f"💡 Нажмите на выбранный город, чтобы убрать его из выбора.\n"
         text += f"Нажмите 'Подтвердить выбор' для завершения."
     else:
-        text += f"💡 **Напишите название города** для поиска или выберите из списка ниже:\n"
+        text += f"💡 <b>Напишите название города</b> для поиска или выберите из списка ниже:\n"
         if selected_cities:
             text += f"💡 Нажмите на выбранный город (✅), чтобы убрать его из выбора.\n"
         text += f"Выберите еще {city_count - len(selected_cities)} город"
@@ -5330,14 +5350,14 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
             await callback.message.edit_text(
                 text=text,
                 reply_markup=builder.as_markup(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         else:
             # Первый раз отправляем сообщение и сохраняем ID
             msg = await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
             await state.update_data(msg_id=msg.message_id)
     except Exception as e:
@@ -5346,7 +5366,7 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
         msg = await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.update_data(msg_id=msg.message_id)
 
@@ -5404,7 +5424,7 @@ async def subscription_cities_confirm(callback: CallbackQuery, state: FSMContext
         if city:
             city_names.append(city.city)
 
-    text = f"✅ **Подтверждение выбора**\n\n"
+    text = f"✅ <b>Подтверждение выбора</b>\n\n"
     text += f"🏙️ Выбранные города:\n"
     for name in city_names:
         text += f"• {name}\n"
@@ -5419,7 +5439,7 @@ async def subscription_cities_confirm(callback: CallbackQuery, state: FSMContext
     await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 
@@ -5488,13 +5508,13 @@ async def subscription_cities_final_confirm(callback: CallbackQuery, state: FSMC
         # Разные сообщения для смены тарифа и новой покупки
         change_subscription_id = data.get('change_subscription_id')
         if change_subscription_id and change_subscription_id == subscription_id:
-            text = f"✅ **Тариф успешно изменён!**\n\n"
+            text = f"✅ <b>Тариф успешно изменён!</b>\n\n"
             text += f"🔄 Города обновлены:\n"
             for name in all_city_names:
                 text += f"• {name}\n"
             text += f"\n💡 Теперь вы будете получать заказы из этих городов!"
         else:
-            text = f"🎉 **Города добавлены в подписку!**\n\n"
+            text = f"🎉 <b>Города добавлены в подписку!</b>\n\n"
             if new_city_names:
                 text += f"🆕 Добавленные города:\n"
                 for name in new_city_names:
@@ -5509,7 +5529,7 @@ async def subscription_cities_final_confirm(callback: CallbackQuery, state: FSMC
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.set_state(WorkStates.worker_menu)
 
@@ -5587,7 +5607,7 @@ async def subscription_city_search(message: Message, state: FSMContext) -> None:
         if city:
             main_city_names.append(city.city)
 
-    text = f"🔍 **Результаты поиска по: {city_input}**\n\n"
+    text = f"🔍 <b>Результаты поиска по: {city_input}</b>\n\n"
     text += f"📊 Выбрано: {len(selected_cities)} из {city_count}\n"
     text += f"📍 Основной город: {', '.join(main_city_names)}\n\n"
     text += f"Выберите город из результатов поиска:"
@@ -5607,7 +5627,7 @@ async def subscription_city_search(message: Message, state: FSMContext) -> None:
     await message.answer(
         text=text,
         reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 
@@ -5629,7 +5649,7 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
     action = parts[2]  # renew, change, cancel
     subscription_id = int(parts[3])
 
-    worker = await Worker.get_worker(tg_id=callback.from_user.id)
+    # worker = await Worker.get_worker(tg_id=callback.from_user.id)
 
     if action == "renew":
         # Продление подписки - показываем те же тарифы
@@ -5674,7 +5694,7 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
             renew_city_ids=subscription.city_ids  # Сохраняем существующие города
         )
 
-        text = f"🔄 **Продление подписки**\n\n"
+        text = f"🔄 <b>Продление подписки</b>\n\n"
         text += f"🏙️ Количество городов: {city_count}\n"
 
         # Получаем названия городов
@@ -5739,9 +5759,10 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
         )
         return
 
-    elif action == "cancel":
+    # elif action == "cancel":
+    else: # cancel
         # Отказ от подписки
-        text = f"❌ **Отказ от подписки**\n\n"
+        text = f"❌ <b>Отказ от подписки</b>\n\n"
         text += f"Подписка будет отключена, вы всегда сможете подключить её снова в удобное для вас время!"
 
         builder = InlineKeyboardBuilder()
@@ -5752,7 +5773,7 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
     await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 
@@ -5773,14 +5794,14 @@ async def confirm_cancel_subscription(callback: CallbackQuery, state: FSMContext
         await conn.commit()
         await conn.close()
 
-        text = f"✅ **Подписка отменена**\n\n"
+        text = f"✅ <b>Подписка отменена</b>\n\n"
         text += f"Подписка на дополнительные города деактивирована.\n"
         text += f"Вы можете снова подключить её в любое время через меню."
 
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.set_state(WorkStates.worker_menu)
 
@@ -5812,8 +5833,8 @@ async def send_city_subscription_expiry_notifications():
             # Используем purchased_city_count вместо вычисления из цены
             city_count = subscription.purchased_city_count
 
-            text = f"⚠️ **Завтра истекает срок подписки**\n\n"
-            text += f"🏙️ **+{city_count} city**\n"
+            text = f"⚠️ <b>Завтра истекает срок подписки</b>\n\n"
+            text += f"🏙️ <b>+{city_count} city</b>\n"
             for city_name in city_names:
                 text += f"{city_name}\n"
             text += f"📅 Срок {subscription.subscription_months} месяц.\n\n"
@@ -5830,7 +5851,7 @@ async def send_city_subscription_expiry_notifications():
                     chat_id=worker.tg_id,
                     text=text,
                     reply_markup=builder.as_markup(),
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
             except Exception as e:
                 logger.error(f"Failed to send notification to worker {worker.tg_id}: {e}")
@@ -5847,7 +5868,7 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
 
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
-    text = f"💳 **Купить контакты**\n\n"
+    text = f"💳 <b>Купить контакты</b>\n\n"
     text += f"📊 У вас сейчас: {worker.purchased_contacts} контакт\n"
     text += f"🔓 Безлимитный доступ: {'✅ Активен' if worker.unlimited_contacts_until else '❌ Нет'}\n\n"
 
@@ -5861,23 +5882,6 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
         except ValueError:
             text += f"⏰ Безлимит истек\n\n"
 
-    # Загружаем тарифы из БД
-    # from app.data.database.models import ContactTariff
-    # tariffs = await ContactTariff.get_all()
-
-    # text += f"📦 **Доступные тарифы:**\n\n"
-    # for tariff in tariffs:
-    #     price_rub = tariff.price / 100
-    #     discount_text = ""
-    #     if not tariff.unlimited and tariff.contacts_count > 1:
-    #         # Вычисляем скидку
-    #         base_price_per_contact = 190
-    #         total_base_price = base_price_per_contact * tariff.contacts_count
-    #         actual_price = price_rub
-    #         if actual_price < total_base_price:
-    #             discount_percent = int(((total_base_price - actual_price) / total_base_price) * 100)
-    #             discount_text = f" (-{discount_percent}%)"
-    #     text += f"🔸 {tariff.name} - {int(price_rub)}₽{discount_text}\n"
     text += f"\n💡 Контакты нужны для получения телефонов заказчиков"
 
     # Используем клавиатуру с тарифами из БД
@@ -5900,7 +5904,7 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
         await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     except Exception:
         try:
@@ -5910,7 +5914,7 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
         await callback.message.answer(
             text=text,
             reply_markup=builder.as_markup(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
 
@@ -5956,7 +5960,7 @@ async def buy_contacts_handler(callback: CallbackQuery, state: FSMContext) -> No
 
     # Создаем инвойс для оплаты
     text = f"""
-💰 **Подтверждение покупки**
+💰 <b>Подтверждение покупки</b>
 
 📦 Тариф: {tariff_name}
 💵 Цена: {int(price_rub)}₽
@@ -5974,7 +5978,7 @@ async def buy_contacts_handler(callback: CallbackQuery, state: FSMContext) -> No
     await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 
@@ -6010,7 +6014,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
             months = tariff.unlimited_days // 30 if tariff.unlimited_days else 1
 
             text = f"""
-✅ **Покупка успешно выполнена!**
+✅ <b>Покупка успешно выполнена!</b>
 
 🎉 У вас теперь безлимитный доступ к контактам!
 ⏰ Действует до: {until_date.strftime('%d.%m.%Y %H:%M')}
@@ -6024,7 +6028,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
             await worker.update_purchased_contacts(purchased_contacts=new_count)
 
             text = f"""
-✅ **Покупка успешно выполнена!**
+✅ <b>Покупка успешно выполнена!</b>
 
 🎉 Добавлено {tariff.contacts_count} контактов!
 📊 У вас теперь: {new_count} контактов
@@ -6035,7 +6039,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.set_state(WorkStates.worker_menu)
 
@@ -6056,13 +6060,13 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
     # Проверяем, есть ли у исполнителя купленные города
     has_purchased_cities = len(active_subscriptions) > 0
 
-    text = "🏙️ **Сменить город**\n\n"
+    text = "🏙️ <b>Сменить город</b>\n\n"
 
     if has_purchased_cities:
         # Если есть купленные города - показываем опции
         text += "Выберите действие:\n\n"
-        text += "📋 **Мои города** - просмотр и управление купленными городами\n"
-        text += "🔄 **Сменить основной город** - изменить основной город из доступных"
+        text += "📋 <b>Мои города</b> - просмотр и управление купленными городами\n"
+        text += "🔄 <b>Сменить основной город</b> - изменить основной город из доступных"
 
         # Создаем клавиатуру с опциями
         from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -6078,7 +6082,7 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
             await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         except Exception:
             try:
@@ -6088,14 +6092,14 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
             await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
     else:
         # Если нет купленных городов - показываем опцию выбора города из всех доступных
         text += "У вас нет купленных городов ₽\n\n"
         text += "Выберите действие:\n\n"
-        text += "🔄 **Сменить основной город** - выбрать из всех доступных городов\n\n"
-        text += "📍 **Выбрать город** (станет основным)"
+        text += "🔄 <b>Сменить основной город</b> - выбрать из всех доступных городов\n\n"
+        text += "📍 <b>Выбрать город</b> (станет основным)"
 
         # Создаем клавиатуру с опциями
         from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -6111,7 +6115,7 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
             await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         except Exception:
             try:
@@ -6121,7 +6125,7 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
             await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
 
 
@@ -6150,8 +6154,8 @@ async def worker_change_main_city(callback: CallbackQuery, state: FSMContext) ->
 
     current_main_city = cities_dict.get(worker.city_id[0], f"Город {worker.city_id[0]}")
 
-    text = f"🔄 **Смена основного города**\n\n"
-    text += f"📍 **Текущий основной город:** {current_main_city}\n\n"
+    text = f"🔄 <b>Смена основного города</b>\n\n"
+    text += f"📍 <b>Текущий основной город:</b> {current_main_city}\n\n"
     text += f"Выберите город или напишите его текстом\n\n"
     text += f'Показано {id_now + len(city_names)} из {count_cities} городов'
 
@@ -6159,7 +6163,7 @@ async def worker_change_main_city(callback: CallbackQuery, state: FSMContext) ->
         text=text,
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
                                     btn_next=btn_next, btn_back=True, ),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
     await state.update_data(msg_id=msg.message_id)
     await state.set_state(WorkStates.worker_change_main_city)
@@ -6183,7 +6187,7 @@ async def worker_choose_city(callback: CallbackQuery, state: FSMContext) -> None
     city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
                                                                  id_now=id_now)
 
-    text = f"📍 **Выберите город**\n\n"
+    text = f"📍 <b>Выберите город</b>\n\n"
     text += f"Выберите город или напишите его текстом\n\n"
     text += f'Показано {id_now + len(city_names)} из {count_cities} городов'
 
@@ -6191,7 +6195,7 @@ async def worker_choose_city(callback: CallbackQuery, state: FSMContext) -> None
         text=text,
         reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
                                     btn_next=btn_next, btn_back=True, ),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
     await state.update_data(msg_id=msg.message_id)
     await state.set_state(WorkStates.worker_choose_city)
@@ -6231,13 +6235,13 @@ async def change_main_city_next(callback: CallbackQuery, state: FSMContext) -> N
 
     try:
         msg = await callback.message.answer(
-            text=f"🔄 **Смена основного города**\n\n"
-                 f"📍 **Текущий основной город:** {current_main_city}\n\n"
+            text=f"🔄 <b>Смена основного города</b>\n\n"
+                 f"📍 <b>Текущий основной город:</b> {current_main_city}\n\n"
                  f"Выберите город или напишите его текстом\n\n"
                  f'Показано {id_now + len(city_names)} из {count_cities} городов',
             reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
                                         btn_next=btn_next, btn_back=btn_back, ),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.update_data(msg_id=msg.message_id)
     except TelegramBadRequest:
@@ -6276,13 +6280,13 @@ async def change_main_city_search(message: Message, state: FSMContext) -> None:
     current_main_city = cities_dict.get(worker.city_id[0], f"Город {worker.city_id[0]}")
 
     msg = await message.answer(
-        text=f"🔄 **Результаты поиска по: {city_input}**\n\n"
-             f"📍 **Текущий основной город:** {current_main_city}\n\n"
+        text=f"🔄 <b>Результаты поиска по: {city_input}</b>\n\n"
+             f"📍 <b>Текущий основной город:</b> {current_main_city}\n\n"
              f"Выберите город или напишите его текстом\n\n",
         reply_markup=kbc.choose_obj(id_now=0, ids=city_ids, names=city_names,
                                     btn_next=True, btn_back=True,
                                     btn_next_name='Отменить результаты поиска'),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
     await state.update_data(msg_id=msg.message_id)
     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
@@ -6321,15 +6325,15 @@ async def change_main_city_end(callback: CallbackQuery, state: FSMContext) -> No
 
     await worker.update_city(worker.city_id)
 
-    text = f"✅ **Основной город изменен**\n\n"
-    text += f"📍 **Новый основной город:** {new_city_name}\n"
-    text += f"📍 **Предыдущий город:** {old_city_name}\n\n"
+    text = f"✅ <b>Основной город изменен</b>\n\n"
+    text += f"📍 <b>Новый основной город:</b> {new_city_name}\n"
+    text += f"📍 <b>Предыдущий город:</b> {old_city_name}\n\n"
     text += "Изменения вступят в силу немедленно."
 
     await callback.message.answer(
         text=text,
         reply_markup=kbc.menu_btn(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
     await state.set_state(WorkStates.worker_menu)
 
@@ -6362,12 +6366,12 @@ async def choose_city_next_worker(callback: CallbackQuery, state: FSMContext) ->
 
     try:
         msg = await callback.message.answer(
-            text=f"📍 **Выберите город**\n\n"
+            text=f"📍 <b>Выберите город</b>\n\n"
                  f"Выберите город или напишите его текстом\n\n"
                  f'Показано {id_now + len(city_names)} из {count_cities} городов',
             reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
                                         btn_next=btn_next, btn_back=btn_back, ),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.update_data(msg_id=msg.message_id)
     except TelegramBadRequest:
@@ -6401,12 +6405,12 @@ async def choose_city_search_worker(message: Message, state: FSMContext) -> None
     city_ids = [city.id for city in cities_result]
 
     msg = await message.answer(
-        text=f"📍 **Результаты поиска по: {city_input}**\n\n"
+        text=f"📍 <b>Результаты поиска по: {city_input}</b>\n\n"
              f"Выберите город или напишите его текстом\n\n",
         reply_markup=kbc.choose_obj(id_now=0, ids=city_ids, names=city_names,
                                     btn_next=True, btn_back=True,
                                     btn_next_name='Отменить результаты поиска'),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
     await state.update_data(msg_id=msg.message_id)
     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
@@ -6440,15 +6444,15 @@ async def choose_city_end_worker(callback: CallbackQuery, state: FSMContext) -> 
 
     await worker.update_city(worker.city_id)
 
-    text = f"✅ **Основной город изменен**\n\n"
-    text += f"📍 **Новый основной город:** {new_city_name}\n"
-    text += f"📍 **Предыдущий город:** {old_city_name}\n\n"
+    text = f"✅ <b>Основной город изменен</b>\n\n"
+    text += f"📍 <b>Новый основной город:</b> {new_city_name}\n"
+    text += f"📍 <b>Предыдущий город:</b> {old_city_name}\n\n"
     text += "Изменения вступят в силу немедленно."
 
     await callback.message.answer(
         text=text,
         reply_markup=kbc.menu_btn(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
     await state.set_state(WorkStates.worker_menu)
 
@@ -6490,15 +6494,15 @@ async def set_main_city(callback: CallbackQuery, state: FSMContext) -> None:
     old_city_name = cities_dict.get(old_city_id, f"Город {old_city_id}")
     new_city_name = cities_dict.get(new_city_id, f"Город {new_city_id}")
 
-    text = f"✅ **Основной город изменен**\n\n"
-    text += f"📍 **Новый основной город:** {new_city_name}\n"
-    text += f"📍 **Предыдущий город:** {old_city_name}\n\n"
+    text = f"✅ <b>Основной город изменен</b>\n\n"
+    text += f"📍 <b>Новый основной город:</b> {new_city_name}\n"
+    text += f"📍 <b>Предыдущий город:</b> {old_city_name}\n\n"
     text += "Изменения вступят в силу немедленно."
 
     await callback.message.answer(
         text=text,
         reply_markup=kbc.menu_btn(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 
@@ -6510,7 +6514,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
     active_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
 
-    text = "🏙️ **Мои города**\n\n"
+    text = "🏙️ <b>Мои города</b>\n\n"
 
     # Получаем все города одним запросом для оптимизации
     all_cities = await City.get_all()
@@ -6519,7 +6523,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
     # Показываем основной город (оптимизировано)
     main_city_names = [cities_dict.get(city_id, f"Город {city_id}") for city_id in worker.city_id]
 
-    text += f"📍 **Основной город:** {', '.join(main_city_names)}\n\n"
+    text += f"📍 <b>Основной город:</b> {', '.join(main_city_names)}\n\n"
 
     # Проверяем незавершенные подписки
     incomplete_subscriptions = []
@@ -6530,7 +6534,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
 
     # Показываем активные подписки
     if active_subscriptions:
-        text += "🏷️ **Активные подписки на города:**\n\n"
+        text += "🏷️ <b>Активные подписки на города:</b>\n\n"
         for subscription in active_subscriptions:
             # Используем purchased_city_count вместо вычисления из цены
             total_count = subscription.purchased_city_count
@@ -6543,7 +6547,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
             # Форматируем дату окончания
             end_date = datetime.strptime(subscription.subscription_end, '%Y-%m-%d').strftime('%d.%m.%Y')
 
-            text += f"📦 **Подписка на {total_count} городов** (до {end_date}):\n"
+            text += f"📦 <b>Подписка на {total_count} городов</b> (до {end_date}):\n"
             if selected_city_names:
                 text += f"• Выбрано: {', '.join(selected_city_names)}\n"
             else:
@@ -6555,11 +6559,11 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
                 text += f"• ✅ Все города выбраны\n"
             text += "\n"
     else:
-        text += "📭 **У вас нет активных подписок на дополнительные города**\n\n"
+        text += "📭 <b>У вас нет активных подписок на дополнительные города</b>\n\n"
 
     # Проверяем незавершенные подписки
     if incomplete_subscriptions:
-        text += "⚠️ **У вас есть незавершенные подписки:**\n"
+        text += "⚠️ <b>У вас есть незавершенные подписки:</b>\n"
         for subscription in incomplete_subscriptions:
             total_count = subscription.purchased_city_count
             selected_count = len(subscription.city_ids)
@@ -6587,7 +6591,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 
@@ -6732,7 +6736,7 @@ async def worker_rank(callback: CallbackQuery, state: FSMContext) -> None:
 
         # Используем метод get_rank_description() для получения полного описания
         text = rank.get_rank_description()
-        text += f"\n\n📊 **Статистика:**\n"
+        text += f"\n\n📊 <b>Статистика:</b>\n"
         text += f"• Всего выполнено заказов: {rank.completed_orders_count}\n"
         text += f"• Выполнено заказов за 30 дней: {rank.orders_this_month}"
 
@@ -6746,7 +6750,7 @@ async def worker_rank(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         except Exception:
             # Если сообщение было с фото, удаляем и отправляем новое
@@ -6757,7 +6761,7 @@ async def worker_rank(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.message.answer(
                 text=text,
                 reply_markup=builder.as_markup(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
 
     except Exception as e:

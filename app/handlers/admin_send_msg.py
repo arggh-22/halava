@@ -55,7 +55,7 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
     state_data = await state.get_data()
     message_to_worker = str(state_data.get('message_to_worker'))
 
-    msg = await callback.message.answer('Подождите, идет отправка')
+    # msg = await callback.message.answer('Подождите, идет отправка')
 
     workers = await Worker.get_all()
     if workers:

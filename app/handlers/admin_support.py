@@ -1,16 +1,14 @@
 import logging
 from datetime import datetime, timedelta
 
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery
 
-from app.data.database.models import Banned, Customer, Worker, UserAndSupportQueue
+from app.data.database.models import Banned, UserAndSupportQueue
 from app.keyboards import KeyboardCollection
-from app.states import AdminStates
 from loaders import bot
-import config
 
 logger = logging.getLogger(__name__)
 router = Router()

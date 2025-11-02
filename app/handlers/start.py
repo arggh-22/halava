@@ -390,7 +390,7 @@ async def menu_universal(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(AdminStates.menu)
         await callback.message.answer(
             text='Меню администратора',
-            reply_markup=kbc.admin_menu_keyboard()
+            reply_markup=kbc.menu_admin_keyboard()
         )
     else:
         print(f"[DEBUG] User {callback.message.chat.id} is a regular user")
@@ -717,25 +717,25 @@ async def support_history(callback: CallbackQuery, state: FSMContext) -> None:
     # Получаем историю запросов
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=callback.message.chat.id):
         if user_and_support_queue.user_messages or user_and_support_queue.admin_messages:
-            text = "📋 **История ваших запросов в поддержку:**\n\n"
+            text = "📋 <b>История ваших запросов в поддержку:</b>\n\n"
             
             # Показываем сообщения пользователя и ответы админов
             for i, user_msg in enumerate(user_and_support_queue.user_messages):
-                text += f"**Ваш вопрос {i+1}:**\n{user_msg}\n\n"
+                text += f"<b>Ваш вопрос {i+1}:</b>\n{user_msg}\n\n"
                 
                 # Показываем ответ админа, если есть
                 if i < len(user_and_support_queue.admin_messages):
                     admin_msg = user_and_support_queue.admin_messages[i]
-                    text += f"**Ответ поддержки:**\n{admin_msg}\n\n"
+                    text += f"<b>Ответ поддержки:</b>\n{admin_msg}\n\n"
                 else:
-                    text += "**Ответ поддержки:** Ожидается ответ\n\n"
+                    text += "<b>Ответ поддержки:</b> Ожидается ответ\n\n"
                 
                 text += "─" * 30 + "\n\n"
             
             await callback.message.answer(
                 text=text,
                 reply_markup=kbc.menu_btn(),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         else:
             await callback.message.answer(
@@ -881,19 +881,19 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
     # Добавляем историю переписки
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=message.chat.id):
         if user_and_support_queue.user_messages or user_and_support_queue.admin_messages:
-            text += '\n\n📋 **История переписки:**\n'
+            text += '\n\n📋 <b>История переписки:</b>\n'
             
             # Показываем все предыдущие сообщения
             for i, user_msg in enumerate(user_and_support_queue.user_messages):
                 if user_msg != msg_to_send:  # Не показываем текущий вопрос дважды
-                    text += f'\n**Вопрос {i+1}:**\n{user_msg}\n'
+                    text += f'\n<b>Вопрос {i+1}:</b>\n{user_msg}\n'
                     
                     # Показываем ответ админа, если есть
                     if i < len(user_and_support_queue.admin_messages):
                         admin_msg = user_and_support_queue.admin_messages[i]
-                        text += f'**Ответ поддержки:**\n{admin_msg}\n'
+                        text += f'<b>Ответ поддержки:</b>\n{admin_msg}\n'
                     else:
-                        text += '**Ответ поддержки:** Ожидается ответ\n'
+                        text += '<b>Ответ поддержки:</b> Ожидается ответ\n'
                     
                     text += '─' * 20 + '\n'
 

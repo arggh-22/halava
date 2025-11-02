@@ -6,11 +6,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 # Импорт вспомогательных модулей и компонентов из приложения
-from app.data.database.models import ProfanityWord, BlockWordShort, BlockWord, WhiteWord, BlockWordMessage, \
-    BlockWordShortMessage, BlockWordPersonal, BlockWordShortPersonal, BlockWordPhoto, BlockWordShortPhoto
+from app.data.database.models import (
+    ProfanityWord, BlockWordShort, BlockWord, WhiteWord, BlockWordMessage, BlockWordShortMessage, BlockWordPersonal,
+    BlockWordShortPersonal, BlockWordPhoto, BlockWordShortPhoto
+)
 from app.keyboards import KeyboardCollection
 from app.states import AdminStates
-from loaders import bot
 
 router = Router()
 router.message.filter(F.from_user.id != F.bot.id)

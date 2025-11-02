@@ -1,15 +1,13 @@
 import os
 import re
 import json
+import time
 import shutil
 import logging
 import requests
-import time
-import asyncio
-from datetime import datetime, date
 from bs4 import BeautifulSoup
+from datetime import datetime, date
 from PIL import Image, ImageEnhance
-from aiogram.types import Message
 
 
 logger = logging.getLogger(__name__)
@@ -901,107 +899,107 @@ async def check_contact_already_sent(worker_id: int, abs_id: int) -> bool:
         return False
 
 
-async def send_targeted_notifications_to_workers(advertisement_id: int, customer_id: int) -> None:
-    """
-    Отправляет уведомления исполнителям по городу и направлению объявления.
-    
-    Args:
-        advertisement_id: ID объявления
-        customer_id: ID заказчика
-    """
-    try:
-        from app.data.database.models import Abs, Worker, City, WorkType
-        
-        # Получаем объявление
-        advertisement = await Abs.get_one(id=advertisement_id)
-        if not advertisement:
-            logger.error(f"Advertisement not found: {advertisement_id}")
-            return
-        
-        # Получаем город заказчика
-        from app.data.database.models import Customer
-        customer = await Customer.get_customer(id=customer_id)
-        if not customer:
-            logger.error(f"Customer not found: {customer_id}")
-            return
-        
-        city = await City.get_city(id=customer.city_id)
-        if not city:
-            logger.error(f"City not found: {customer.city_id}")
-            return
-        
-        # Получаем направление работы
-        work_type = await WorkType.get_work_type(id=advertisement.work_type_id)
-        if not work_type:
-            logger.error(f"Work type not found: {advertisement.work_type_id}")
-            return
-        
-        # Используем правильную функцию для получения исполнителей с учетом подписок
-        matching_workers = await Worker.get_active_workers_for_advertisement(
-            city_id=customer.city_id, 
-            work_type_id=advertisement.work_type_id
-        )
-        
-        if not matching_workers:
-            logger.info(f"No matching workers found for city {city.city} and work type {work_type.work_type}")
-            return
-        
-        logger.info(f"Found {len(matching_workers)} matching workers for city {city.city} and work type {work_type.work_type}")
-        
-        # Отправляем уведомления с батчингом
-        from loaders import bot
-        notification_text = (
-            f"🔔 Новое объявление в вашем городе!\n\n"
-            f"📍 Город: {city.city}\n"
-            f"💼 Направление: {work_type.work_type}\n"
-            f"📋 Описание: {read_text_file(advertisement.text_path)}\n\n"
-            f"💰 Размер: {advertisement.price} ₽\n"
-            f"📅 Срок: {advertisement.date_end}\n\n"
-            f"Нажмите /menu чтобы откликнуться!"
-        )
-        
-        # Отправляем по 3 сообщения в батче с паузой (оптимизировано для Telegram: макс 30 сообщений/сек)
-        batch_size = 3
-        sent_count = 0
-        
-        # Создаем локальный семафор для этой функции (можно использовать глобальный, если он доступен)
-        try:
-            from app.handlers.customer import get_global_semaphore
-            global_semaphore = get_global_semaphore()
-            use_global_semaphore = True
-        except ImportError:
-            use_global_semaphore = False
-            local_semaphore = asyncio.Semaphore(10)  # Локальный семафор, если глобальный недоступен
-        
-        for i in range(0, len(matching_workers), batch_size):
-            batch = matching_workers[i:i + batch_size]
-            logger.info(f'Processing batch {i//batch_size + 1}: {len(batch)} workers')
-            
-            # Создаем задачи для параллельной отправки
-            async def send_to_worker(w):
-                semaphore = global_semaphore if use_global_semaphore else local_semaphore
-                async with semaphore:
-                    try:
-                        await bot.send_message(chat_id=w.tg_id, text=notification_text)
-                        return True
-                    except Exception as e:
-                        logger.error(f"Error sending notification to worker {w.tg_id}: {e}")
-                        return False
-            
-            tasks = [send_to_worker(worker) for worker in batch]
-            
-            # Выполняем батч параллельно
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            sent_count += sum(1 for r in results if r is True)
-            
-            # Пауза между батчами для соблюдения rate limits (увеличено до 1 сек для безопасности)
-            if i + batch_size < len(matching_workers):
-                await asyncio.sleep(1.0)  # 1 секунда пауза между батчами
-        
-        logger.info(f"Sent notifications to {sent_count} workers")
-        
-    except Exception as e:
-        logger.error(f"Error sending targeted notifications: {e}")
+# async def send_targeted_notifications_to_workers(advertisement_id: int, customer_id: int) -> None:
+#     """
+#     Отправляет уведомления исполнителям по городу и направлению объявления.
+#
+#     Args:
+#         advertisement_id: ID объявления
+#         customer_id: ID заказчика
+#     """
+#     try:
+#         from app.data.database.models import Abs, Worker, City, WorkType
+#
+#         # Получаем объявление
+#         advertisement = await Abs.get_one(id=advertisement_id)
+#         if not advertisement:
+#             logger.error(f"Advertisement not found: {advertisement_id}")
+#             return
+#
+#         # Получаем город заказчика
+#         from app.data.database.models import Customer
+#         customer = await Customer.get_customer(id=customer_id)
+#         if not customer:
+#             logger.error(f"Customer not found: {customer_id}")
+#             return
+#
+#         city = await City.get_city(id=customer.city_id)
+#         if not city:
+#             logger.error(f"City not found: {customer.city_id}")
+#             return
+#
+#         # Получаем направление работы
+#         work_type = await WorkType.get_work_type(id=advertisement.work_type_id)
+#         if not work_type:
+#             logger.error(f"Work type not found: {advertisement.work_type_id}")
+#             return
+#
+#         # Используем правильную функцию для получения исполнителей с учетом подписок
+#         matching_workers = await Worker.get_active_workers_for_advertisement(
+#             city_id=customer.city_id,
+#             work_type_id=advertisement.work_type_id
+#         )
+#
+#         if not matching_workers:
+#             logger.info(f"No matching workers found for city {city.city} and work type {work_type.work_type}")
+#             return
+#
+#         logger.info(f"Found {len(matching_workers)} matching workers for city {city.city} and work type {work_type.work_type}")
+#
+#         # Отправляем уведомления с батчингом
+#         from loaders import bot
+#         notification_text = (
+#             f"🔔 Новое объявление в вашем городе!\n\n"
+#             f"📍 Город: {city.city}\n"
+#             f"💼 Направление: {work_type.work_type}\n"
+#             f"📋 Описание: {read_text_file(advertisement.text_path)}\n\n"
+#             f"💰 Размер: {advertisement.price} ₽\n"
+#             f"📅 Срок: {advertisement.date_end}\n\n"
+#             f"Нажмите /menu чтобы откликнуться!"
+#         )
+#
+#         # Отправляем по 3 сообщения в батче с паузой (оптимизировано для Telegram: макс 30 сообщений/сек)
+#         batch_size = 3
+#         sent_count = 0
+#
+#         # Создаем локальный семафор для этой функции (можно использовать глобальный, если он доступен)
+#         try:
+#             from app.handlers.customer import get_global_semaphore
+#             global_semaphore = get_global_semaphore()
+#             use_global_semaphore = True
+#         except ImportError:
+#             use_global_semaphore = False
+#             local_semaphore = asyncio.Semaphore(10)  # Локальный семафор, если глобальный недоступен
+#
+#         for i in range(0, len(matching_workers), batch_size):
+#             batch = matching_workers[i:i + batch_size]
+#             logger.info(f'Processing batch {i//batch_size + 1}: {len(batch)} workers')
+#
+#             # Создаем задачи для параллельной отправки
+#             async def send_to_worker(w):
+#                 semaphore = global_semaphore if use_global_semaphore else local_semaphore
+#                 async with semaphore:
+#                     try:
+#                         await bot.send_message(chat_id=w.tg_id, text=notification_text)
+#                         return True
+#                     except Exception as e:
+#                         logger.error(f"Error sending notification to worker {w.tg_id}: {e}")
+#                         return False
+#
+#             tasks = [send_to_worker(worker) for worker in batch]
+#
+#             # Выполняем батч параллельно
+#             results = await asyncio.gather(*tasks, return_exceptions=True)
+#             sent_count += sum(1 for r in results if r is True)
+#
+#             # Пауза между батчами для соблюдения rate limits (увеличено до 1 сек для безопасности)
+#             if i + batch_size < len(matching_workers):
+#                 await asyncio.sleep(1.0)  # 1 секунда пауза между батчами
+#
+#         logger.info(f"Sent notifications to {sent_count} workers")
+#
+#     except Exception as e:
+#         logger.error(f"Error sending targeted notifications: {e}")
 
 
 async def process_contact_purchase(worker_id: int, tariff_type: str, tariff_value: int, tariff_price: int) -> bool:

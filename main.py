@@ -72,12 +72,13 @@ async def run():
     logging.info("[MAIN] Including routers...")
     logging.info(f"[MAIN] worker_responses.router: {worker_responses.router}")
     logging.info(f"[MAIN] Number of handlers in worker_responses: {len(worker_responses.router.observers)}")
-    dp.include_routers(start.router, worker_responses.router, anonymous_chat.router, worker.router, admin.router, customer.router, admin_send_msg.router, admin_edit_stop_words.router, admin_log_work.router, admin_support.router, admin_photo_moderation.router)
+    # Важно: customer.router регистрируем ПЕРЕД worker.router, чтобы обработчики заказчиков имели приоритет
+    dp.include_routers(start.router, worker_responses.router, anonymous_chat.router, customer.router, worker.router, admin.router, admin_send_msg.router, admin_edit_stop_words.router, admin_log_work.router, admin_support.router, admin_photo_moderation.router)
     logging.info("[MAIN] Routers included!")
 
     scheduler.add_job(time_checker.check_time_alive, "interval", minutes=30)
     scheduler.add_job(time_checker.check_time_banned, "interval", hours=12)
-    scheduler.add_job(time_checker.check_time_workers, "interval", hours=24)
+    # scheduler.add_job(time_checker.check_time_workers, "interval", hours=24) # old subscription
     scheduler.add_job(time_checker.check_time_customer, "interval", hours=24)
     # Основная проверка объявлений каждые 2 часа для коротких сроков
     scheduler.add_job(time_checker.check_time_advertisement, "interval", hours=2)

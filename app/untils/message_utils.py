@@ -5,12 +5,12 @@
 import logging
 from aiogram.types import CallbackQuery, Message
 from app.middleware.cleanup_middleware import cleanup_middleware
-from app.untils.auto_cleanup import send_with_cleanup, send_photo_with_cleanup, send_video_with_cleanup
+from app.untils.auto_cleanup import send_with_cleanup
 
 logger = logging.getLogger(__name__)
 
 
-async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=None, parse_mode=None):
+async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=None):
     """
     Безопасное редактирование сообщения - работает с текстом и фото
     
@@ -26,14 +26,12 @@ async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=Non
             await callback.message.edit_caption(
                 caption=text,
                 reply_markup=reply_markup,
-                parse_mode=parse_mode
             )
         else:
             # Если сообщение текстовое, редактируем текст
             await callback.message.answer(
                 text=text,
                 reply_markup=reply_markup,
-                parse_mode=parse_mode
             )
     except Exception as e:
         logger.error(f"Error in safe_edit_message: {e}")
@@ -42,7 +40,6 @@ async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=Non
             sent_message = await callback.message.answer(
                 text=text,
                 reply_markup=reply_markup,
-                parse_mode=parse_mode
             )
             # Сохраняем ID нового сообщения для очистки
             cleanup_middleware.save_message_id(callback.message.chat.id, sent_message.message_id)
@@ -68,5 +65,3 @@ async def safe_delete_message(callback: CallbackQuery):
 
 # Переопределяем функции для использования новых функций с автоматической очисткой
 send_message_with_cleanup = send_with_cleanup
-send_photo_with_cleanup = send_photo_with_cleanup
-send_video_with_cleanup = send_video_with_cleanup

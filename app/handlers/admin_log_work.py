@@ -139,7 +139,7 @@ async def unblock_advertisement(callback: CallbackQuery) -> None:
                        f'Дата публикации {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
 
     text_for_workers = help_defs.escape_markdown(text=text_for_workers)
-    text_for_workers = f'Объявление {advertisement.id}\n\n' + text_for_workers
+    text_for_workers = f'Объявление #{advertisement.id}\n\n' + text_for_workers
 
     # Отправляем в лог-канал
     text2 = f'ID пользователя: #{customer.tg_id}\n\n' + text_for_workers
@@ -261,7 +261,7 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
     advertisement = await Abs.get_one(id=advertisement_id)
     if not advertisement:
         await callback.message.delete()
-        await callback.message.answer(text=f'Объявление {advertisement_id}, было удалено')
+        await callback.message.answer(text=f'Объявление #{advertisement_id}, было удалено')
         return
     customer = await Customer.get_customer(id=advertisement.customer_id)
     banned = await Banned.get_banned(tg_id=customer.tg_id)
@@ -293,7 +293,7 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
     try:
         from app.untils import help_defs
         ad_text = help_defs.read_text_file(advertisement.text_path)
-        notification_text = (f'Ваше объявление {advertisement.id} помечено как неактуальное и '
+        notification_text = (f'Ваше объявление #{advertisement.id} помечено как неактуальное и '
                              f'заблокировано администратором\n\n'
                              f'📋 Текст объявления:\n{ad_text}')
         await bot.send_message(chat_id=customer.tg_id, text=notification_text)
@@ -311,7 +311,7 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
             # (исполнитель уже откликнулся, значит город и направление подходят)
             if worker.active:
                 try:
-                    await bot.send_message(chat_id=worker.tg_id, text=f'Объявление {advertisement.id} неактуально')
+                    await bot.send_message(chat_id=worker.tg_id, text=f'Объявление #{advertisement.id} неактуально')
                 except Exception:
                     pass
             await worker_and_abs.delete()
@@ -335,7 +335,7 @@ async def block_advertisement(callback: CallbackQuery) -> None:
     advertisement = await Abs.get_one(id=advertisement_id)
     if not advertisement:
         await callback.message.delete()
-        await callback.message.answer(text=f'Объявление {advertisement_id}, было удалено')
+        await callback.message.answer(text=f'Объявление #{advertisement_id}, было удалено')
         return
 
     if photo_num <= -1:
@@ -366,7 +366,7 @@ async def block_advertisement(callback: CallbackQuery) -> None:
     advertisement = await BannedAbs.get_one(id=advertisement_id)
     if not advertisement:
         await callback.message.delete()
-        await callback.message.answer(text=f'Объявление {advertisement_id}, было удалено')
+        await callback.message.answer(text=f'Объявление #{advertisement_id}, было удалено')
         return
 
     if photo_num <= -1:
@@ -394,7 +394,7 @@ async def delite_advertisement(callback: CallbackQuery) -> None:
     advertisement = await Abs.get_one(id=advertisement_id)
     if not advertisement:
         await callback.message.delete()
-        await callback.message.answer(text=f'Объявление {advertisement_id}, было удалено')
+        await callback.message.answer(text=f'Объявление #{advertisement_id}, было удалено')
         return
 
     customer = await Customer.get_customer(id=advertisement.customer_id)
@@ -409,7 +409,7 @@ async def delite_advertisement(callback: CallbackQuery) -> None:
             # Отправляем уведомление всем откликнувшимся исполнителям
             # (исполнитель уже откликнулся, значит город и направление подходят)
             try:
-                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление {advertisement.id} неактуально')
+                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление #{advertisement.id} неактуально')
             except Exception:
                 pass
             await worker_and_abs.delete()

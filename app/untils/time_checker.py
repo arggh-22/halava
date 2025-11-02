@@ -62,28 +62,28 @@ async def check_time_workers_stars():
                             pass
 
 
-async def check_time_workers():
-    logger.info('check_time_workers')
-    workers = await Worker.get_all()
-    kbc = KeyboardCollection()
-    if workers:
-        for worker in workers:
-            if not await Banned.get_banned(tg_id=worker.tg_id):
-                worker_subscription = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-                if worker_subscription.subscription_end:
-                    if worker_subscription.date_end <= datetime.now() + timedelta(days=1):
-                        btn_bonus = False
-                        if worker_and_ref := await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id):
-                            if worker_and_ref.worker_bonus:
-                                btn_bonus = True
-                        elif worker_and_ref := await WorkerAndRefsAssociation.get_by_ref(ref_id=worker.tg_id):
-                            if worker_and_ref.ref_bonus:
-                                btn_bonus = True
-
-                        try:
-                            await bot.send_message(chat_id=worker.tg_id, text='У вас в скором времени закончится подписка', reply_markup=kbc.subscription_btn(btn_bonus=btn_bonus))
-                        except Exception:
-                            pass
+# async def check_time_workers():
+#     logger.info('check_time_workers')
+#     workers = await Worker.get_all()
+#     kbc = KeyboardCollection()
+#     if workers:
+#         for worker in workers:
+#             if not await Banned.get_banned(tg_id=worker.tg_id):
+#                 worker_subscription = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+#                 if worker_subscription.subscription_end:
+#                     if worker_subscription.date_end <= datetime.now() + timedelta(days=1):
+#                         btn_bonus = False
+#                         if worker_and_ref := await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id):
+#                             if worker_and_ref.worker_bonus:
+#                                 btn_bonus = True
+#                         elif worker_and_ref := await WorkerAndRefsAssociation.get_by_ref(ref_id=worker.tg_id):
+#                             if worker_and_ref.ref_bonus:
+#                                 btn_bonus = True
+#
+#                         try:
+#                             await bot.send_message(chat_id=worker.tg_id, text='У вас в скором времени закончится подписка', reply_markup=kbc.subscription_btn(btn_bonus=btn_bonus))
+#                         except Exception:
+#                             pass
 
 
 async def check_time_customer():
@@ -140,33 +140,43 @@ async def handle_expired_advertisement(advertisement, kbc):
     """Обработка истекшего объявления - автоматическое закрытие"""
     logger.info(f'Handling expired advertisement {advertisement.id}')
     
-    workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=advertisement.id)
     customer = await Customer.get_customer(id=advertisement.customer_id)
     text = help_defs.read_text_file(advertisement.text_path)
 
-    if workers_and_abs:
-        workers_for_assessments = []
-        for worker_and_abs in workers_and_abs:
-            worker = await Worker.get_worker(id=worker_and_abs.worker_id)
-            if worker is None:
-                continue
-            # Когда объявление истекает по сроку - отправляем всем откликнувшимся исполнителям
-            # (исполнитель уже откликнулся, значит город и направление подходят)
+    # Используем ContactExchange для поиска исполнителей, которые купили контакты
+    from app.data.database.models import ContactExchange, WorkerRating
+    contact_exchanges = await ContactExchange.get_by_abs(abs_id=advertisement.id)
+    workers_for_assessments = []
+    
+    if contact_exchanges:
+        for contact_exchange in contact_exchanges:
+            if contact_exchange.contacts_purchased:  # Только те, кто купил контакты
+                worker = await Worker.get_worker(id=contact_exchange.worker_id)
+                if worker:
+                    # Проверяем, не оценен ли уже этот исполнитель
+                    existing_rating = await WorkerRating.get_by_worker_and_abs(contact_exchange.worker_id, advertisement.id)
+                    if not existing_rating:  # Только если еще не оценен
+                        workers_for_assessments.append(worker)
+        
+        # Отправляем уведомления всем исполнителям (независимо от покупки контактов)
+        workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=advertisement.id)
+        if workers_and_abs:
             city = await City.get_city(id=advertisement.city_id)
-            text = f'Объявление {advertisement.id} г. {city.city}\n' + help_defs.read_text_file(
+            text_for_workers = f'Объявление #{advertisement.id} г. {city.city}\n' + help_defs.read_text_file(
                 advertisement.text_path)
-            try:
-                await bot.send_message(chat_id=worker.tg_id,
-                                       text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text}')
-            except Exception:
-                pass
-            if worker_and_abs.applyed:
-                workers_for_assessments.append(worker)
-            await worker_and_abs.delete()
+            for worker_and_abs in workers_and_abs:
+                worker = await Worker.get_worker(id=worker_and_abs.worker_id)
+                if worker:
+                    try:
+                        await bot.send_message(chat_id=worker.tg_id,
+                                               text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text_for_workers}')
+                    except Exception:
+                        pass
+                await worker_and_abs.delete()
 
         if workers_for_assessments:
             names = [
-                f'Исполнитель ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
+                f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
                 for worker in workers_for_assessments]
             ids = [worker.id for worker in workers_for_assessments]
 
@@ -175,10 +185,10 @@ async def handle_expired_advertisement(advertisement, kbc):
                     chat_id=customer.tg_id,
                     text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
                          f'{text}\n\n'
-                         f'Выберите исполнителя для оценки',
+                         f'Выберите исполнителей для оценки:',
                     reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement.id)
                 )
-                # НЕ удаляем объявление сразу - удалим после оценки
+                # НЕ удаляем объявление сразу - удалим после оценки всех исполнителей
                 return  # Выходим из функции, не удаляя объявление
             except Exception as e:
                 logger.info(e)
@@ -391,15 +401,15 @@ async def check_worker_statuses():
                         worker = await Worker.get_worker(id=status.worker_id)
                         if worker:
                             notification_text = (
-                                f"⚠️ **Уведомление о статусе**\n\n"
-                                f"Ваш статус **{revoked_status_name}** больше не действителен.\n\n"
-                                f"Статус изменен на: **Статус не подтвержден ⚠️**\n\n"
+                                f"⚠️ <b>Уведомление о статусе</b>\n\n"
+                                f"Ваш статус <b>{revoked_status_name}</b> больше не действителен.\n\n"
+                                f"Статус изменен на: <b>Статус не подтвержден ⚠️</b>\n\n"
                                 f"Вы можете подтвердить статус заново в разделе 'Статус' вашего профиля."
                             )
                             await bot.send_message(
                                 chat_id=worker.tg_id,
                                 text=notification_text,
-                                parse_mode='Markdown'
+                                parse_mode='HTML'
                             )
                             logger.info(f'check_worker_statuses: Notification sent to worker {status.worker_id}')
                     except Exception as notify_error:
@@ -498,13 +508,13 @@ async def update_worker_ranks():
                                     new_rank_emoji = new_rank.get_rank_emoji()
                                     
                                     notification_text = (
-                                        f"⚠️ **Изменение ранга**\n\n"
+                                        f"⚠️ <b>Изменение ранга</b>\n\n"
                                         f"Ваш ранг изменился:\n"
-                                        f"{old_rank_emoji} **{old_rank_name}** → {new_rank_emoji} **{new_rank_name}**\n\n"
-                                        f"📊 **Изменение лимита направлений:**\n"
-                                        f"Было доступно: **{old_work_types_limit if old_work_types_limit else 'без ограничений'}**\n"
-                                        f"Стало доступно: **{new_work_types_limit}**\n\n"
-                                        f"❌ **Ваши направления были сброшены:**\n"
+                                        f"{old_rank_emoji} <b>{old_rank_name}</b> → {new_rank_emoji} <b>{new_rank_name}</b>\n\n"
+                                        f"📊 <b>Изменение лимита направлений:</b>\n"
+                                        f"Было доступно: <b>{old_work_types_limit if old_work_types_limit else 'без ограничений'}</b>\n"
+                                        f"Стало доступно: <b>{new_work_types_limit}</b>\n\n"
+                                        f"❌ <b>Ваши направления были сброшены:</b>\n"
                                     )
                                     
                                     for i, wt_name in enumerate(old_work_types_names, 1):
@@ -512,7 +522,7 @@ async def update_worker_ranks():
                                     
                                     notification_text += (
                                         f"\n💡 Вам нужно выбрать до {new_work_types_limit} направлений заново.\n"
-                                        f"Нажмите **ОК**, чтобы перейти к выбору направлений."
+                                        f"Нажмите <b>ОК</b>, чтобы перейти к выбору направлений."
                                     )
                                     
                                     # Создаем кнопку "ОК" которая перенаправит в раздел "Мои направления"
@@ -523,7 +533,7 @@ async def update_worker_ranks():
                                         chat_id=worker.tg_id,
                                         text=notification_text,
                                         reply_markup=builder.as_markup(),
-                                        parse_mode='Markdown'
+                                        parse_mode='HTML'
                                     )
                                     
                                     logger.info(f'update_worker_ranks: Sent rank downgrade notification to worker {worker.id}')
@@ -541,12 +551,12 @@ async def update_worker_ranks():
                                 new_rank_emoji = new_rank.get_rank_emoji()
                                 
                                 notification_text = (
-                                    f"⚠️ **Изменение ранга**\n\n"
+                                    f"⚠️ <b>Изменение ранга</b>\n\n"
                                     f"Ваш ранг изменился:\n"
-                                    f"{old_rank_emoji} **{old_rank_name}** → {new_rank_emoji} **{new_rank_name}**\n\n"
-                                    f"📊 **Изменение лимита направлений:**\n"
-                                    f"Было доступно: **{old_work_types_limit if old_work_types_limit else 'без ограничений'}**\n"
-                                    f"Стало доступно: **{new_work_types_limit}**\n\n"
+                                    f"{old_rank_emoji} <b>{old_rank_name}</b> → {new_rank_emoji} <b>{new_rank_name}</b>\n\n"
+                                    f"📊 <b>Изменение лимита направлений:</b>\n"
+                                    f"Было доступно: <b>{old_work_types_limit if old_work_types_limit else 'без ограничений'}</b>\n"
+                                    f"Стало доступно: <b>{new_work_types_limit}</b>\n\n"
                                 )
                                 
                                 if current_work_types_count > 0:
@@ -559,9 +569,9 @@ async def update_worker_ranks():
                                             current_work_types_names.append(work_type.work_type)
                                     
                                     notification_text += (
-                                        f"✅ **Ваши направления сохранены:**\n"
-                                        f"У вас было выбрано **{current_work_types_count}** направлений, "
-                                        f"что в рамках нового лимита (**{new_work_types_limit}**).\n\n"
+                                        f"✅ <b>Ваши направления сохранены:</b>\n"
+                                        f"У вас было выбрано <b>{current_work_types_count}</b> направлений, "
+                                        f"что в рамках нового лимита (<b>{new_work_types_limit}</b>).\n\n"
                                     )
                                     
                                     for i, wt_name in enumerate(current_work_types_names, 1):
@@ -571,7 +581,7 @@ async def update_worker_ranks():
                                     remaining_slots = new_work_types_limit - current_work_types_count
                                     if remaining_slots > 0:
                                         notification_text += (
-                                            f"\n💡 Вы можете выбрать еще **{remaining_slots}** "
+                                            f"\n💡 Вы можете выбрать еще <b>{remaining_slots}</b> "
                                             f"{'направление' if remaining_slots == 1 else 'направления' if remaining_slots < 5 else 'направлений'}.\n"
                                             f"Перейдите в раздел 'Мои направления' для изменения."
                                         )
@@ -582,7 +592,7 @@ async def update_worker_ranks():
                                 else:
                                     notification_text += (
                                         f"💡 У вас нет выбранных направлений.\n"
-                                        f"Вы можете выбрать до **{new_work_types_limit}** "
+                                        f"Вы можете выбрать до <b>{new_work_types_limit}</b> "
                                         f"{'направление' if new_work_types_limit == 1 else 'направления' if new_work_types_limit < 5 else 'направлений'}.\n"
                                         f"Перейдите в раздел 'Мои направления' для выбора."
                                     )
@@ -591,7 +601,7 @@ async def update_worker_ranks():
                                 await bot.send_message(
                                     chat_id=worker.tg_id,
                                     text=notification_text,
-                                    parse_mode='Markdown'
+                                    parse_mode='HTML'
                                 )
                                 
                                 logger.info(f'update_worker_ranks: Sent rank downgrade info (no reset) to worker {worker.id}')

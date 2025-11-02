@@ -14,7 +14,7 @@ DEBUG_MODE = os.getenv('DEBUG_MODE', 'False').lower() in ('true', '1', 'yes')
 PAYMENTS = os.getenv('PAYMENTS', 'DISABLED')
 
 # ID чатов
-BLOCKED_CHAT = int(os.getenv('BLOCKED_CHAT', '-4965406464'))
+BLOCKED_CHAT = int(os.getenv('BLOCKED_CHAT', '-4812922202'))
 SUPPORT_CHAT = int(os.getenv('SUPPORT_CHAT', '-4897467103'))
 ADVERTISEMENT_LOG = int(os.getenv('ADVERTISEMENT_LOG', '-4835007907'))
 MESSAGE_LOG = int(os.getenv('MESSAGE_LOG', '-4887694437'))

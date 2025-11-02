@@ -107,7 +107,7 @@ async def close_task(workers_and_abs, advertisement_now, workers_for_assessments
             continue
         # Когда заказчик закрывает объявление - всегда отправляем уведомление всем откликнувшимся
         city = await City.get_city(id=advertisement_now.city_id)
-        text = f'Заказчик закрыл объявление {advertisement_now.id}\nг. {city.city}\n' + help_defs.read_text_file(
+        text = f'Заказчик закрыл объявление #{advertisement_now.id}\nг. {city.city}\n' + help_defs.read_text_file(
             advertisement_now.text_path)
 
         try:

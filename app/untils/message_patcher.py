@@ -83,21 +83,21 @@ def apply_patches():
     logger.info("Applied monkey patches for automatic message ID saving")
 
 
-def remove_patches():
-    """Удаляет патчи"""
-    Bot.send_message = _original_send_message
-    
-    from aiogram.types import Message
-    if hasattr(Message, '_original_answer'):
-        Message.answer = Message._original_answer
-        del Message._original_answer
-    
-    if hasattr(Message, '_original_answer_photo'):
-        Message.answer_photo = Message._original_answer_photo
-        del Message._original_answer_photo
-    
-    if hasattr(Message, '_original_answer_video'):
-        Message.answer_video = Message._original_answer_video
-        del Message._original_answer_video
-    
-    logger.info("Removed monkey patches")
+# def remove_patches():
+#     """Удаляет патчи"""
+#     Bot.send_message = _original_send_message
+#
+#     from aiogram.types import Message
+#     if hasattr(Message, '_original_answer'):
+#         Message.answer = Message._original_answer
+#         del Message._original_answer
+#
+#     if hasattr(Message, '_original_answer_photo'):
+#         Message.answer_photo = Message._original_answer_photo
+#         del Message._original_answer_photo
+#
+#     if hasattr(Message, '_original_answer_video'):
+#         Message.answer_video = Message._original_answer_video
+#         del Message._original_answer_video
+#
+#     logger.info("Removed monkey patches")

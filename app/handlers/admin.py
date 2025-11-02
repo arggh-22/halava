@@ -9,7 +9,6 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message, InputMediaPhoto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.utils.markdown import link
 
 # Импорт вспомогательных модулей и компонентов из приложения
 from app.data.database.models import (
@@ -27,13 +26,13 @@ router.message.filter(F.from_user.id != F.bot.id)
 logger = logging.getLogger()
 
 # Simple in-memory cache for admin summary
-_admin_summary_cache = {"data": None, "ts": 0.0, "ttl": 60.0}  # Кеш на 30 секунд
+_admin_summary_cache = {"data": {}, "ts": 0.0, "ttl": 60.0}  # Кеш на 30 секунд
 
 
 def clear_admin_cache():
     """Очищает кеш админской аналитики"""
     global _admin_summary_cache
-    _admin_summary_cache = {"data": None, "ts": 0.0, "ttl": 60.0}
+    _admin_summary_cache = {"data": {}, "ts": 0.0, "ttl": 60.0}
 
 
 def is_cache_valid():
@@ -44,176 +43,176 @@ def is_cache_valid():
             current_time - _admin_summary_cache["ts"] < _admin_summary_cache["ttl"])
 
 
-@router.callback_query(F.data == 'menu', StateFilter(AdminStates.menu, UserStates.menu, AdminStates.edit_stop_words,
-                                                     AdminStates.unblock_user, AdminStates.block_user,
-                                                     AdminStates.check_subscription, AdminStates.edit_subscription,
-                                                     AdminStates.get_customer, AdminStates.get_worker,
-                                                     AdminStates.check_abs, AdminStates.check_banned_abs,
-                                                     AdminStates.get_user, AdminStates.send_to_user,
-                                                     AdminStates.manage_contact_tariffs, AdminStates.view_contact_tariff,
-                                                     AdminStates.edit_contact_tariff_name, AdminStates.edit_contact_tariff_price,
-                                                     AdminStates.edit_contact_tariff_contacts_count, AdminStates.edit_contact_tariff_unlimited_days,
-                                                     AdminStates.add_contact_tariff_type, AdminStates.add_contact_tariff_name,
-                                                     AdminStates.add_contact_tariff_contacts_count, AdminStates.add_contact_tariff_price,
-                                                     AdminStates.add_contact_tariff_unlimited_days,
-                                                     AdminStates.manage_city_tariffs, AdminStates.view_city_tariff,
-                                                     AdminStates.edit_city_tariff_price, AdminStates.add_city_tariff_count,
-                                                     AdminStates.add_city_tariff_price, AdminStates.manage_city_discounts,
-                                                     AdminStates.view_city_discount, AdminStates.edit_city_discount_percent,
-                                                     AdminStates.add_city_discount_months, AdminStates.add_city_discount_percent))
-async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.debug('admin_menu...')
-    kbc = KeyboardCollection()
-
-    # Проверяем кеш
-    if is_cache_valid():
-        # Используем данные из кеша
-        cached_data = _admin_summary_cache["data"]
-        len_users = cached_data.get("len_users", 0)
-        len_customer = cached_data.get("len_customer", 0)
-        len_worker = cached_data.get("len_worker", 0)
-        len_banned_users = cached_data.get("len_banned_users", 0)
-        len_advertisement = cached_data.get("len_advertisement", 0)
-        len_banned_advertisement = cached_data.get("len_banned_advertisement", 0)
-
-        # Проверяем наличие admin в кеше, если нет - загружаем заново
-        if "admin" in cached_data:
-            admin = cached_data["admin"]
-        else:
-            admin = await Admin.get_by_tg_id(callback.message.chat.id)
-
-        # Получаем данные админа из кеша или загружаем заново
-        deleted_abs = cached_data.get("deleted_abs", admin.deleted_abs if admin else 0)
-        done_abs = cached_data.get("done_abs", admin.done_abs if admin else 0)
-
-        logger.debug('Using cached admin summary data')
-    else:
-        # Загружаем свежие данные
-        logger.debug('Loading fresh admin summary data')
-        try:
-            # Получаем админа
-            admin = await Admin.get_by_tg_id(callback.message.chat.id)
-            logger.debug(f"Admin loaded: {admin.id if admin else 'None'}")
-
-            # Используем оптимизированные COUNT запросы вместо загрузки всех данных
-            import aiosqlite
-
-            async with aiosqlite.connect(database='app/data/database/database.db') as conn:
-                logger.debug("Connected to database")
-
-                # Подсчет заказчиков (проверяем существование таблицы)
-                try:
-                    cursor = await conn.execute('SELECT COUNT(*) FROM customers')
-                    len_customer = (await cursor.fetchone())[0]
-                    logger.debug(f"Customers count: {len_customer}")
-                except Exception as e:
-                    logger.warning(f"Таблица customers не найдена: {e}")
-                    len_customer = 0
-
-                # Подсчет исполнителей (проверяем существование таблицы)
-                try:
-                    cursor = await conn.execute('SELECT COUNT(*) FROM workers')
-                    len_worker = (await cursor.fetchone())[0]
-                    logger.debug(f"Workers count: {len_worker}")
-                except Exception as e:
-                    logger.warning(f"Таблица workers не найдена: {e}")
-                    len_worker = 0
-
-                # Подсчет уникальных пользователей (заказчики, которые не являются исполнителями)
-                try:
-                    cursor = await conn.execute('''
-                                                SELECT COUNT(*)
-                                                FROM customers c
-                                                WHERE c.tg_id NOT IN
-                                                      (SELECT w.tg_id FROM workers w WHERE w.tg_id IS NOT NULL)
-                                                ''')
-                    unique_customers = (await cursor.fetchone())[0]
-                    len_users = len_worker + unique_customers
-                    logger.debug(f"Unique customers: {unique_customers}, Total users: {len_users}")
-                except Exception as e:
-                    logger.warning(f"Ошибка при подсчете уникальных пользователей: {e}")
-                    len_users = len_worker + len_customer
-
-                # Подсчет заблокированных пользователей (проверяем существование таблицы)
-                try:
-                    cursor = await conn.execute('''
-                                                SELECT COUNT(*)
-                                                FROM banned
-                                                WHERE ban_now = 1
-                                                   OR forever = 1
-                                                ''')
-                    len_banned_users = (await cursor.fetchone())[0]
-                    logger.debug(f"Banned users count: {len_banned_users}")
-                except Exception as e:
-                    logger.warning(f"Таблица banned не найдена: {e}")
-                    len_banned_users = 0
-
-                # Подсчет объявлений (проверяем существование таблицы)
-                try:
-                    cursor = await conn.execute('SELECT COUNT(*) FROM abs')
-                    len_advertisement = (await cursor.fetchone())[0]
-                    logger.debug(f"Ads count: {len_advertisement}")
-                except Exception as e:
-                    logger.warning(f"Таблица abs не найдена: {e}")
-                    len_advertisement = 0
-
-                # Подсчет заблокированных объявлений (проверяем существование таблицы)
-                try:
-                    cursor = await conn.execute('SELECT COUNT(*) FROM banned_abs')
-                    len_banned_advertisement = (await cursor.fetchone())[0]
-                    logger.debug(f"Banned ads count: {len_banned_advertisement}")
-                except Exception as e:
-                    logger.warning(f"Таблица banned_abs не найдена: {e}")
-                    len_banned_advertisement = 0
-
-                await cursor.close()
-                logger.debug("Database connection closed")
-
-        except Exception as e:
-            logger.error(f"Ошибка при загрузке аналитики: {e}")
-            logger.error(f"Тип ошибки: {type(e).__name__}")
-            logger.error(f"Детали ошибки: {str(e)}")
-
-            # В случае ошибки, не используем кеш и загружаем данные заново
-            clear_admin_cache()
-
-            # Fallback к простым значениям в случае ошибки
-            len_users = 0
-            len_customer = 0
-            len_worker = 0
-            len_banned_users = 0
-            len_advertisement = 0
-            len_banned_advertisement = 0
-            admin = await Admin.get_by_tg_id(callback.message.chat.id)
-
-        # Сохраняем в кеш
-        import time
-        _admin_summary_cache["data"] = {
-            "len_users": len_users,
-            "len_customer": len_customer,
-            "len_worker": len_worker,
-            "len_banned_users": len_banned_users,
-            "len_advertisement": len_advertisement,
-            "len_banned_advertisement": len_banned_advertisement,
-            "admin": admin,
-            "deleted_abs": admin.deleted_abs if admin else 0,
-            "done_abs": admin.done_abs if admin else 0
-        }
-        _admin_summary_cache["ts"] = time.time()
-
-    text = (f'Меню\n\n'
-            f'Всего пользователей: {len_users}\n'
-            f'Заказчиков: {len_customer}\n'
-            f'Исполнителей: {len_worker}\n'
-            f'Заблокировано: {len_banned_users}\n'
-            f'Размещено объявлений: {len_advertisement}\n'
-            f'Заблокировано объявлений: {len_banned_advertisement}\n'
-            f'Удалено объявлений: {admin.deleted_abs}\n'
-            f'Выполнено объявлений: {admin.done_abs}\n')
-
-    await state.set_state(AdminStates.menu)
-    await callback.message.delete()
-    await callback.message.answer(text=text, reply_markup=kbc.menu_admin_keyboard())
+# @router.callback_query(F.data == 'menu', StateFilter(AdminStates.menu, UserStates.menu, AdminStates.edit_stop_words,
+#                                                      AdminStates.unblock_user, AdminStates.block_user,
+#                                                      AdminStates.check_subscription, AdminStates.edit_subscription,
+#                                                      AdminStates.get_customer, AdminStates.get_worker,
+#                                                      AdminStates.check_abs, AdminStates.check_banned_abs,
+#                                                      AdminStates.get_user, AdminStates.send_to_user,
+#                                                      AdminStates.manage_contact_tariffs, AdminStates.view_contact_tariff,
+#                                                      AdminStates.edit_contact_tariff_name, AdminStates.edit_contact_tariff_price,
+#                                                      AdminStates.edit_contact_tariff_contacts_count, AdminStates.edit_contact_tariff_unlimited_days,
+#                                                      AdminStates.add_contact_tariff_type, AdminStates.add_contact_tariff_name,
+#                                                      AdminStates.add_contact_tariff_contacts_count, AdminStates.add_contact_tariff_price,
+#                                                      AdminStates.add_contact_tariff_unlimited_days,
+#                                                      AdminStates.manage_city_tariffs, AdminStates.view_city_tariff,
+#                                                      AdminStates.edit_city_tariff_price, AdminStates.add_city_tariff_count,
+#                                                      AdminStates.add_city_tariff_price, AdminStates.manage_city_discounts,
+#                                                      AdminStates.view_city_discount, AdminStates.edit_city_discount_percent,
+#                                                      AdminStates.add_city_discount_months, AdminStates.add_city_discount_percent))
+# async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
+#     logger.debug('admin_menu...')
+#     kbc = KeyboardCollection()
+#
+#     # Проверяем кеш
+#     if is_cache_valid():
+#         # Используем данные из кеша
+#         cached_data = _admin_summary_cache.get("data", {})
+#         len_users = cached_data.get("len_users", 0)
+#         len_customer = cached_data.get("len_customer", 0)
+#         len_worker = cached_data.get("len_worker", 0)
+#         len_banned_users = cached_data.get("len_banned_users", 0)
+#         len_advertisement = cached_data.get("len_advertisement", 0)
+#         len_banned_advertisement = cached_data.get("len_banned_advertisement", 0)
+#
+#         # Проверяем наличие admin в кеше, если нет - загружаем заново
+#         if "admin" in cached_data:
+#             admin = cached_data["admin"]
+#         else:
+#             admin = await Admin.get_by_tg_id(callback.message.chat.id)
+#
+#         # Получаем данные админа из кеша или загружаем заново
+#         deleted_abs = cached_data.get("deleted_abs", admin.deleted_abs if admin else 0)
+#         done_abs = cached_data.get("done_abs", admin.done_abs if admin else 0)
+#
+#         logger.debug('Using cached admin summary data')
+#     else:
+#         # Загружаем свежие данные
+#         logger.debug('Loading fresh admin summary data')
+#         try:
+#             # Получаем админа
+#             admin = await Admin.get_by_tg_id(callback.message.chat.id)
+#             logger.debug(f"Admin loaded: {admin.id if admin else 'None'}")
+#
+#             # Используем оптимизированные COUNT запросы вместо загрузки всех данных
+#             import aiosqlite
+#
+#             async with aiosqlite.connect(database='app/data/database/database.db') as conn:
+#                 logger.debug("Connected to database")
+#
+#                 # Подсчет заказчиков (проверяем существование таблицы)
+#                 try:
+#                     cursor = await conn.execute('SELECT COUNT(*) FROM customers')
+#                     len_customer = (await cursor.fetchone())[0]
+#                     logger.debug(f"Customers count: {len_customer}")
+#                 except Exception as e:
+#                     logger.warning(f"Таблица customers не найдена: {e}")
+#                     len_customer = 0
+#
+#                 # Подсчет исполнителей (проверяем существование таблицы)
+#                 try:
+#                     cursor = await conn.execute('SELECT COUNT(*) FROM workers')
+#                     len_worker = (await cursor.fetchone())[0]
+#                     logger.debug(f"Workers count: {len_worker}")
+#                 except Exception as e:
+#                     logger.warning(f"Таблица workers не найдена: {e}")
+#                     len_worker = 0
+#
+#                 # Подсчет уникальных пользователей (заказчики, которые не являются исполнителями)
+#                 try:
+#                     cursor = await conn.execute('''
+#                                                 SELECT COUNT(*)
+#                                                 FROM customers c
+#                                                 WHERE c.tg_id NOT IN
+#                                                       (SELECT w.tg_id FROM workers w WHERE w.tg_id IS NOT NULL)
+#                                                 ''')
+#                     unique_customers = (await cursor.fetchone())[0]
+#                     len_users = len_worker + unique_customers
+#                     logger.debug(f"Unique customers: {unique_customers}, Total users: {len_users}")
+#                 except Exception as e:
+#                     logger.warning(f"Ошибка при подсчете уникальных пользователей: {e}")
+#                     len_users = len_worker + len_customer
+#
+#                 # Подсчет заблокированных пользователей (проверяем существование таблицы)
+#                 # try:
+#                 #     cursor = await conn.execute('''
+#                 #                                 SELECT COUNT(*)
+#                 #                                 FROM banned
+#                 #                                 WHERE ban_now = 1
+#                 #                                    OR forever = 1
+#                 #                                 ''')
+#                 #     len_banned_users = (await cursor.fetchone())[0]
+#                 #     logger.debug(f"Banned users count: {len_banned_users}")
+#                 # except Exception as e:
+#                 #     logger.warning(f"Таблица banned не найдена: {e}")
+#                 #     len_banned_users = 0
+#
+#                 # Подсчет объявлений (проверяем существование таблицы)
+#                 try:
+#                     cursor = await conn.execute('SELECT COUNT(*) FROM abs')
+#                     len_advertisement = (await cursor.fetchone())[0]
+#                     logger.debug(f"Ads count: {len_advertisement}")
+#                 except Exception as e:
+#                     logger.warning(f"Таблица abs не найдена: {e}")
+#                     len_advertisement = 0
+#
+#                 # Подсчет заблокированных объявлений (проверяем существование таблицы)
+#                 try:
+#                     cursor = await conn.execute('SELECT COUNT(*) FROM banned_abs')
+#                     len_banned_advertisement = (await cursor.fetchone())[0]
+#                     logger.debug(f"Banned ads count: {len_banned_advertisement}")
+#                 except Exception as e:
+#                     logger.warning(f"Таблица banned_abs не найдена: {e}")
+#                     len_banned_advertisement = 0
+#
+#                 await cursor.close()
+#                 logger.debug("Database connection closed")
+#
+#         except Exception as e:
+#             logger.error(f"Ошибка при загрузке аналитики: {e}")
+#             logger.error(f"Тип ошибки: {type(e).__name__}")
+#             logger.error(f"Детали ошибки: {str(e)}")
+#
+#             # В случае ошибки, не используем кеш и загружаем данные заново
+#             clear_admin_cache()
+#
+#             # Fallback к простым значениям в случае ошибки
+#             len_users = 0
+#             len_customer = 0
+#             len_worker = 0
+#             # len_banned_users = 0
+#             len_advertisement = 0
+#             len_banned_advertisement = 0
+#             admin = await Admin.get_by_tg_id(callback.message.chat.id)
+#
+#         # Сохраняем в кеш
+#         import time
+#         _admin_summary_cache["data"] = {
+#             "len_users": len_users,
+#             "len_customer": len_customer,
+#             "len_worker": len_worker,
+#             # "len_banned_users": len_banned_users,
+#             "len_advertisement": len_advertisement,
+#             "len_banned_advertisement": len_banned_advertisement,
+#             "admin": admin,
+#             "deleted_abs": admin.deleted_abs if admin else 0,
+#             "done_abs": admin.done_abs if admin else 0
+#         }
+#         _admin_summary_cache["ts"] = time.time()
+#
+#     text = (f'Меню\n\n'
+#             f'Всего пользователей: {len_users}\n'
+#             f'Заказчиков: {len_customer}\n'
+#             f'Исполнителей: {len_worker}\n'
+#             # f'Заблокировано: {len_banned_users}\n'
+#             f'Размещено объявлений: {len_advertisement}\n'
+#             f'Заблокировано объявлений: {len_banned_advertisement}\n'
+#             f'Удалено объявлений: {admin.deleted_abs}\n'
+#             f'Выполнено объявлений: {admin.done_abs}\n')
+#
+#     await state.set_state(AdminStates.menu)
+#     await callback.message.delete()
+#     await callback.message.answer(text=text, reply_markup=kbc.menu_admin_keyboard())
 
 
 @router.callback_query(F.data == 'refresh_admin_stats', StateFilter(AdminStates.menu))
@@ -268,160 +267,33 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
 
         # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
-            text=f'✅ **Цена объявлений успешно изменена!**\n\n'
+            text=f'✅ <b>Цена объявлений успешно изменена!</b>\n\n'
                  f'💰 Новая цена: {new_price}₽',
             reply_markup=kbc.admin_back_btn('menu'),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.set_state(AdminStates.menu)
 
     except ValueError as e:
         # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
-            text=f'❌ **Ошибка!**\n\n'
+            text=f'❌ <b>Ошибка!</b>\n\n'
                  f'Пожалуйста, введите корректную цену (положительное число).\n'
                  f'Например: 50, 100, 150',
             reply_markup=kbc.admin_back_btn('menu'),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.set_state(AdminStates.edit_order_price)
     except Exception as e:
         logger.error(f"Ошибка при изменении цены объявлений: {e}")
         # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
-            text='❌ **Произошла ошибка!**\n\n'
+            text='❌ <b>Произошла ошибка!</b>\n\n'
                  'Попробуйте еще раз или обратитесь к разработчику.',
             reply_markup=kbc.admin_back_btn('menu'),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         await state.set_state(AdminStates.menu)
-
-
-# ЗАКОММЕНТИРОВАНО: Админские функции для управления SubscriptionType
-# TODO: Удалить после рефакторинга или реализовать новую систему
-# @router.callback_query(F.data == 'edit_subscription', StateFilter(AdminStates.menu))
-# async def edit_subscription(callback: CallbackQuery, state: FSMContext) -> None:
-#     logger.debug('block_user...')
-#     kbc = KeyboardCollection()
-# 
-#     text = f'Выберите подписку:'
-# 
-#     await state.set_state(AdminStates.check_subscription)
-# 
-#     subscriptions = await SubscriptionType.get_all()
-#     subscriptions_ids = [sub.id for sub in subscriptions[1::]]
-#     subscriptions_names = [sub.subscription_type for sub in subscriptions[1::]]
-#     await callback.message.answer(text=text,
-#                                      reply_markup=kbc.choose_worker_subscription(
-#                                          subscriptions_ids=subscriptions_ids,
-#                                          subscriptions_names=subscriptions_names)
-#                                      )
-# 
-# 
-# @router.callback_query(lambda c: c.data.startswith('subscription_'), AdminStates.check_subscription)
-# async def check_subscription(callback: CallbackQuery) -> None:
-#     logger.debug(f'check_subscription...')
-#     sub_id = int(callback.data.split('_')[1])
-#     kbc = KeyboardCollection()
-#     subscription = await SubscriptionType.get_subscription_type(id=sub_id)
-#     subscriptions = await SubscriptionType.get_all()
-#     subscriptions_ids = [sub.id for sub in subscriptions[1::]]
-#     subscriptions_ids.remove(sub_id)
-#     subscriptions_names = [sub.subscription_type for sub in subscriptions[1::]]
-#     subscriptions_names.remove(subscription.subscription_type)
-# 
-#     text = (f'Тариф <b>{subscription.subscription_type.capitalize()}</b>\n'
-#             f'Количество откликов: {"неограниченно" if subscription.unlimited else subscription.count_guaranteed_orders}\n'
-#             f'Количество доступных направлений: {"неограниченно" if subscription.count_work_types == 100 else str(subscription.count_work_types) + " из 18"}\n'
-#             f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'
-#             f'Цена: {subscription.price} ₽\n')
-# 
-#     await callback.message.answer(text=text,
-#                                      reply_markup=kbc.admin_edit_subscription(
-#                                          sub_id=subscription.id),
-#                                      parse_mode='HTML'
-#                                      )
-# 
-# 
-# @router.callback_query(lambda c: c.data.startswith('edit-price-sub_'), AdminStates.check_subscription)
-# async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None:
-#     logger.debug(f'check_subscription_price...')
-#     subscription_id = int(callback.data.split('_')[1])
-#     kbc = KeyboardCollection()
-#     subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-# 
-#     text = f'Текущая цена: {subscription.price}\n\nВведите цену:'
-# 
-#     msg = await callback.message.answer(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
-#     await state.set_state(AdminStates.edit_subscription_price)
-#     await state.update_data(subscription_id=subscription_id)
-#     await state.update_data(msg_id=msg.message_id)
-# 
-# 
-# @router.message(F.text, StateFilter(AdminStates.edit_subscription_price))
-# async def edit_price_subscription(message: Message, state: FSMContext) -> None:
-#     logger.debug(f'check_subscription_price...')
-#     kbc = KeyboardCollection()
-# 
-#     state_data = await state.get_data()
-#     subscription_id = int(state_data.get('subscription_id'))
-#     # msg_id = int(state_data.get('msg_id'))
-# 
-#     try:
-#         price = int(message.text)
-#     except Exception:
-#         # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-#         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
-#         await state.update_data(msg_id=msg.message_id)
-#         return
-# 
-#     subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-#     await subscription.update(price=price)
-# 
-#     await state.set_state(AdminStates.menu)
-#     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-#     await message.answer('Цена изменена!', reply_markup=kbc.admin_back_btn('edit_subscription'))
-# 
-# 
-# @router.callback_query(lambda c: c.data.startswith('edit-orders-sub_'), AdminStates.check_subscription)
-# async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None:
-#     logger.debug(f'check_subscription_order...')
-#     subscription_id = int(callback.data.split('_')[1])
-#     kbc = KeyboardCollection()
-#     subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-# 
-#     text = f'Текущее количество откликов: {subscription.count_guaranteed_orders if subscription.id != 6 else "бесконечно"}\n\nВведите новое количество:'
-# 
-#     msg = await callback.message.answer(text=text, reply_markup=kbc.menu(), parse_mode='HTML')
-#     await state.set_state(AdminStates.edit_subscription_order)
-#     await state.update_data(subscription_id=subscription_id)
-#     await state.update_data(msg_id=msg.message_id)
-# 
-# 
-# @router.message(F.text, StateFilter(AdminStates.edit_subscription_order))
-# async def edit_price_subscription(message: Message, state: FSMContext) -> None:
-#     logger.debug(f'check_subscription_order...')
-#     kbc = KeyboardCollection()
-# 
-#     state_data = await state.get_data()
-#     subscription_id = int(state_data.get('subscription_id'))
-#     # msg_id = int(state_data.get('msg_id'))
-# 
-#     try:
-#         orders = int(message.text)
-#     except Exception:
-#         # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-#         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
-#         await state.update_data(msg_id=msg.message_id)
-#         return
-# 
-#     subscription = await SubscriptionType.get_subscription_type(id=subscription_id)
-#     if subscription.id != 6:
-#         await subscription.update(count_guaranteed_orders=orders)
-
-#     await state.set_state(AdminStates.menu)
-#     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-#     await message.answer('Количество откликов изменено!', reply_markup=kbc.admin_back_btn('edit_subscription'))
 
 
 @router.callback_query(F.data == 'edit_user', StateFilter(AdminStates.menu))
@@ -511,7 +383,7 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
 
     if user_blocked := await Banned.get_banned(tg_id=user_id):
         if user_blocked.ban_now or user_blocked.forever:
-            text += '*Пользователь заблокирован*\n\n'
+            text += '<i>Пользователь заблокирован</i>\n\n'
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
@@ -530,7 +402,7 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
             city = await City.get_city(id=city_id)
             cites += f'{step}{city.city}\n'
 
-        text += (f'*Профиль исполнителя*\n\n'
+        text += (f'<i>Профиль исполнителя</i>\n\n'
                  f'ID: {worker.id}  {"✅" if worker.confirmed else "☑️"}\n'
                  f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
                  f'Общий ID исполнителя: {worker.tg_id}\n'
@@ -550,7 +422,7 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
             text += f'\n\n'
         city = await City.get_city(id=customer.city_id)
         user_abs = await Abs.get_all_by_customer(customer.id)
-        text += ('*Профиль заказчика*\n\n'
+        text += ('<i>Профиль заказчика</i>\n\n'
                  f'ID: {customer.id}\n'
                  f'Общий ID: {customer.tg_id}\n'
                  f'Город заказчика: {city.city}\n'
@@ -565,7 +437,7 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
             if worker.profile_photo:
                 try:
                     await callback.message.delete()
-                except Exception:
+                except TelegramBadRequest:
                     pass
                 await callback.message.answer_photo(caption=text, photo=FSInputFile(worker.profile_photo),
                                                     protect_content=False,
@@ -1056,7 +928,7 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
         btn_next = False
 
     text = help_defs.read_text_file(abs_now.text_path)
-    text = f'Объявление {abs_now.id}\n\n' + text
+    text = f'Объявление #{abs_now.id}\n\n' + text
 
     if abs_now.photo_path:
         try:
@@ -1238,12 +1110,17 @@ async def menu_send_msg_admin_keyboard(callback: CallbackQuery, state: FSMContex
 
 
 @router.callback_query(F.data == 'menu_admin', StateFilter(AdminStates.menu, UserStates.menu, BannedStates.banned,
-                                                             AdminStates.manage_contact_tariffs, AdminStates.view_contact_tariff,
-                                                             AdminStates.add_contact_tariff_type,
-                                                             AdminStates.manage_city_tariffs, AdminStates.view_city_tariff,
-                                                             AdminStates.manage_city_discounts, AdminStates.view_city_discount,
-                                                             AdminStates.add_city_tariff_count, AdminStates.add_city_tariff_price,
-                                                             AdminStates.add_city_discount_months, AdminStates.add_city_discount_percent))
+                                                           AdminStates.manage_contact_tariffs,
+                                                           AdminStates.view_contact_tariff,
+                                                           AdminStates.add_contact_tariff_type,
+                                                           AdminStates.manage_city_tariffs,
+                                                           AdminStates.view_city_tariff,
+                                                           AdminStates.manage_city_discounts,
+                                                           AdminStates.view_city_discount,
+                                                           AdminStates.add_city_tariff_count,
+                                                           AdminStates.add_city_tariff_price,
+                                                           AdminStates.add_city_discount_months,
+                                                           AdminStates.add_city_discount_percent))
 async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug('admin_menu...')
     kbc = KeyboardCollection()
@@ -1611,7 +1488,7 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    text = f'Объявление {abs_now.id}\n\n' + text
+    text = f'Объявление #{abs_now.id}\n\n' + text
     if abs_now.photo_path:
         try:
             await callback.message.delete()
@@ -1825,7 +1702,7 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
             # Отправляем уведомление всем откликнувшимся исполнителям
             # (исполнитель уже откликнулся, значит город и направление подходят)
             try:
-                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление {advertisement.id} неактуально')
+                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление #{advertisement.id} неактуально')
             except Exception:
                 pass
             await worker_and_abs.delete()
@@ -1967,7 +1844,7 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
             # Отправляем уведомление всем откликнувшимся исполнителям
             # (исполнитель уже откликнулся, значит город и направление подходят)
             try:
-                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление {advertisement.id} неактуально')
+                await bot.send_message(chat_id=worker.tg_id, text=f'Объявление #{advertisement.id} неактуально')
             except Exception:
                 pass
             await worker_and_abs.delete()
@@ -2679,16 +2556,16 @@ async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -
 # ========== УПРАВЛЕНИЕ ТАРИФАМИ КОНТАКТОВ ==========
 
 @router.callback_query(F.data == 'manage_contact_tariffs', StateFilter(AdminStates.menu,
-                                                                        AdminStates.view_contact_tariff,
-                                                                        AdminStates.edit_contact_tariff_name,
-                                                                        AdminStates.edit_contact_tariff_price,
-                                                                        AdminStates.edit_contact_tariff_contacts_count,
-                                                                        AdminStates.edit_contact_tariff_unlimited_days,
-                                                                        AdminStates.add_contact_tariff_type,
-                                                                        AdminStates.add_contact_tariff_name,
-                                                                        AdminStates.add_contact_tariff_contacts_count,
-                                                                        AdminStates.add_contact_tariff_price,
-                                                                        AdminStates.add_contact_tariff_unlimited_days))
+                                                                       AdminStates.view_contact_tariff,
+                                                                       AdminStates.edit_contact_tariff_name,
+                                                                       AdminStates.edit_contact_tariff_price,
+                                                                       AdminStates.edit_contact_tariff_contacts_count,
+                                                                       AdminStates.edit_contact_tariff_unlimited_days,
+                                                                       AdminStates.add_contact_tariff_type,
+                                                                       AdminStates.add_contact_tariff_name,
+                                                                       AdminStates.add_contact_tariff_contacts_count,
+                                                                       AdminStates.add_contact_tariff_price,
+                                                                       AdminStates.add_contact_tariff_unlimited_days))
 async def manage_contact_tariffs(callback: CallbackQuery, state: FSMContext) -> None:
     """Главное меню управления тарифами контактов"""
     logger.debug('manage_contact_tariffs...')
@@ -2707,12 +2584,13 @@ async def manage_contact_tariffs(callback: CallbackQuery, state: FSMContext) -> 
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_view_tariff_'), StateFilter(AdminStates.manage_contact_tariffs, 
-                                                                                      AdminStates.view_contact_tariff,
-                                                                                      AdminStates.edit_contact_tariff_name,
-                                                                                      AdminStates.edit_contact_tariff_price,
-                                                                                      AdminStates.edit_contact_tariff_contacts_count,
-                                                                                      AdminStates.edit_contact_tariff_unlimited_days))
+@router.callback_query(lambda c: c.data.startswith('admin_view_tariff_'),
+                       StateFilter(AdminStates.manage_contact_tariffs,
+                                   AdminStates.view_contact_tariff,
+                                   AdminStates.edit_contact_tariff_name,
+                                   AdminStates.edit_contact_tariff_price,
+                                   AdminStates.edit_contact_tariff_contacts_count,
+                                   AdminStates.edit_contact_tariff_unlimited_days))
 async def admin_view_tariff(callback: CallbackQuery, state: FSMContext) -> None:
     """Просмотр информации о тарифе"""
     logger.debug('admin_view_tariff...')
@@ -2729,7 +2607,7 @@ async def admin_view_tariff(callback: CallbackQuery, state: FSMContext) -> None:
     text = f'💰 <b>Информация о тарифе</b>\n\n'
     text += f'📋 <b>Название:</b> {tariff.name}\n'
     text += f'💵 <b>Цена:</b> {int(price_rub)}₽ ({tariff.price} копеек)\n'
-    
+
     if tariff.unlimited:
         text += f'🔥 <b>Тип:</b> Безлимитный\n'
         text += f'⏰ <b>Срок действия:</b> {tariff.unlimited_days} дней'
@@ -2745,7 +2623,8 @@ async def admin_view_tariff(callback: CallbackQuery, state: FSMContext) -> None:
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_name_'), StateFilter(AdminStates.view_contact_tariff))
+@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_name_'),
+                       StateFilter(AdminStates.view_contact_tariff))
 async def admin_edit_tariff_name_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик начала редактирования названия тарифа"""
     logger.debug('admin_edit_tariff_name_handler...')
@@ -2783,8 +2662,8 @@ async def process_edit_tariff_name(message: Message, state: FSMContext) -> None:
     try:
         new_name = message.text.strip()
         if not new_name or len(new_name) > 100:
-            await message.answer('❌ Название не может быть пустым или длиннее 100 символов', 
-                               reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'))
+            await message.answer('❌ Название не может быть пустым или длиннее 100 символов',
+                                 reply_markup=kbc.admin_back_btn(f'admin_view_tariff_{tariff_id}'))
             return
 
         tariff = await ContactTariff.get_by_id(tariff_id)
@@ -2805,7 +2684,8 @@ async def process_edit_tariff_name(message: Message, state: FSMContext) -> None:
         await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_price_'), StateFilter(AdminStates.view_contact_tariff))
+@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_price_'),
+                       StateFilter(AdminStates.view_contact_tariff))
 async def admin_edit_tariff_price_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик начала редактирования цены тарифа"""
     logger.debug('admin_edit_tariff_price_handler...')
@@ -2845,7 +2725,7 @@ async def process_edit_tariff_price(message: Message, state: FSMContext) -> None
         price_rub = float(message.text.replace(',', '.').strip())
         if price_rub <= 0:
             raise ValueError("Цена должна быть положительным числом")
-        
+
         price_kopecks = int(price_rub * 100)
 
         tariff = await ContactTariff.get_by_id(tariff_id)
@@ -2872,7 +2752,8 @@ async def process_edit_tariff_price(message: Message, state: FSMContext) -> None
         await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_contacts_'), StateFilter(AdminStates.view_contact_tariff))
+@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_contacts_'),
+                       StateFilter(AdminStates.view_contact_tariff))
 async def admin_edit_tariff_contacts_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик начала редактирования количества контактов"""
     logger.debug('admin_edit_tariff_contacts_handler...')
@@ -2940,7 +2821,8 @@ async def process_edit_tariff_contacts(message: Message, state: FSMContext) -> N
         await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_days_'), StateFilter(AdminStates.view_contact_tariff))
+@router.callback_query(lambda c: c.data.startswith('admin_edit_tariff_days_'),
+                       StateFilter(AdminStates.view_contact_tariff))
 async def admin_edit_tariff_days_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик начала редактирования срока безлимита"""
     logger.debug('admin_edit_tariff_days_handler...')
@@ -3008,7 +2890,8 @@ async def process_edit_tariff_days(message: Message, state: FSMContext) -> None:
         await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_delete_tariff_'), StateFilter(AdminStates.view_contact_tariff))
+@router.callback_query(lambda c: c.data.startswith('admin_delete_tariff_'),
+                       StateFilter(AdminStates.view_contact_tariff))
 async def admin_delete_tariff_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик удаления тарифа"""
     logger.debug('admin_delete_tariff_handler...')
@@ -3056,7 +2939,7 @@ async def admin_confirm_delete_tariff(callback: CallbackQuery, state: FSMContext
     try:
         tariff_name = tariff.name
         await tariff.delete()
-        
+
         await callback.message.answer(
             text=f'✅ <b>Тариф "{tariff_name}" успешно удален!</b>',
             reply_markup=await kbc.admin_contact_tariffs_list(),
@@ -3070,10 +2953,10 @@ async def admin_confirm_delete_tariff(callback: CallbackQuery, state: FSMContext
 
 
 @router.callback_query(F.data == 'admin_add_tariff_type', StateFilter(AdminStates.manage_contact_tariffs,
-                                                                       AdminStates.add_contact_tariff_name,
-                                                                       AdminStates.add_contact_tariff_contacts_count,
-                                                                       AdminStates.add_contact_tariff_price,
-                                                                       AdminStates.add_contact_tariff_unlimited_days))
+                                                                      AdminStates.add_contact_tariff_name,
+                                                                      AdminStates.add_contact_tariff_contacts_count,
+                                                                      AdminStates.add_contact_tariff_price,
+                                                                      AdminStates.add_contact_tariff_unlimited_days))
 async def admin_add_tariff_type(callback: CallbackQuery, state: FSMContext) -> None:
     """Выбор типа нового тарифа"""
     logger.debug('admin_add_tariff_type...')
@@ -3141,7 +3024,7 @@ async def process_add_tariff_name(message: Message, state: FSMContext) -> None:
     tariff_name = message.text.strip()
     if not tariff_name or len(tariff_name) > 100:
         await message.answer('❌ Название не может быть пустым или длиннее 100 символов',
-                           reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
+                             reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
         return
 
     state_data = await state.get_data()
@@ -3153,14 +3036,14 @@ async def process_add_tariff_name(message: Message, state: FSMContext) -> None:
         text = f'📊 <b>Количество контактов</b>\n\n'
         text += f'Название: <b>{tariff_name}</b>\n\n'
         text += f'Введите количество контактов (положительное число):'
-        
+
         await state.set_state(AdminStates.add_contact_tariff_contacts_count)
         await message.answer(text=text, reply_markup=kbc.admin_back_btn('admin_add_tariff_type'), parse_mode='HTML')
     else:  # unlimited
         text = f'⏰ <b>Срок действия</b>\n\n'
         text += f'Название: <b>{tariff_name}</b>\n\n'
         text += f'Введите количество дней действия безлимита (например: 30 для месяца):'
-        
+
         await state.set_state(AdminStates.add_contact_tariff_unlimited_days)
         await message.answer(text=text, reply_markup=kbc.admin_back_btn('admin_add_tariff_type'), parse_mode='HTML')
 
@@ -3177,10 +3060,10 @@ async def process_add_tariff_contacts(message: Message, state: FSMContext) -> No
             raise ValueError("Количество должно быть положительным числом")
 
         await state.update_data(contacts_count=contacts_count)
-        
+
         state_data = await state.get_data()
         tariff_name = state_data.get('tariff_name')
-        
+
         text = f'💰 <b>Цена тарифа</b>\n\n'
         text += f'Название: <b>{tariff_name}</b>\n'
         text += f'Количество контактов: <b>{contacts_count}</b>\n\n'
@@ -3190,7 +3073,7 @@ async def process_add_tariff_contacts(message: Message, state: FSMContext) -> No
         await message.answer(text=text, reply_markup=kbc.admin_back_btn('admin_add_tariff_type'), parse_mode='HTML')
     except ValueError:
         await message.answer('❌ Пожалуйста, введите корректное количество (положительное число)',
-                          reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
+                             reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
 
 
 @router.message(F.text, StateFilter(AdminStates.add_contact_tariff_unlimited_days))
@@ -3205,10 +3088,10 @@ async def process_add_tariff_days(message: Message, state: FSMContext) -> None:
             raise ValueError("Количество дней должно быть положительным числом")
 
         await state.update_data(unlimited_days=days)
-        
+
         state_data = await state.get_data()
         tariff_name = state_data.get('tariff_name')
-        
+
         text = f'💰 <b>Цена тарифа</b>\n\n'
         text += f'Название: <b>{tariff_name}</b>\n'
         text += f'Срок действия: <b>{days}</b> дней ({days // 30} месяцев)\n\n'
@@ -3218,7 +3101,7 @@ async def process_add_tariff_days(message: Message, state: FSMContext) -> None:
         await message.answer(text=text, reply_markup=kbc.admin_back_btn('admin_add_tariff_type'), parse_mode='HTML')
     except ValueError:
         await message.answer('❌ Пожалуйста, введите корректное количество дней (положительное число)',
-                          reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
+                             reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
 
 
 @router.message(F.text, StateFilter(AdminStates.add_contact_tariff_price))
@@ -3231,7 +3114,7 @@ async def process_add_tariff_price(message: Message, state: FSMContext) -> None:
         price_rub = float(message.text.replace(',', '.').strip())
         if price_rub <= 0:
             raise ValueError("Цена должна быть положительным числом")
-        
+
         price_kopecks = int(price_rub * 100)
 
         state_data = await state.get_data()
@@ -3260,7 +3143,7 @@ async def process_add_tariff_price(message: Message, state: FSMContext) -> None:
             )
 
         await new_tariff.save()
-        
+
         # Формируем дополнительную информацию для сообщения
         if tariff_type == 'limited':
             contacts_count = state_data.get('contacts_count')
@@ -3268,7 +3151,7 @@ async def process_add_tariff_price(message: Message, state: FSMContext) -> None:
         else:
             unlimited_days = state_data.get('unlimited_days')
             extra_info = f'⏰ Срок: <b>{unlimited_days}</b> дней'
-        
+
         await message.answer(
             text=f'✅ <b>Тариф успешно создан!</b>\n\n'
                  f'📋 Название: <b>{tariff_name}</b>\n'
@@ -3278,27 +3161,27 @@ async def process_add_tariff_price(message: Message, state: FSMContext) -> None:
             parse_mode='HTML'
         )
         await state.set_state(AdminStates.manage_contact_tariffs)
-        
+
     except ValueError:
         await message.answer('❌ Пожалуйста, введите корректную цену (положительное число)',
-                          reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
+                             reply_markup=kbc.admin_back_btn('admin_add_tariff_type'))
     except Exception as e:
         logger.error(f"Ошибка при создании тарифа: {e}")
         await message.answer('❌ Произошла ошибка при создании тарифа',
-                          reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
+                             reply_markup=kbc.admin_back_btn('manage_contact_tariffs'))
 
 
 # Обработка возврата к списку тарифов из просмотра
 @router.callback_query(F.data == 'manage_contact_tariffs', StateFilter(AdminStates.view_contact_tariff,
-                                                                        AdminStates.edit_contact_tariff_name,
-                                                                        AdminStates.edit_contact_tariff_price,
-                                                                        AdminStates.edit_contact_tariff_contacts_count,
-                                                                        AdminStates.edit_contact_tariff_unlimited_days,
-                                                                        AdminStates.add_contact_tariff_type,
-                                                                        AdminStates.add_contact_tariff_name,
-                                                                        AdminStates.add_contact_tariff_contacts_count,
-                                                                        AdminStates.add_contact_tariff_price,
-                                                                        AdminStates.add_contact_tariff_unlimited_days))
+                                                                       AdminStates.edit_contact_tariff_name,
+                                                                       AdminStates.edit_contact_tariff_price,
+                                                                       AdminStates.edit_contact_tariff_contacts_count,
+                                                                       AdminStates.edit_contact_tariff_unlimited_days,
+                                                                       AdminStates.add_contact_tariff_type,
+                                                                       AdminStates.add_contact_tariff_name,
+                                                                       AdminStates.add_contact_tariff_contacts_count,
+                                                                       AdminStates.add_contact_tariff_price,
+                                                                       AdminStates.add_contact_tariff_unlimited_days))
 async def back_to_tariffs_list(callback: CallbackQuery, state: FSMContext) -> None:
     """Возврат к списку тарифов"""
     await manage_contact_tariffs(callback, state)
@@ -3307,9 +3190,11 @@ async def back_to_tariffs_list(callback: CallbackQuery, state: FSMContext) -> No
 # ========== УПРАВЛЕНИЕ ТАРИФАМИ ГОРОДОВ ==========
 
 @router.callback_query(F.data == 'manage_city_tariffs', StateFilter(AdminStates.menu, AdminStates.manage_city_discounts,
-                                                                     AdminStates.add_city_tariff_count, AdminStates.add_city_tariff_price,
-                                                                     AdminStates.view_city_tariff, AdminStates.edit_city_tariff_price,
-                                                                     AdminStates.view_city_discount))
+                                                                    AdminStates.add_city_tariff_count,
+                                                                    AdminStates.add_city_tariff_price,
+                                                                    AdminStates.view_city_tariff,
+                                                                    AdminStates.edit_city_tariff_price,
+                                                                    AdminStates.view_city_discount))
 async def manage_city_tariffs(callback: CallbackQuery, state: FSMContext) -> None:
     """Главное меню управления тарифами городов"""
     logger.debug('manage_city_tariffs...')
@@ -3329,7 +3214,9 @@ async def manage_city_tariffs(callback: CallbackQuery, state: FSMContext) -> Non
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_view_city_tariff_'), StateFilter(AdminStates.manage_city_tariffs, AdminStates.edit_city_tariff_price, AdminStates.view_city_tariff))
+@router.callback_query(lambda c: c.data.startswith('admin_view_city_tariff_'),
+                       StateFilter(AdminStates.manage_city_tariffs, AdminStates.edit_city_tariff_price,
+                                   AdminStates.view_city_tariff))
 async def admin_view_city_tariff(callback: CallbackQuery, state: FSMContext) -> None:
     """Просмотр информации о тарифе городов"""
     logger.debug('admin_view_city_tariff...')
@@ -3343,14 +3230,14 @@ async def admin_view_city_tariff(callback: CallbackQuery, state: FSMContext) -> 
         return
 
     price_rub = tariff.price_per_month / 100
-    
+
     # Показываем примеры цен с учетом скидок
     discounts = await CitySubscriptionDiscount.get_all()
     text = f'🏙️ <b>Информация о тарифе</b>\n\n'
     text += f'📊 <b>Количество городов:</b> {tariff.city_count}\n'
     text += f'💵 <b>Цена за месяц:</b> {int(price_rub)}₽ ({tariff.price_per_month} копеек)\n\n'
     text += f'<b>Примеры цен с учетом скидок:</b>\n'
-    
+
     periods = [1, 2, 3, 6, 12]
     for months in periods:
         final_price = await CitySubscriptionDiscount.calculate_price(tariff.price_per_month, months)
@@ -3367,7 +3254,8 @@ async def admin_view_city_tariff(callback: CallbackQuery, state: FSMContext) -> 
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_edit_city_tariff_count_'), StateFilter(AdminStates.view_city_tariff))
+@router.callback_query(lambda c: c.data.startswith('admin_edit_city_tariff_count_'),
+                       StateFilter(AdminStates.view_city_tariff))
 async def admin_edit_city_tariff_count_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик начала редактирования количества городов"""
     logger.debug('admin_edit_city_tariff_count_handler...')
@@ -3393,7 +3281,8 @@ async def admin_edit_city_tariff_count_handler(callback: CallbackQuery, state: F
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_edit_city_tariff_price_'), StateFilter(AdminStates.view_city_tariff))
+@router.callback_query(lambda c: c.data.startswith('admin_edit_city_tariff_price_'),
+                       StateFilter(AdminStates.view_city_tariff))
 async def admin_edit_city_tariff_price_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик начала редактирования цены тарифа городов"""
     logger.debug('admin_edit_city_tariff_price_handler...')
@@ -3442,14 +3331,14 @@ async def process_edit_city_tariff(message: Message, state: FSMContext) -> None:
             city_count = int(message.text.strip())
             if city_count <= 0:
                 raise ValueError("Количество должно быть положительным числом")
-            
+
             # Проверяем, нет ли уже тарифа с таким количеством городов
             existing = await CitySubscriptionTariff.get_by_city_count(city_count)
             if existing and existing.id != tariff_id:
-                await message.answer('❌ Тариф с таким количеством городов уже существует!', 
-                                   reply_markup=kbc.admin_back_btn(f'admin_view_city_tariff_{tariff_id}'))
+                await message.answer('❌ Тариф с таким количеством городов уже существует!',
+                                     reply_markup=kbc.admin_back_btn(f'admin_view_city_tariff_{tariff_id}'))
                 return
-            
+
             await tariff.update(city_count=city_count)
             await message.answer(
                 text=f'✅ <b>Количество городов успешно изменено!</b>\n\nНовое количество: <b>{city_count}</b>',
@@ -3460,7 +3349,7 @@ async def process_edit_city_tariff(message: Message, state: FSMContext) -> None:
             price_rub = float(message.text.replace(',', '.').strip())
             if price_rub <= 0:
                 raise ValueError("Цена должна быть положительным числом")
-            
+
             price_kopecks = int(price_rub * 100)
             await tariff.update(price_per_month=price_kopecks)
             await message.answer(
@@ -3468,7 +3357,7 @@ async def process_edit_city_tariff(message: Message, state: FSMContext) -> None:
                 reply_markup=kbc.admin_edit_city_tariff(tariff_id),
                 parse_mode='HTML'
             )
-        
+
         await state.set_state(AdminStates.view_city_tariff)
     except ValueError as e:
         if "Количество" in str(e):
@@ -3488,7 +3377,8 @@ async def process_edit_city_tariff(message: Message, state: FSMContext) -> None:
         await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_delete_city_tariff_'), StateFilter(AdminStates.view_city_tariff))
+@router.callback_query(lambda c: c.data.startswith('admin_delete_city_tariff_'),
+                       StateFilter(AdminStates.view_city_tariff))
 async def admin_delete_city_tariff_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик удаления тарифа городов"""
     logger.debug('admin_delete_city_tariff_handler...')
@@ -3536,7 +3426,7 @@ async def admin_confirm_delete_city_tariff(callback: CallbackQuery, state: FSMCo
     try:
         city_count = tariff.city_count
         await tariff.delete()
-        
+
         await callback.message.answer(
             text=f'✅ <b>Тариф "{city_count} городов" успешно удален!</b>',
             reply_markup=await kbc.admin_city_tariffs_list(),
@@ -3549,7 +3439,9 @@ async def admin_confirm_delete_city_tariff(callback: CallbackQuery, state: FSMCo
         await callback.answer("❌ Произошла ошибка при удалении", show_alert=True)
 
 
-@router.callback_query(F.data == 'admin_add_city_tariff', StateFilter(AdminStates.manage_city_tariffs, AdminStates.add_city_tariff_count, AdminStates.add_city_tariff_price))
+@router.callback_query(F.data == 'admin_add_city_tariff',
+                       StateFilter(AdminStates.manage_city_tariffs, AdminStates.add_city_tariff_count,
+                                   AdminStates.add_city_tariff_price))
 async def admin_add_city_tariff_count(callback: CallbackQuery, state: FSMContext) -> None:
     """Ввод количества городов для нового тарифа"""
     logger.debug('admin_add_city_tariff_count...')
@@ -3581,11 +3473,11 @@ async def process_add_city_tariff_count(message: Message, state: FSMContext) -> 
         existing = await CitySubscriptionTariff.get_by_city_count(city_count)
         if existing:
             await message.answer('❌ Тариф с таким количеством городов уже существует!',
-                               reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+                                 reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
             return
 
         await state.update_data(city_count=city_count)
-        
+
         text = f'💰 <b>Цена за месяц</b>\n\n'
         text += f'Количество городов: <b>{city_count}</b>\n\n'
         text += f'Введите цену в рублях за месяц:'
@@ -3594,7 +3486,7 @@ async def process_add_city_tariff_count(message: Message, state: FSMContext) -> 
         await message.answer(text=text, reply_markup=kbc.admin_back_btn('manage_city_tariffs'), parse_mode='HTML')
     except ValueError:
         await message.answer('❌ Пожалуйста, введите корректное количество городов (положительное число)',
-                          reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+                             reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
 
 
 @router.message(F.text, StateFilter(AdminStates.add_city_tariff_price))
@@ -3607,7 +3499,7 @@ async def process_add_city_tariff_price(message: Message, state: FSMContext) -> 
         price_rub = float(message.text.replace(',', '.').strip())
         if price_rub <= 0:
             raise ValueError("Цена должна быть положительным числом")
-        
+
         price_kopecks = int(price_rub * 100)
 
         state_data = await state.get_data()
@@ -3620,7 +3512,7 @@ async def process_add_city_tariff_price(message: Message, state: FSMContext) -> 
         )
 
         await new_tariff.save()
-        
+
         await message.answer(
             text=f'✅ <b>Тариф успешно создан!</b>\n\n'
                  f'🏙️ Количество городов: <b>{city_count}</b>\n'
@@ -3629,22 +3521,23 @@ async def process_add_city_tariff_price(message: Message, state: FSMContext) -> 
             parse_mode='HTML'
         )
         await state.set_state(AdminStates.manage_city_tariffs)
-        
+
     except ValueError:
         await message.answer('❌ Пожалуйста, введите корректную цену (положительное число)',
-                          reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+                             reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
     except Exception as e:
         logger.error(f"Ошибка при создании тарифа городов: {e}")
         await message.answer('❌ Произошла ошибка при создании тарифа',
-                          reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
+                             reply_markup=kbc.admin_back_btn('manage_city_tariffs'))
 
 
 # ========== УПРАВЛЕНИЕ СКИДКАМИ ГОРОДОВ ==========
 
-@router.callback_query(F.data == 'manage_city_discounts', StateFilter(AdminStates.manage_city_tariffs, 
-                                                                       AdminStates.add_city_discount_months,
-                                                                       AdminStates.add_city_discount_percent,
-                                                                       AdminStates.view_city_discount, AdminStates.edit_city_discount_percent))
+@router.callback_query(F.data == 'manage_city_discounts', StateFilter(AdminStates.manage_city_tariffs,
+                                                                      AdminStates.add_city_discount_months,
+                                                                      AdminStates.add_city_discount_percent,
+                                                                      AdminStates.view_city_discount,
+                                                                      AdminStates.edit_city_discount_percent))
 async def manage_city_discounts(callback: CallbackQuery, state: FSMContext) -> None:
     """Главное меню управления скидками городов"""
     logger.debug('manage_city_discounts...')
@@ -3664,7 +3557,9 @@ async def manage_city_discounts(callback: CallbackQuery, state: FSMContext) -> N
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_view_city_discount_'), StateFilter(AdminStates.manage_city_discounts, AdminStates.edit_city_discount_percent, AdminStates.view_city_discount))
+@router.callback_query(lambda c: c.data.startswith('admin_view_city_discount_'),
+                       StateFilter(AdminStates.manage_city_discounts, AdminStates.edit_city_discount_percent,
+                                   AdminStates.view_city_discount))
 async def admin_view_city_discount(callback: CallbackQuery, state: FSMContext) -> None:
     """Просмотр информации о скидке городов"""
     logger.debug('admin_view_city_discount...')
@@ -3680,7 +3575,7 @@ async def admin_view_city_discount(callback: CallbackQuery, state: FSMContext) -
     text = f'💰 <b>Информация о скидке</b>\n\n'
     text += f'⏰ <b>Период:</b> {discount.months} месяц{"ев" if discount.months > 1 else ""}\n'
     text += f'💵 <b>Процент скидки:</b> {discount.discount_percent}%\n\n'
-    
+
     if discount.discount_percent > 0:
         text += f'<b>Пример расчета:</b>\n'
         text += f'При базовой цене 100₽ за месяц:\n'
@@ -3699,7 +3594,8 @@ async def admin_view_city_discount(callback: CallbackQuery, state: FSMContext) -
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_edit_city_discount_months_'), StateFilter(AdminStates.view_city_discount))
+@router.callback_query(lambda c: c.data.startswith('admin_edit_city_discount_months_'),
+                       StateFilter(AdminStates.view_city_discount))
 async def admin_edit_city_discount_months_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик начала редактирования периода скидки"""
     logger.debug('admin_edit_city_discount_months_handler...')
@@ -3725,7 +3621,8 @@ async def admin_edit_city_discount_months_handler(callback: CallbackQuery, state
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_edit_city_discount_percent_'), StateFilter(AdminStates.view_city_discount))
+@router.callback_query(lambda c: c.data.startswith('admin_edit_city_discount_percent_'),
+                       StateFilter(AdminStates.view_city_discount))
 async def admin_edit_city_discount_percent_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик начала редактирования процента скидки"""
     logger.debug('admin_edit_city_discount_percent_handler...')
@@ -3773,14 +3670,14 @@ async def process_edit_city_discount(message: Message, state: FSMContext) -> Non
             months = int(message.text.strip())
             if months <= 0:
                 raise ValueError("Количество месяцев должно быть положительным числом")
-            
+
             # Проверяем, нет ли уже скидки с таким периодом
             existing = await CitySubscriptionDiscount.get_by_months(months)
             if existing and existing.id != discount_id:
-                await message.answer('❌ Скидка с таким периодом уже существует!', 
-                                   reply_markup=kbc.admin_back_btn(f'admin_view_city_discount_{discount_id}'))
+                await message.answer('❌ Скидка с таким периодом уже существует!',
+                                     reply_markup=kbc.admin_back_btn(f'admin_view_city_discount_{discount_id}'))
                 return
-            
+
             await discount.update(months=months)
             await message.answer(
                 text=f'✅ <b>Период успешно изменен!</b>\n\nНовый период: <b>{months}</b> месяц{"ев" if months > 1 else ""}',
@@ -3791,14 +3688,14 @@ async def process_edit_city_discount(message: Message, state: FSMContext) -> Non
             discount_percent = int(message.text.strip())
             if discount_percent < 0 or discount_percent > 100:
                 raise ValueError("Процент скидки должен быть от 0 до 100")
-            
+
             await discount.update(discount_percent=discount_percent)
             await message.answer(
                 text=f'✅ <b>Процент скидки успешно изменен!</b>\n\nНовый процент: <b>{discount_percent}%</b>',
                 reply_markup=kbc.admin_edit_city_discount(discount_id),
                 parse_mode='HTML'
             )
-        
+
         await state.set_state(AdminStates.view_city_discount)
     except ValueError as e:
         if "месяцев" in str(e) or "положительным" in str(e):
@@ -3818,7 +3715,8 @@ async def process_edit_city_discount(message: Message, state: FSMContext) -> Non
         await message.answer('❌ Произошла ошибка', reply_markup=kbc.admin_back_btn('manage_city_discounts'))
 
 
-@router.callback_query(lambda c: c.data.startswith('admin_delete_city_discount_'), StateFilter(AdminStates.view_city_discount))
+@router.callback_query(lambda c: c.data.startswith('admin_delete_city_discount_'),
+                       StateFilter(AdminStates.view_city_discount))
 async def admin_delete_city_discount_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик удаления скидки городов"""
     logger.debug('admin_delete_city_discount_handler...')
@@ -3865,7 +3763,7 @@ async def admin_confirm_delete_city_discount(callback: CallbackQuery, state: FSM
     try:
         months = discount.months
         await discount.delete()
-        
+
         await callback.message.answer(
             text=f'✅ <b>Скидка "{months} месяц{"ев" if months > 1 else ""}" успешно удалена!</b>',
             reply_markup=await kbc.admin_city_discounts_list(),
@@ -3910,11 +3808,11 @@ async def process_add_city_discount_months(message: Message, state: FSMContext) 
         existing = await CitySubscriptionDiscount.get_by_months(months)
         if existing:
             await message.answer('❌ Скидка с таким периодом уже существует!',
-                               reply_markup=kbc.admin_back_btn('manage_city_discounts'))
+                                 reply_markup=kbc.admin_back_btn('manage_city_discounts'))
             return
 
         await state.update_data(months=months)
-        
+
         text = f'💰 <b>Процент скидки</b>\n\n'
         text += f'Период: <b>{months}</b> месяц{"ев" if months > 1 else ""}\n\n'
         text += f'Введите процент скидки (от 0 до 100):'
@@ -3923,7 +3821,7 @@ async def process_add_city_discount_months(message: Message, state: FSMContext) 
         await message.answer(text=text, reply_markup=kbc.admin_back_btn('manage_city_discounts'), parse_mode='HTML')
     except ValueError:
         await message.answer('❌ Пожалуйста, введите корректное количество месяцев (положительное число)',
-                          reply_markup=kbc.admin_back_btn('manage_city_discounts'))
+                             reply_markup=kbc.admin_back_btn('manage_city_discounts'))
 
 
 @router.message(F.text, StateFilter(AdminStates.add_city_discount_percent))
@@ -3947,7 +3845,7 @@ async def process_add_city_discount_percent(message: Message, state: FSMContext)
         )
 
         await new_discount.save()
-        
+
         await message.answer(
             text=f'✅ <b>Скидка успешно создана!</b>\n\n'
                  f'⏰ Период: <b>{months}</b> месяц{"ев" if months > 1 else ""}\n'
@@ -3956,16 +3854,14 @@ async def process_add_city_discount_percent(message: Message, state: FSMContext)
             parse_mode='HTML'
         )
         await state.set_state(AdminStates.manage_city_discounts)
-        
+
     except ValueError:
         await message.answer('❌ Пожалуйста, введите корректный процент скидки (от 0 до 100)',
-                          reply_markup=kbc.admin_back_btn('manage_city_discounts'))
+                             reply_markup=kbc.admin_back_btn('manage_city_discounts'))
     except Exception as e:
         logger.error(f"Ошибка при создании скидки городов: {e}")
         await message.answer('❌ Произошла ошибка при создании скидки',
-                          reply_markup=kbc.admin_back_btn('manage_city_discounts'))
-
-
+                             reply_markup=kbc.admin_back_btn('manage_city_discounts'))
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |
