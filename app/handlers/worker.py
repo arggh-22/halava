@@ -4811,9 +4811,9 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
     discounts = await CitySubscriptionDiscount.get_all()
 
     # Формируем текст с ценами
-    text = f"🏙️ **+{city_count} city**\n\n"
+    text = f"🏙️ <b>+{city_count} city</b>\n\n"
     text += f"Выберите срок рассылки:\n\n"
-    text += f"💰 Цены за {city_count} город(ов):\n"
+    text += f"💰 Цены на покупку {city_count} город{'а' if city_count == 1 else 'ов'}:\n"
 
     # Загружаем все доступные периоды из БД (скидки)
     prices_info = []
@@ -4821,11 +4821,9 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
     for discount in discounts:
         months = discount.months
         final_price = await CitySubscriptionDiscount.calculate_price(base_price_kopecks, months)
-        final_price_rub = final_price / 100
-
-        discount_text = f" (скидка {discount.discount_percent}%)" if discount.discount_percent > 0 else ""
-
-        text += f"• {months} месяц{'ев' if months > 1 else ''}: {int(final_price_rub)}₽{discount_text}\n"
+        # final_price_rub = final_price / 100
+        # discount_text = f" (скидка {discount.discount_percent}%)" if discount.discount_percent > 0 else ""
+        # text += f"• {months} месяц{'ев' if months > 1 else ''}: {int(final_price_rub)}₽{discount_text}\n"
         prices_info.append((months, int(final_price)))
 
     builder = InlineKeyboardBuilder()
@@ -4841,7 +4839,7 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.message.answer(
         text=text,
         reply_markup=builder.as_markup(),
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 
@@ -4873,7 +4871,7 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
 
         text = f"💰 **Подтверждение продления подписки**\n\n"
         text += f"🏙️ Количество городов: {city_count}\n"
-        text += f"📅 Период: {months} месяц(ев)\n"
+        text += f"📅 Период: {months} месяц\n"
         text += f"💵 Стоимость: {price}₽\n\n"
 
         # Показываем существующие города
@@ -4889,7 +4887,7 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
                     text += f"• {name}\n"
                 text += "\n"
 
-        text += f"После продления вы будете продолжать получать заказы из этих городов в течение {months} месяца(ев).\n\n"
+        text += f"После продления вы будете продолжать получать заказы из этих городов в течение {months} месяца.\n\n"
         text += f"Подтвердить продление?"
 
         builder = InlineKeyboardBuilder()
@@ -4906,7 +4904,7 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
             # Смена тарифа
             text = f"💰 **Подтверждение смены тарифа**\n\n"
             text += f"🏙️ Новое количество городов: {city_count}\n"
-            text += f"📅 Период: {months} месяц(ев)\n"
+            text += f"📅 Период: {months} месяц\n"
             text += f"💵 Стоимость: {price}₽\n\n"
             text += f"После смены тарифа вы сможете выбрать города заново.\n\n"
             text += f"Подтвердить смену тарифа?"
@@ -4918,9 +4916,9 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
             # Новая покупка
             text = f"💰 **Подтверждение покупки**\n\n"
             text += f"🏙️ Количество городов: {city_count}\n"
-            text += f"📅 Период: {months} месяц(ев)\n"
+            text += f"📅 Период: {months} месяц\n"
             text += f"💵 Стоимость: {price}₽\n\n"
-            text += f"После покупки вы будете получать заказы из дополнительных городов в течение {months} месяца(ев).\n\n"
+            text += f"После покупки вы будете получать заказы из дополнительных городов в течение {months} месяца.\n\n"
             text += f"Подтвердить покупку?"
 
             builder = InlineKeyboardBuilder()
@@ -5073,11 +5071,11 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
 
         if is_tariff_change:
             text = f"✅ **Тариф успешно изменён!**\n\n"
-            text += f"🔄 Подписка обновлена на {city_count} город(ов)\n"
+            text += f"🔄 Подписка обновлена на {city_count} город\n"
         else:
             text = f"✅ **Покупка успешно выполнена!**\n\n"
-            text += f"🎉 Подписка на {city_count} город(ов) активирована!\n"
-        text += f"📅 Период: {months} месяц(ев)\n"
+            text += f"🎉 Подписка на {city_count} город активирована!\n"
+        text += f"📅 Период: {months} месяц\n"
         text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
 
         if len(available_cities) == 0:
@@ -5181,7 +5179,7 @@ async def confirm_city_renew(callback: CallbackQuery, state: FSMContext) -> None
 
         text = f"✅ **Подписка успешно продлена!**\n\n"
         text += f"🏙️ Количество городов: {renew_city_count}\n"
-        text += f"📅 Период: {months} месяц(ев)\n"
+        text += f"📅 Период: {months} месяц\n"
         text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
 
         if city_names:
@@ -5273,7 +5271,7 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
         text += f"💡 **Напишите название города** для поиска или выберите из списка ниже:\n"
         if selected_cities:
             text += f"💡 Нажмите на выбранный город (✅), чтобы убрать его из выбора.\n"
-        text += f"Выберите еще {city_count - len(selected_cities)} город(ов)"
+        text += f"Выберите еще {city_count - len(selected_cities)} город"
 
     builder = InlineKeyboardBuilder()
 
@@ -5850,7 +5848,7 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
     text = f"💳 **Купить контакты**\n\n"
-    text += f"📊 У вас сейчас: {worker.purchased_contacts} контактов\n"
+    text += f"📊 У вас сейчас: {worker.purchased_contacts} контакт\n"
     text += f"🔓 Безлимитный доступ: {'✅ Активен' if worker.unlimited_contacts_until else '❌ Нет'}\n\n"
 
     if worker.unlimited_contacts_until:
@@ -5949,12 +5947,12 @@ async def buy_contacts_handler(callback: CallbackQuery, state: FSMContext) -> No
         tariff_name = tariff.name
         tokens = -1
         months = tariff.unlimited_days // 30 if tariff.unlimited_days else 1
-        info_text = f'Безлимитный доступ к контактам на {months} месяц(ев)'
+        info_text = f'Безлимитный доступ к контактам на {months} месяц'
     else:
         tariff_name = tariff.name
         tokens = tariff.contacts_count
         months = 0
-        info_text = f'После покупки у вас будет {worker.purchased_contacts + tokens} контакт(ов)'
+        info_text = f'После покупки у вас будет {worker.purchased_contacts + tokens} контакт'
 
     # Создаем инвойс для оплаты
     text = f"""
@@ -6016,7 +6014,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
 
 🎉 У вас теперь безлимитный доступ к контактам!
 ⏰ Действует до: {until_date.strftime('%d.%m.%Y %H:%M')}
-📅 Период: {months} месяц(ев)
+📅 Период: {months} месяц
 
 💡 Теперь вы можете получать контакты заказчиков без ограничений!
             """
@@ -6094,10 +6092,10 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
             )
     else:
         # Если нет купленных городов - показываем опцию выбора города из всех доступных
-        text += "У вас нет купленных городов.\n\n"
+        text += "У вас нет купленных городов ₽\n\n"
         text += "Выберите действие:\n\n"
-        text += "🔄 **Сменить основной город** - выбрать из всех доступных городов\n"
-        text += "📍 **Выбрать город** - выбрать любой город (станет основным)"
+        text += "🔄 **Сменить основной город** - выбрать из всех доступных городов\n\n"
+        text += "📍 **Выбрать город** (станет основным)"
 
         # Создаем клавиатуру с опциями
         from aiogram.utils.keyboard import InlineKeyboardBuilder

@@ -6,6 +6,7 @@ Handlers для анонимного чата между исполнителе�
 - Покупка контактов (монетизация)
 """
 
+import html
 import logging
 from datetime import datetime, timedelta
 from aiogram import Router, F
@@ -30,6 +31,50 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+async def parse_contacts_message(customer):
+    """
+    Возвращает контакты заказчика исполнителю и уведомляет заказчика.
+
+    :param customer: объект заказчика (должен содержать tg_id, tg_name, phone_number, contact_type, id)
+    """
+
+    # Экранируем HTML-символы, чтобы не ломалась разметка
+    tg_name = html.escape(customer.tg_name) if customer.tg_name else "Профиль"
+    phone = html.escape(customer.phone_number) if getattr(customer, "phone_number", None) else ""
+
+    # --- Формируем текст контактов ---
+    # contacts_text = "📞 <b>Контакты заказчика:</b>\n\n"
+
+    if customer.contact_type == "telegram_only":
+        contacts_text = (
+            f"📱 <b>Telegram:</b> "
+            f"<a href='tg://user?id={customer.tg_id}'>@{tg_name}</a>\n"
+            f"🆔 <b>ID:</b> {customer.tg_id}"
+        )
+    elif customer.contact_type == "phone_only":
+        contacts_text = (
+            f"📞 <b>Номер телефона:</b> "
+            f"<a href='tel:{phone}'>{phone}</a>"
+        )
+    elif customer.contact_type == "both":
+        contacts_text = (
+            f"📱 <b>Telegram:</b> "
+            f"<a href='tg://user?id={customer.tg_id}'>@{tg_name}</a>\n"
+            f"🆔 <b>ID:</b> {customer.tg_id}\n"
+            f"📞 <b>Номер телефона:</b> "
+            f"<a href='tel:{phone}'>{phone}</a>"
+        )
+    else:
+        # fallback — показываем только Telegram, если контакты не настроены
+        contacts_text = (
+            f"📱 <b>Telegram:</b> "
+            f"<a href='tg://user?id={customer.tg_id}'>@{tg_name}</a>\n"
+            f"🆔 <b>ID:</b> {customer.tg_id}"
+        )
+
+    return contacts_text
+
+
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 
 # Функция для получения строки статусов исполнителя
@@ -37,10 +82,10 @@ async def get_worker_status_string(worker_id: int) -> str:
     """Возвращает строку с подтвержденными статусами исполнителя"""
     from app.data.database.models import WorkerStatus
     worker_status = await WorkerStatus.get_by_worker(worker_id)
-    
+
     if not worker_status:
         return "⚠️ Статус не подтвержден"
-    
+
     statuses = []
     if worker_status.has_ip:
         statuses.append("ИП ✅")
@@ -48,10 +93,10 @@ async def get_worker_status_string(worker_id: int) -> str:
         statuses.append("ООО ✅")
     if worker_status.has_sz:
         statuses.append("Самозанятость ✅")
-    
+
     if not statuses:
         return "⚠️ Статус не подтвержден"
-    
+
     return " | ".join(statuses)
 
 
@@ -66,19 +111,19 @@ async def get_response_status_indicator(response, user_type: str) -> str:
         contact_exchange = await ContactExchange.get_by_worker_and_abs(response.worker_id, response.abs_id)
         if contact_exchange and contact_exchange.contacts_purchased:
             return "✅"  # Чат закрыт
-        
+
         # Получаем количество сообщений каждого типа
         worker_messages_count = len(response.worker_messages) if response.worker_messages else 0
         customer_messages_count = len(response.customer_messages) if response.customer_messages else 0
-        
+
         # Получаем счетчики прочитанных сообщений
         last_read_by_worker = getattr(response, 'last_read_by_worker', 0)
         last_read_by_customer = getattr(response, 'last_read_by_customer', 0)
-        
+
         # Получаем счетчики последних сообщений
         last_message_by_worker = getattr(response, 'last_message_by_worker', 0)
         last_message_by_customer = getattr(response, 'last_message_by_customer', 0)
-        
+
         if user_type == "worker":
             # Для исполнителя: показываем "•" если исполнитель написал последним
             # Используем поле turn: True = очередь исполнителя (исполнитель написал последним)
@@ -91,7 +136,7 @@ async def get_response_status_indicator(response, user_type: str) -> str:
             if not response.turn:
                 return " • "
             return "💬"  # Активный чат
-            
+
     except Exception as e:
         logger.error(f"Error in get_response_status_indicator: {e}")
         return "💬"  # По умолчанию активный чат
@@ -121,6 +166,7 @@ def get_sender_name(sender_type: str, user_type: str, worker, customer) -> str:
     else:
         return "Неизвестно"
 
+
 async def format_chat_history_for_display(user_type: str, abs_id: int, worker, customer) -> str:
     """
     Форматирует историю чата для отображения в просмотре отклика
@@ -131,11 +177,11 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             return ""
-        
+
         # Получаем индексы последних прочитанных сообщений
         last_read_by_worker = getattr(response, 'last_read_by_worker', 0)
         last_read_by_customer = getattr(response, 'last_read_by_customer', 0)
-        
+
         # Получаем списки сообщений
         worker_messages_list = []
         customer_messages_list = []
@@ -143,31 +189,31 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
         # Фильтруем worker_messages: убираем служебное сообщение и пустые
         if response.worker_messages:
             worker_messages_list = [
-                msg for msg in response.worker_messages 
+                msg for msg in response.worker_messages
                 if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
             ]
 
         # Фильтруем customer_messages: убираем пустые
         if response.customer_messages:
             customer_messages_list = [
-                msg for msg in response.customer_messages 
+                msg for msg in response.customer_messages
                 if msg and msg.strip()
             ]
-        
+
         ordered_messages = []
-        
+
         # Получаем временные метки из БД
         timestamps_list = response.message_timestamps if hasattr(response, 'message_timestamps') else []
-        
+
         # Если есть временные метки - используем их для сортировки
         if timestamps_list and len(timestamps_list) > 0:
             # Создаем единый список всех сообщений с временными метками
             all_messages_with_timestamps = []
-            
+
             # Индексы для сообщений каждого типа
             worker_msg_idx = 0
             customer_msg_idx = 0
-            
+
             # Проходим по временным меткам один раз и сопоставляем с сообщениями
             for ts_data in timestamps_list:
                 if ts_data['sender'] == 'worker' and worker_msg_idx < len(worker_messages_list):
@@ -190,10 +236,10 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                         'customer_msg_index': customer_msg_idx
                     })
                     customer_msg_idx += 1
-            
+
             # Сортируем по временным меткам
             sorted_messages = sorted(all_messages_with_timestamps, key=lambda x: x['timestamp'])
-            
+
             # Формируем финальный список
             for msg_data in sorted_messages:
                 ordered_messages.append({
@@ -206,7 +252,7 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
             # Старая логика чередования (для совместимости)
             worker_count = len(worker_messages_list)
             customer_count = len(customer_messages_list)
-            
+
             if abs(worker_count - customer_count) <= 1:
                 worker_idx = 0
                 customer_idx = 0
@@ -214,7 +260,7 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                     if worker_idx < worker_count:
                         msg = worker_messages_list[worker_idx]
                         ordered_messages.append({
-                            'text': msg, 
+                            'text': msg,
                             'sender': 'worker',
                             'worker_msg_index': worker_idx,
                             'customer_msg_index': -1
@@ -223,16 +269,16 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                     if customer_idx < customer_count:
                         msg = customer_messages_list[customer_idx]
                         ordered_messages.append({
-                            'text': msg, 
+                            'text': msg,
                             'sender': 'customer',
                             'worker_msg_index': -1,
                             'customer_msg_index': customer_idx
                         })
                         customer_idx += 1
-        
+
         # Формируем историю
         chat_history = ""
-        
+
         if ordered_messages:
             # Показываем последние 10 сообщений для просмотра отклика
             for msg_data in ordered_messages[-10:]:
@@ -255,15 +301,15 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                     if msg_sender == "worker" and worker_msg_index >= 0:
                         # Показываем "•" если заказчик не прочитал это сообщение
                         show_indicator = worker_msg_index >= last_read_by_customer
-                
+
                 # Добавляем индикатор неотвеченного сообщения
                 unread_indicator = " • " if show_indicator else ""
-                
+
                 sender_name = get_sender_name(msg_sender, user_type, worker, customer)
                 chat_history += f"{unread_indicator} <b>{sender_name}:</b> {msg_text}\n"
-        
+
         return chat_history
-        
+
     except Exception as e:
         logger.error(f"Error in format_chat_history_for_display: {e}")
         return ""
@@ -283,14 +329,15 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
         # Небольшая задержка для обеспечения консистентности БД
         import asyncio
         await asyncio.sleep(0.1)
-        
+
         # Получаем WorkersAndAbs для истории сообщений
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             logger.warning(f"[CHAT_HISTORY] WorkersAndAbs not found for worker_id={worker.id}, abs_id={abs_id}")
             return
-        
-        logger.info(f"[CHAT_HISTORY] Loading chat history. Worker messages: {len(response.worker_messages) if response.worker_messages else 0}, Customer messages: {len(response.customer_messages) if response.customer_messages else 0}")
+
+        logger.info(
+            f"[CHAT_HISTORY] Loading chat history. Worker messages: {len(response.worker_messages) if response.worker_messages else 0}, Customer messages: {len(response.customer_messages) if response.customer_messages else 0}")
 
         # Собираем историю диалога в хронологическом порядке
         chat_history = ""
@@ -302,17 +349,16 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
         # Фильтруем worker_messages: убираем служебное сообщение и пустые
         if response.worker_messages:
             worker_messages_list = [
-                msg for msg in response.worker_messages 
+                msg for msg in response.worker_messages
                 if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
             ]
 
         # Фильтруем customer_messages: убираем пустые
         if response.customer_messages:
             customer_messages_list = [
-                msg for msg in response.customer_messages 
+                msg for msg in response.customer_messages
                 if msg and msg.strip()
             ]
-        
 
         # Создаем единый список всех сообщений с их индексами и отправителем
         all_messages = []
@@ -338,23 +384,23 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                 })
 
         # НОВОЕ РЕШЕНИЕ: Используем временные метки для правильной сортировки
-        
+
         ordered_messages = []
-        
+
         # Получаем временные метки из БД
         timestamps_list = response.message_timestamps if hasattr(response, 'message_timestamps') else []
-        
+
         # Если есть временные метки - используем их для сортировки
         if timestamps_list and len(timestamps_list) > 0:
             logger.info(f"[CHAT_HISTORY] Using timestamps for sorting: {len(timestamps_list)} timestamps")
-            
+
             # Создаем единый список всех сообщений с временными метками
             all_messages_with_timestamps = []
-            
+
             # Индексы для сообщений каждого типа
             worker_msg_idx = 0
             customer_msg_idx = 0
-            
+
             # Проходим по временным меткам один раз и сопоставляем с сообщениями
             for ts_data in timestamps_list:
                 if ts_data['sender'] == 'worker' and worker_msg_idx < len(worker_messages_list):
@@ -375,10 +421,10 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                         'timestamp': ts_data['timestamp']
                     })
                     customer_msg_idx += 1
-            
+
             # Сортируем по временным меткам
             sorted_messages = sorted(all_messages_with_timestamps, key=lambda x: x['timestamp'])
-            
+
             # Формируем финальный список
             for msg_data in sorted_messages:
                 ordered_messages.append({
@@ -388,10 +434,10 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
         else:
             # Если временных меток нет - используем старую логику (для обратной совместимости)
             logger.info(f"[CHAT_HISTORY] No timestamps, using fallback logic")
-            
+
             worker_count = len(worker_messages_list)
             customer_count = len(customer_messages_list)
-            
+
             # Старая логика чередования
             if abs(worker_count - customer_count) <= 1:
                 worker_idx = 0
@@ -407,14 +453,14 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
                         # Сообщения уже отфильтрованы при загрузке из БД
                         ordered_messages.append({'text': msg, 'sender': 'customer'})
                         customer_idx += 1
-        
+
         # Формируем заголовок
         if user_type == "customer":
             worker_name = worker.profile_name or worker.tg_name or "Исполнитель"
             header = f"💬 <b>Чат с исполнителем</b>\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker_name}\n\n"
         else:  # worker
             header = f"💬 <b>Чат с заказчиком</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: ID#{customer.id}\n\n"
-        
+
         # Проверяем, есть ли вообще сообщения
         if not ordered_messages:
             full_text = header + "💬 Начните диалог, отправив сообщение."
@@ -422,15 +468,15 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
             # Динамически подбираем количество сообщений с учетом лимита Telegram (4096 символов)
             MAX_MESSAGE_LENGTH = 4000  # Оставляем запас
             MAX_MESSAGES_INITIAL = min(15, len(ordered_messages))
-            
+
             full_text = ""
             messages_shown = 0
-            
+
             # Пытаемся показать максимальное количество сообщений
             for limit in range(MAX_MESSAGES_INITIAL, 0, -1):
                 # Берем последние N сообщений
                 selected_messages = ordered_messages[-limit:]
-                
+
                 # Формируем историю переписки
                 chat_history = ""
                 for msg_data in selected_messages:
@@ -439,15 +485,15 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
 
                     sender_name = get_sender_name(msg_sender, user_type, worker, customer)
                     chat_history += f" <b>{sender_name}:</b> {msg_text}\n"
-                
+
                 # Формируем полный текст
                 full_text = header + "📝 <b>История переписки:</b>\n" + chat_history
-                
+
                 # Проверяем длину
                 if len(full_text) <= MAX_MESSAGE_LENGTH:
                     messages_shown = limit
                     break
-            
+
             # Если прошли все итерации и ничего не влезло, показываем специальное сообщение
             if messages_shown == 0:
                 full_text = header + "💬 История переписки слишком длинная.\n\nОтправьте новое сообщение, чтобы продолжить диалог."
@@ -564,23 +610,14 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                     # Безлимит активен - сразу передаем контакты
                     await contact_exchange.update(contacts_purchased=True)
 
-                    # Передаем контакты исполнителю с учетом нового функционала
-                    contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n"
-                    
-                    # Формируем контакты в зависимости от настроек заказчика
-                    if customer.contact_type == "telegram_only":
-                        contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                        contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
-                    elif customer.contact_type == "phone_only":
-                        contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
-                    elif customer.contact_type == "both":
-                        contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                        contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}\n"
-                        contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
-                    else:
-                        # Fallback - показываем только Telegram если контакты не настроены
-                        contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                        contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
+                    # # Передаем контакты исполнителю с учетом нового функционала
+
+                    # contacts_text = await parse_contacts_message(customer)
+
+                    contacts_text = (
+                    f"📞 <b>Контакты заказчика:</b>\n\n"
+                    f"{await parse_contacts_message(customer)}"
+                    )
 
                     await bot.send_message(
                         chat_id=worker.tg_id,
@@ -666,23 +703,7 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
             await contact_exchange.update(contacts_purchased=True)
 
             # Передаем контакты исполнителю с учетом нового функционала
-            contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n"
-            contacts_text += f"👤 <b>Имя:</b> {customer.tg_name}\n"
-            
-            # Формируем контакты в зависимости от настроек заказчика
-            if customer.contact_type == "telegram_only":
-                contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
-            elif customer.contact_type == "phone_only":
-                contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
-            elif customer.contact_type == "both":
-                contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}\n"
-                contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
-            else:
-                # Fallback - показываем только Telegram если контакты не настроены
-                contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
+            contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
 
             await bot.send_message(
                 chat_id=worker.tg_id,
@@ -889,23 +910,7 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
             await contact_exchange.update(contacts_purchased=True)
 
             # Передаем контакты исполнителю с учетом нового функционала
-            contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n"
-            contacts_text += f"👤 <b>Имя:</b> {customer.tg_name}\n"
-            
-            # Формируем контакты в зависимости от настроек заказчика
-            if customer.contact_type == "telegram_only":
-                contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
-            elif customer.contact_type == "phone_only":
-                contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
-            elif customer.contact_type == "both":
-                contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}\n"
-                contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
-            else:
-                # Fallback - показываем только Telegram если контакты не настроены
-                contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
+            contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
 
             await bot.send_message(
                 chat_id=worker.tg_id,
@@ -1342,25 +1347,9 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
 
             # Отправляем контакты исполнителю с учетом нового функционала
             contacts_text = f"📞 <b>Контакты заказчика получены!</b>\n\n"
-            contacts_text += f"📋 Объявление: #{abs_id}\n"
-            contacts_text += f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
-            
-            # Формируем контакты в зависимости от настроек заказчика
-            if customer.contact_type == "telegram_only":
-                contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}\n\n"
-            elif customer.contact_type == "phone_only":
-                contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})\n\n"
-            elif customer.contact_type == "both":
-                contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}\n"
-                contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})\n\n"
-            else:
-                # Fallback - показываем только Telegram если контакты не настроены
-                contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}\n\n"
-            
-            contacts_text += f"🔒 <b>Чат закрыт</b> - теперь можете общаться напрямую."
+            contacts_text += f"📋 Объявление: #{abs_id}\n\n {await parse_contacts_message(customer)}"
+
+            contacts_text += f"\n\n🔒 <b>Чат закрыт</b> - теперь можете общаться напрямую."
 
             try:
                 await callback.message.answer(
@@ -1398,14 +1387,14 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                     reply_markup=await kbc.buy_tokens_tariffs(),
                     parse_mode='HTML'
                 )
-            
+
             # Сохраняем данные для последующей покупки
             await state.update_data(
                 buying_contacts_for_abs=True,
                 target_worker_id=worker.id,
                 target_abs_id=abs_id
             )
-            
+
             await callback.answer("💰 Выберите тариф для покупки контактов")
 
     except Exception as e:
@@ -1539,28 +1528,30 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         else:
             worker_messages_list = list(response.worker_messages) if response.worker_messages else []
             new_worker_messages = worker_messages_list + [message.text]
-        
+
         # Получаем сообщения заказчика для обновления счетчика прочитанных
         customer_messages_list = list(response.customer_messages) if response.customer_messages else []
 
         # Добавляем временную метку
         current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+
         # Получаем текущие метки или создаем пустой список
-        current_timestamps = response.message_timestamps if hasattr(response, 'message_timestamps') and response.message_timestamps else []
-        
+        current_timestamps = response.message_timestamps if hasattr(response,
+                                                                    'message_timestamps') and response.message_timestamps else []
+
         # Добавляем новую метку
         new_timestamps = current_timestamps + [{"sender": "worker", "timestamp": current_timestamp}]
-        
+
         # Обновляем в БД
         await response.update(
             worker_messages=new_worker_messages,
             turn=False,  # теперь очередь заказчика
             message_timestamps=new_timestamps,
             last_message_by_worker=len(new_worker_messages),  # обновляем счетчик последнего сообщения
-            last_read_by_worker=len(customer_messages_list)  # исполнитель "прочитал" сообщения заказчика, отправив ответ
+            last_read_by_worker=len(customer_messages_list)
+            # исполнитель "прочитал" сообщения заказчика, отправив ответ
         )
-        
+
         # Обновляем объект в памяти после сохранения в БД
         response.worker_messages = new_worker_messages
         response.message_timestamps = new_timestamps
@@ -1580,7 +1571,7 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         )
 
         await message.answer("✅ Сообщение отправлено заказчику!")
-        
+
         # Возвращаем исполнителя в меню
         from app.handlers.worker import menu_worker
         from aiogram.types import CallbackQuery
@@ -1669,16 +1660,17 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
         # Добавляем сообщение заказчика
         customer_messages_list = list(response.customer_messages) if response.customer_messages else []
         new_customer_messages = customer_messages_list + [message.text]
-        
+
         # Получаем сообщения исполнителя для обновления счетчика прочитанных
         worker_messages_list = list(response.worker_messages) if response.worker_messages else []
-        
+
         # Добавляем временную метку
         current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+
         # Получаем текущие метки или создаем пустой список
-        current_timestamps = response.message_timestamps if hasattr(response, 'message_timestamps') and response.message_timestamps else []
-        
+        current_timestamps = response.message_timestamps if hasattr(response,
+                                                                    'message_timestamps') and response.message_timestamps else []
+
         # Добавляем новую метку
         new_timestamps = current_timestamps + [{"sender": "customer", "timestamp": current_timestamp}]
 
@@ -1690,7 +1682,7 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
             last_message_by_customer=len(new_customer_messages),  # обновляем счетчик последнего сообщения
             last_read_by_customer=len(worker_messages_list)  # заказчик "прочитал" сообщения исполнителя, отправив ответ
         )
-        
+
         # Обновляем объект в памяти после сохранения в БД
         response.customer_messages = new_customer_messages
         response.message_timestamps = new_timestamps
@@ -1821,10 +1813,10 @@ async def my_responses(callback: CallbackQuery, state: FSMContext):
             )
 
             active = not (contact_exchange and contact_exchange.contacts_purchased)
-            
+
             # Получаем индикатор статуса
             status_indicator = await get_response_status_indicator(response, "worker")
-            
+
             responses_data.append({
                 'abs_id': response.abs_id,
                 'active': active,
@@ -1875,27 +1867,27 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
 
         # Получаем response для обновления счетчика прочитанных сообщений
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
-        
+
         # Получаем количество сообщений от заказчика
         customer_messages_list = []
         if response and response.customer_messages:
             customer_messages_list = [
-                msg for msg in response.customer_messages 
+                msg for msg in response.customer_messages
                 if msg and msg.strip()
             ]
-        
+
         # Обновляем счетчик прочитанных сообщений для исполнителя
         # Исполнитель видел все сообщения от заказчика
         if response:
             last_read_by_worker = len(customer_messages_list)
             if response.last_read_by_worker != last_read_by_worker:
                 await response.update(last_read_by_worker=last_read_by_worker)
-            
+
             # Обновляем счетчик последнего сообщения заказчика
             last_message_by_customer = len(customer_messages_list)
             if response.last_message_by_customer != last_message_by_customer:
                 await response.update(last_message_by_customer=last_message_by_customer)
-        
+
         # Получаем статус обмена контактами
         contact_exchange = await ContactExchange.get_by_worker_and_abs(
             worker.id, abs_id
@@ -1912,26 +1904,43 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
 
         # Парсим фотографии объявления
         import json
+        photo_dict = {}
         try:
-            photo_dict = json.loads(advertisement.photo_path) if isinstance(advertisement.photo_path, str) else advertisement.photo_path
-            count_photo = len(photo_dict) if isinstance(photo_dict, dict) else 0
-        except (json.JSONDecodeError, TypeError, AttributeError):
-            count_photo = 0
-        
+            if advertisement.photo_path:
+                if isinstance(advertisement.photo_path, str):
+                    photo_dict = json.loads(advertisement.photo_path)
+                else:
+                    photo_dict = advertisement.photo_path
+            # Используем count_photo из модели, если есть, иначе считаем из словаря
+            if hasattr(advertisement, 'count_photo') and advertisement.count_photo:
+                count_photo = advertisement.count_photo
+            else:
+                count_photo = len(photo_dict) if isinstance(photo_dict, dict) else 0
+            logger.info(
+                f"[VIEW_MY_RESPONSE] abs_id={abs_id}, count_photo={count_photo}, model_count_photo={getattr(advertisement, 'count_photo', None)}, photo_dict keys={list(photo_dict.keys()) if photo_dict else []}, photo_dict_len={len(photo_dict) if isinstance(photo_dict, dict) else 0}")
+        except (json.JSONDecodeError, TypeError, AttributeError) as e:
+            logger.error(f"Error parsing photo_path in view_my_response: {e}, photo_path={advertisement.photo_path}")
+            photo_dict = {}
+            # Используем count_photo из модели, если есть
+            if hasattr(advertisement, 'count_photo') and advertisement.count_photo:
+                count_photo = advertisement.count_photo
+            else:
+                count_photo = 0
+
         # Формируем текст
         from app.untils import help_defs
         text = f"📋 <b>Объявление #{abs_id}</b>\n\n"
         text += help_defs.read_text_file(advertisement.text_path)
         text += "\n\n" + "=" * 30 + "\n\n"
-        
+
         # Показываем историю переписки
         customer = await Customer.get_customer(id=advertisement.customer_id)
         chat_history = await format_chat_history_for_display("worker", abs_id, worker, customer)
-        
+
         if chat_history:
             # Проверяем длину текста перед добавлением истории
             temp_text = text + "📝 <b>История переписки:</b>\n\n" + chat_history
-            
+
             # Если текст слишком длинный (больше 4000 символов), обрезаем историю
             if len(temp_text) > 4000:
                 # Урезаем историю до тех пор, пока текст не влезет
@@ -1944,7 +1953,7 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                             truncated_history = line + '\n' + truncated_history
                         else:
                             break
-                
+
                 if truncated_history:
                     text += "📝 <b>История переписки:</b>\n\n"
                     text += truncated_history
@@ -1962,24 +1971,9 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
         if has_contacts:
             # Контакты уже куплены
             customer = await Customer.get_customer(id=advertisement.customer_id)
-            text += "✅ <b>Контакты получены:</b>\n\n"
-            
-            # Формируем контакты в зависимости от настроек заказчика
-            if customer.contact_type == "telegram_only":
-                text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                text += f"🆔 <b>ID:</b> {customer.tg_id}\n\n"
-            elif customer.contact_type == "phone_only":
-                text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})\n\n"
-            elif customer.contact_type == "both":
-                text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                text += f"🆔 <b>ID:</b> {customer.tg_id}\n"
-                text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})\n\n"
-            else:
-                # Fallback - показываем только Telegram если контакты не настроены
-                text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                text += f"🆔 <b>ID:</b> {customer.tg_id}\n\n"
-            
-            text += "🔒 Чат закрыт"
+            text += f"✅ <b>Контакты получены:</b>\n\n {await parse_contacts_message(customer)}"
+
+            text += "\n\n🔒 Чат закрыт"
         elif customer_confirmed:
             # Заказчик подтвердил, исполнитель может покупать
             text += "💰 <b>Заказчик подтвердил передачу контактов</b>\n\n"
@@ -2002,15 +1996,44 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
         await state.set_state(WorkStates.worker_anonymous_chat)
 
         # Показываем с фото если есть
-        if count_photo > 0:
+        if count_photo > 0 and isinstance(photo_dict, dict) and len(photo_dict) > 0:
             try:
                 from aiogram.types import FSInputFile, InputMediaPhoto
-                photo_path = advertisement.photo_path['0']
-                
-                if 'https' in photo_path:
+                import os
+
+                # Берем первое фото (ключ '0' или минимальный числовой ключ)
+                if '0' in photo_dict:
+                    photo_path = photo_dict['0']
+                else:
+                    # Если нет ключа '0', ищем минимальный числовой ключ
+                    numeric_keys = [k for k in photo_dict.keys() if str(k).isdigit()]
+                    if numeric_keys:
+                        first_key = min(numeric_keys, key=lambda x: int(str(x)))
+                        photo_path = photo_dict[first_key]
+                    else:
+                        # Если нет числовых ключей, берем первый доступный
+                        photo_path = list(photo_dict.values())[0]
+
+                if not photo_path:
+                    raise ValueError("Empty photo path")
+
+                logger.info(
+                    f"[VIEW_MY_RESPONSE] Trying to show photo, path={photo_path[:100] if len(str(photo_path)) > 100 else photo_path}")
+
+                # Проверяем локальные файлы
+                if 'https' not in str(photo_path):
+                    if not os.path.exists(str(photo_path)):
+                        logger.error(f"[VIEW_MY_RESPONSE] Photo file not found: {photo_path}")
+                        raise FileNotFoundError(f"Photo file not found: {photo_path}")
+
+                try:
                     await callback.message.delete()
+                except:
+                    pass
+
+                if 'https' in str(photo_path):
                     await callback.message.answer_photo(
-                        photo=photo_path,
+                        photo=str(photo_path),
                         caption=text,
                         reply_markup=kbc.anonymous_chat_worker_buttons(
                             abs_id=abs_id,
@@ -2023,9 +2046,8 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                         parse_mode='HTML'
                     )
                 else:
-                    await callback.message.delete()
                     await callback.message.answer_photo(
-                        photo=FSInputFile(photo_path),
+                        photo=FSInputFile(str(photo_path)),
                         caption=text,
                         reply_markup=kbc.anonymous_chat_worker_buttons(
                             abs_id=abs_id,
@@ -2037,7 +2059,9 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                         ),
                         parse_mode='HTML'
                     )
-            except Exception:
+                logger.info(f"[VIEW_MY_RESPONSE] Photo sent successfully for abs_id={abs_id}")
+            except Exception as e:
+                logger.error(f"[VIEW_MY_RESPONSE] Error showing photo for abs_id={abs_id}: {e}", exc_info=True)
                 # Если фото не загрузилось, показываем текстом с безопасным редактированием
                 from app.untils.message_utils import safe_edit_message
                 await safe_edit_message(
@@ -2054,6 +2078,9 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                     parse_mode='HTML'
                 )
         else:
+            # Нет фото или ошибка парсинга
+            logger.warning(
+                f"[VIEW_MY_RESPONSE] No photo to show: abs_id={abs_id}, count_photo={count_photo}, photo_dict={photo_dict}")
             # Используем безопасное редактирование сообщения
             from app.untils.message_utils import safe_edit_message
             await safe_edit_message(
@@ -2323,21 +2350,22 @@ async def worker_chat_message(message: Message, state: FSMContext):
                     messages = response.worker_messages or []
 
                 messages.append(message.text)
-                
+
                 # Добавляем временную метку
                 current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                current_timestamps = response.message_timestamps if hasattr(response, 'message_timestamps') and response.message_timestamps else []
+                current_timestamps = response.message_timestamps if hasattr(response,
+                                                                            'message_timestamps') and response.message_timestamps else []
                 new_timestamps = current_timestamps + [{"sender": "worker", "timestamp": current_timestamp}]
-                
+
                 await response.update(
                     worker_messages=messages,
                     message_timestamps=new_timestamps
                 )
-                
+
                 # Обновляем объект в памяти после сохранения в БД
                 response.worker_messages = messages
                 response.message_timestamps = new_timestamps
-                
+
                 break
 
         # Отправляем заказчику с полным профилем исполнителя
@@ -2391,7 +2419,7 @@ async def worker_chat_message(message: Message, state: FSMContext):
             )
 
         await message.answer("✅ Сообщение отправлено заказчику")
-        
+
         # Возвращаем исполнителя в меню
         from app.handlers.worker import menu_worker
         from aiogram.types import CallbackQuery
@@ -2545,11 +2573,11 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
             return
 
         tariff_id = int(parts[2])
-        
+
         # Получаем тариф из БД
         from app.data.database.models import ContactTariff
         tariff = await ContactTariff.get_by_id(tariff_id)
-        
+
         if not tariff:
             await callback.answer("❌ Тариф не найден", show_alert=True)
             return
@@ -2557,7 +2585,7 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
 
         price_rub = tariff.price / 100
-        
+
         # Формируем информацию о тарифе
         if tariff.unlimited:
             tokens = -1
@@ -2566,7 +2594,7 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
         else:
             tokens = tariff.contacts_count
             tariff_name = tariff.name
-            info_text = f'После покупки у вас будет {worker.purchased_contacts + tokens} жетон(ов)'
+            info_text = f'После покупки у вас будет {worker.purchased_contacts + tokens} жетон'
 
         # Сохраняем выбор в state
         await state.update_data(
@@ -2632,7 +2660,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
         # Получаем тариф из БД
         from app.data.database.models import ContactTariff
         tariff = await ContactTariff.get_by_id(tariff_id)
-        
+
         if not tariff:
             await callback.answer("❌ Тариф не найден", show_alert=True)
             return
@@ -2648,7 +2676,6 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
 
         # Атомарное списание и обновление
         import aiosqlite
-        from datetime import datetime, timedelta
         conn = await aiosqlite.connect('app/data/database/database.db')
         try:
             if tariff.unlimited:
@@ -2700,22 +2727,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                         await contact_exchange.update(contacts_purchased=True)
 
                     # Передаем контакты исполнителю с учетом нового функционала
-                    contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n"
-                    
-                    # Формируем контакты в зависимости от настроек заказчика
-                    if customer.contact_type == "telegram_only":
-                        contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                        contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
-                    elif customer.contact_type == "phone_only":
-                        contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
-                    elif customer.contact_type == "both":
-                        contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                        contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}\n"
-                        contacts_text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})"
-                    else:
-                        # Fallback - показываем только Telegram если контакты не настроены
-                        contacts_text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-                        contacts_text += f"🆔 <b>ID:</b> {customer.tg_id}"
+                    contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
 
                     await bot.send_message(
                         chat_id=worker.tg_id,
@@ -2752,7 +2764,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                     try:
                         await callback.message.answer(
                             text=f"✅ <b>Покупка успешна!</b>\n\n"
-                                 f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон(ов)'}",
+                                 f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон'}",
                             reply_markup=kbc.menu_btn(),
                             parse_mode='HTML'
                         )
@@ -2760,7 +2772,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                         # Если сообщение недоступно для редактирования, отправляем новое
                         await callback.message.answer(
                             text=f"✅ <b>Покупка успешна!</b>\n\n"
-                                 f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон(ов)'}",
+                                 f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон'}",
                             reply_markup=kbc.menu_btn(),
                             parse_mode='HTML'
                         )
@@ -2769,7 +2781,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                 try:
                     await callback.message.answer(
                         text=f"✅ <b>Покупка успешна!</b>\n\n"
-                             f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон(ов)'}",
+                             f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон'}",
                         reply_markup=kbc.menu_btn(),
                         parse_mode='HTML'
                     )
@@ -2777,7 +2789,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                     # Если сообщение недоступно для редактирования, отправляем новое
                     await callback.message.answer(
                         text=f"✅ <b>Покупка успешна!</b>\n\n"
-                             f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон(ов)'}",
+                             f"{'Безлимит активирован!' if tokens == -1 else f'Добавлено {tokens} жетон'}",
                         reply_markup=kbc.menu_btn(),
                         parse_mode='HTML'
                     )
@@ -2884,76 +2896,93 @@ async def navigate_photo_worker_response(callback: CallbackQuery, state: FSMCont
     """Обработчик листания фотографий в откликах для исполнителей"""
     logger.debug(f'navigate_photo_worker_response...')
     kbc = KeyboardCollection()
-    
+
     # Парсим данные: go-to-photo-worker-response_{photo_num}_{abs_id}
     parts = callback.data.split('_')
     photo_num = int(parts[1])
     abs_id = int(parts[2])
-    
+
     # Получаем объявление
     advertisement = await Abs.get_one(id=abs_id)
     if not advertisement:
         await callback.answer("Объявление не найдено", show_alert=True)
         return
-    
+
     # Парсим JSON строку photo_path для получения количества фото
     import json
+    photo_dict = {}
     try:
-        photo_dict = json.loads(advertisement.photo_path) if isinstance(advertisement.photo_path, str) else advertisement.photo_path
+        if advertisement.photo_path:
+            if isinstance(advertisement.photo_path, str):
+                photo_dict = json.loads(advertisement.photo_path)
+            else:
+                photo_dict = advertisement.photo_path
         count_photo = len(photo_dict) if isinstance(photo_dict, dict) else 0
-    except (json.JSONDecodeError, TypeError, AttributeError):
-        count_photo = 1
-    
+    except (json.JSONDecodeError, TypeError, AttributeError) as e:
+        logger.error(
+            f"Error parsing photo_path in navigate_photo_worker_response: {e}, photo_path={advertisement.photo_path}")
+        photo_dict = {}
+        count_photo = 0
+
+    # Проверяем что есть фото для навигации
+    if count_photo == 0 or not isinstance(photo_dict, dict) or len(photo_dict) == 0:
+        await callback.answer("❌ Фотографии не найдены", show_alert=True)
+        return
+
     # Циклическая навигация
     if photo_num <= -1:
         photo_num = count_photo - 1
     elif photo_num >= count_photo:
         photo_num = 0
-    
-    # Получаем путь к фото
-    photo_path = advertisement.photo_path[str(photo_num)]
-    
+
+    # Получаем путь к фото из словаря (нормализуем ключ к строке)
+    photo_key = str(photo_num)
+    if photo_key not in photo_dict:
+        # Пробуем найти ближайший ключ
+        all_keys = [str(k) for k in photo_dict.keys()]
+        numeric_keys = [k for k in all_keys if k.isdigit()]
+        if numeric_keys:
+            # Берем ближайший числовой ключ
+            try:
+                photo_key = min(numeric_keys, key=lambda x: abs(int(x) - photo_num))
+            except:
+                photo_key = numeric_keys[0]
+        else:
+            # Если нет числовых ключей, берем первый
+            photo_key = all_keys[0]
+
+    photo_path = photo_dict[photo_key]
+
+    if not photo_path:
+        await callback.answer("❌ Фотография не найдена", show_alert=True)
+        return
+
     # Получаем данные для кнопок
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
     if not worker:
         await callback.answer("Ошибка получения данных", show_alert=True)
         return
-    
+
     # Получаем статус обмена контактами
     contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
-    
+
     # Определяем статусы
     has_contacts = contact_exchange and contact_exchange.contacts_purchased
     customer_confirmed = contact_exchange and contact_exchange.contacts_sent and not contact_exchange.contacts_purchased
     waiting_confirmation = contact_exchange and not contact_exchange.contacts_sent and not contact_exchange.contacts_purchased
-    
+
     # Формируем текст (используем тот же текст что и в view_my_response)
     from app.untils import help_defs
     text = f"📋 <b>Объявление #{abs_id}</b>\n\n"
     text += help_defs.read_text_file(advertisement.text_path)
     text += "\n\n" + "=" * 30 + "\n\n"
-    
+
     if has_contacts:
         # Контакты уже куплены
         customer = await Customer.get_customer(id=advertisement.customer_id)
-        text += "✅ <b>Контакты получены:</b>\n\n"
-        
-        # Формируем контакты в зависимости от настроек заказчика
-        if customer.contact_type == "telegram_only":
-            text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-            text += f"🆔 <b>ID:</b> {customer.tg_id}\n\n"
-        elif customer.contact_type == "phone_only":
-            text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})\n\n"
-        elif customer.contact_type == "both":
-            text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-            text += f"🆔 <b>ID:</b> {customer.tg_id}\n"
-            text += f"📞 <b>Номер телефона:</b> [{customer.phone_number}](tel:{customer.phone_number})\n\n"
-        else:
-            # Fallback - показываем только Telegram если контакты не настроены
-            text += f"📱 <b>Telegram:</b> [@{customer.tg_name}](tg://user?id={customer.tg_id})\n"
-            text += f"🆔 <b>ID:</b> {customer.tg_id}\n\n"
-        
-        text += "🔒 Чат закрыт"
+        text += f"✅ <b>Контакты получены:</b>\n\n {await parse_contacts_message(customer)}"
+
+        text += "\n\n🔒 Чат закрыт"
     elif customer_confirmed:
         # Заказчик подтвердил, исполнитель может покупать
         text += "💰 <b>Заказчик подтвердил передачу контактов</b>\n\n"
@@ -2968,40 +2997,87 @@ async def navigate_photo_worker_response(callback: CallbackQuery, state: FSMCont
         # Можно запросить контакты
         text += "💬 <b>Чат активен</b>\n\n"
         text += "Вы можете написать сообщение заказчику или запросить контакт."
-    
+
     # Обновляем медиа
     try:
         from aiogram.types import FSInputFile, InputMediaPhoto
-        
-        if 'https' in photo_path:
-            await callback.message.edit_media(
-                media=InputMediaPhoto(
-                    media=photo_path,
-                    caption=text
-                ),
-                reply_markup=kbc.anonymous_chat_worker_buttons(
-                    abs_id=abs_id,
-                    has_contacts=has_contacts,
-                    contacts_requested=customer_confirmed,
-                    contacts_sent=waiting_confirmation,
-                    count_photo=count_photo,
-                    photo_num=photo_num
+        from aiogram.exceptions import TelegramBadRequest
+        import os
+
+        # Проверяем локальные файлы
+        if 'https' not in str(photo_path):
+            if not os.path.exists(str(photo_path)):
+                logger.error(f"[NAVIGATE_PHOTO] Photo file not found: {photo_path}")
+                await callback.answer("❌ Файл не найден", show_alert=True)
+                return
+
+        # Пытаемся отредактировать медиа
+        try:
+            if 'https' in str(photo_path):
+                await callback.message.edit_media(
+                    media=InputMediaPhoto(
+                        media=str(photo_path),
+                        caption=text
+                    ),
+                    reply_markup=kbc.anonymous_chat_worker_buttons(
+                        abs_id=abs_id,
+                        has_contacts=has_contacts,
+                        contacts_requested=customer_confirmed,
+                        contacts_sent=waiting_confirmation,
+                        count_photo=count_photo,
+                        photo_num=photo_num
+                    )
                 )
-            )
-        else:
-            await callback.message.edit_media(
-                media=InputMediaPhoto(
-                    media=FSInputFile(photo_path),
-                    caption=text),
-                reply_markup=kbc.anonymous_chat_worker_buttons(
-                    abs_id=abs_id,
-                    has_contacts=has_contacts,
-                    contacts_requested=customer_confirmed,
-                    contacts_sent=waiting_confirmation,
-                    count_photo=count_photo,
-                    photo_num=photo_num
+            else:
+                await callback.message.edit_media(
+                    media=InputMediaPhoto(
+                        media=FSInputFile(str(photo_path)),
+                        caption=text),
+                    reply_markup=kbc.anonymous_chat_worker_buttons(
+                        abs_id=abs_id,
+                        has_contacts=has_contacts,
+                        contacts_requested=customer_confirmed,
+                        contacts_sent=waiting_confirmation,
+                        count_photo=count_photo,
+                        photo_num=photo_num
+                    )
                 )
-            )
+        except TelegramBadRequest as e:
+            # Если не удалось отредактировать (сообщение не найдено или недоступно), отправляем новое
+            logger.warning(f"[NAVIGATE_PHOTO] Cannot edit message, sending new: {e}")
+            try:
+                await callback.message.delete()
+            except:
+                pass
+
+            if 'https' in str(photo_path):
+                await callback.message.answer_photo(
+                    photo=str(photo_path),
+                    caption=text,
+                    reply_markup=kbc.anonymous_chat_worker_buttons(
+                        abs_id=abs_id,
+                        has_contacts=has_contacts,
+                        contacts_requested=customer_confirmed,
+                        contacts_sent=waiting_confirmation,
+                        count_photo=count_photo,
+                        photo_num=photo_num
+                    ),
+                    parse_mode='HTML'
+                )
+            else:
+                await callback.message.answer_photo(
+                    photo=FSInputFile(str(photo_path)),
+                    caption=text,
+                    reply_markup=kbc.anonymous_chat_worker_buttons(
+                        abs_id=abs_id,
+                        has_contacts=has_contacts,
+                        contacts_requested=customer_confirmed,
+                        contacts_sent=waiting_confirmation,
+                        count_photo=count_photo,
+                        photo_num=photo_num
+                    ),
+                    parse_mode='HTML'
+                )
     except Exception as e:
-        logger.error(f"Error updating photo in navigate_photo_worker_response: {e}")
-        await callback.answer("Ошибка обновления фото", show_alert=True)
+        logger.error(f"[NAVIGATE_PHOTO] Error updating photo in navigate_photo_worker_response: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка обновления фото", show_alert=True)
