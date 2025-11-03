@@ -669,7 +669,7 @@ async def get_user(message: Message, state: FSMContext) -> None:
 
     if user_blocked := await Banned.get_banned(tg_id=user_id):
         if user_blocked.ban_now or user_blocked.forever:
-            text += f'*Пользователь заблокирован*\nПричина блокировки: {user_blocked.ban_reason}\n\n'
+            text += f'<i>Пользователь заблокирован</i>\nПричина блокировки: {user_blocked.ban_reason}\n\n'
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
@@ -689,7 +689,7 @@ async def get_user(message: Message, state: FSMContext) -> None:
             city = await City.get_city(id=city_id)
             cites += f'{step}{city.city}\n'
 
-        text += (f'*Профиль исполнителя*\n\n'
+        text += (f'<i>Профиль исполнителя</i>\n\n'
                  f'ID: {worker.id}  {"✅" if worker.confirmed else "☑️"}\n'
                  f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
                  f'Общий ID исполнителя: {worker.tg_id}\n'
@@ -709,7 +709,7 @@ async def get_user(message: Message, state: FSMContext) -> None:
             text += f'\n\n'
         city = await City.get_city(id=customer.city_id)
         user_abs = await Abs.get_all_by_customer(customer.id)
-        text += ('*Профиль заказчика*\n\n'
+        text += ('<i>Профиль заказчика</i>\n\n'
                  f'ID: {customer.id}\n'
                  f'Общий ID: {customer.tg_id}\n'
                  f'Город заказчика: {city.city}\n'
