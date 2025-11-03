@@ -25,7 +25,7 @@ from app.data.database.models import (
 from loaders import bot
 from app.untils.contact_filter import check_message_for_contacts
 from app.untils.checks import fool_check
-from app.untils.help_defs import is_content_forbidden
+from app.untils.help_defs import is_content_forbidden, get_contact_word
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -2599,6 +2599,7 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
 
         price_rub = tariff.price / 100
 
+
         # Формируем информацию о тарифе
         if tariff.unlimited:
             tokens = -1
@@ -2607,7 +2608,9 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
         else:
             tokens = tariff.contacts_count
             tariff_name = tariff.name
-            info_text = f'После покупки у вас будет {worker.purchased_contacts + tokens} жетон'
+            all_contacts = worker.purchased_contacts + tokens
+            contact_word = f"{all_contacts} {get_contact_word(all_contacts)}"
+            info_text = f'После покупки у вас будет {contact_word}'
 
         # Сохраняем выбор в state
         await state.update_data(

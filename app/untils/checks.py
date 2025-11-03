@@ -376,6 +376,39 @@ async def validate_worker_name(name: str) -> tuple[bool, str]:
     return True, ""
 
 
+def check_repeated_words(text: str, max_repeats: int = 5) -> tuple[bool, str]:
+    """
+    Проверяет, есть ли слова, которые повторяются более чем max_repeats раз.
+    
+    Args:
+        text: Текст для проверки
+        max_repeats: Максимальное количество допустимых повторений (по умолчанию 5)
+    
+    Returns:
+        tuple[bool, str]: (is_valid, error_message)
+            - is_valid: True если проверка пройдена, False если найдено нарушение
+            - error_message: Описание нарушения (пустая строка если нет нарушений)
+    """
+    # Разбиваем текст на слова (игнорируем цифры и спецсимволы)
+    # Используем regex для извлечения только слов (русские и латинские буквы)
+    words = re.findall(r'[а-яА-ЯёЁa-zA-Z]+', text.lower())
+    
+    if not words:
+        return True, ""
+    
+    # Проверяем каждое слово на количество повторений
+    word_counts = {}
+    for word in words:
+        word_counts[word] = word_counts.get(word, 0) + 1
+    
+    # Ищем слова, которые повторяются более max_repeats раз
+    for word, count in word_counts.items():
+        if count > max_repeats:
+            return False, f"Найдено: {word} (повторяется {count} раз. Максимум: {max_repeats})"
+    
+    return True, ""
+
+
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |
 # | |  | |  ___ | |__    | |    ___   ___ | |__

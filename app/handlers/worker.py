@@ -4770,9 +4770,8 @@ async def add_city(callback: CallbackQuery, state: FSMContext) -> None:
     builder = InlineKeyboardBuilder()
     # Создаем кнопки для всех доступных тарифов (тарифы уже отсортированы по city_count в get_all)
     for tariff in tariffs:
-        price_rub = tariff.price_per_month / 100
         builder.add(
-            kbc._inline(f"+{tariff.city_count} city ({int(price_rub)}₽/мес)", f"city_count_{tariff.city_count}"))
+            kbc._inline(f"+{tariff.city_count} city", f"city_count_{tariff.city_count}"))
 
     builder.add(kbc._inline("🏠 В меню", "worker_menu"))
     builder.adjust(1)
@@ -4850,7 +4849,15 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
     # Добавляем кнопки с ценами из БД
     for months, price_kopecks in prices_info:
         price_rub = price_kopecks / 100
-        builder.add(kbc._inline(f"Купить {months} месяц{'ев' if months > 1 else ''} {int(price_rub)}₽",
+        # Формируем правильное склонение для месяца
+        if months == 1:
+            month_word = "месяц"
+        elif months in [2, 3, 4]:
+            month_word = "месяца"
+        else:
+            month_word = "месяцев"
+        
+        builder.add(kbc._inline(f"{months} {month_word} {int(price_rub)}₽",
                                 f"city_period_{months}_{int(price_rub)}"))
 
     builder.add(kbc._inline("◀️ К выбору количества городов", "add_city"))
@@ -4919,12 +4926,14 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
         # Это новая покупка или смена тарифа
         city_count = data.get('city_count', 1)
 
+        month_word = help_defs.get_month_word(months)
+
         # Проверяем, это смена тарифа или новая покупка
         if change_subscription_id:
             # Смена тарифа
             text = f"💰 <b>Подтверждение смены тарифа</b>\n\n"
             text += f"🏙️ Новое количество городов: {city_count}\n"
-            text += f"📅 Период: {months} месяц\n"
+            text += f"📅 Период: {months} {month_word}\n"
             text += f"💵 Стоимость: {price}₽\n\n"
             text += f"После смены тарифа вы сможете выбрать города заново.\n\n"
             text += f"Подтвердить смену тарифа?"
@@ -4936,9 +4945,9 @@ async def city_period_selected(callback: CallbackQuery, state: FSMContext) -> No
             # Новая покупка
             text = f"💰 <b>Подтверждение покупки</b>\n\n"
             text += f"🏙️ Количество городов: {city_count}\n"
-            text += f"📅 Период: {months} месяц\n"
+            text += f"📅 Период: {months} {month_word}\n"
             text += f"💵 Стоимость: {price}₽\n\n"
-            text += f"После покупки вы будете получать заказы из дополнительных городов в течение {months} месяца.\n\n"
+            text += f"После покупки вы будете получать заказы из дополнительных городов в течение {months} {month_word}.\n\n"
             text += f"Подтвердить покупку?"
 
             builder = InlineKeyboardBuilder()
@@ -5739,7 +5748,10 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
         builder = InlineKeyboardBuilder()
         # Добавляем кнопки с ценами из БД
         for months, price_rub in prices_info:
-            builder.add(kbc._inline(f"Продлить на {months} месяц{'ев' if months > 1 else ''} {price_rub}₽",
+            # Формируем правильное склонение для месяца
+            month_word = help_defs.get_month_word(months)
+
+            builder.add(kbc._inline(f"{months} {month_word} {price_rub}₽",
                                     f"city_period_{months}_{price_rub}"))
 
         builder.add(kbc._inline("◀️ Назад", "add_city"))
@@ -5868,8 +5880,11 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
 
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
+    contacts = worker.purchased_contacts
+    info_text = f"{contacts} {help_defs.get_contact_word(contacts)}"
+
     text = f"💳 <b>Купить контакты</b>\n\n"
-    text += f"📊 У вас сейчас: {worker.purchased_contacts} контакт\n"
+    text += f"📊 У вас сейчас: {info_text}\n"
     text += f"🔓 Безлимитный доступ: {'✅ Активен' if worker.unlimited_contacts_until else '❌ Нет'}\n\n"
 
     if worker.unlimited_contacts_until:
@@ -5949,14 +5964,14 @@ async def buy_contacts_handler(callback: CallbackQuery, state: FSMContext) -> No
     # Формируем информацию о тарифе
     if tariff.unlimited:
         tariff_name = tariff.name
-        tokens = -1
         months = tariff.unlimited_days // 30 if tariff.unlimited_days else 1
         info_text = f'Безлимитный доступ к контактам на {months} месяц'
     else:
         tariff_name = tariff.name
         tokens = tariff.contacts_count
-        months = 0
-        info_text = f'После покупки у вас будет {worker.purchased_contacts + tokens} контакт'
+        all_contacts = worker.purchased_contacts + tokens
+        contact_word = f"{all_contacts} {help_defs.get_contact_word(all_contacts)}"
+        info_text = f'После покупки у вас будет {contact_word}'
 
     # Создаем инвойс для оплаты
     text = f"""
@@ -6027,11 +6042,15 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
             new_count = worker.purchased_contacts + tariff.contacts_count
             await worker.update_purchased_contacts(purchased_contacts=new_count)
 
+            t_contacts = tariff.contacts_count
+            add_contact_text = f"{t_contacts} {help_defs.get_contact_word(t_contacts)}"
+            new_contact_text = f"{new_count} {help_defs.get_contact_word(new_count)}"
+
             text = f"""
 ✅ <b>Покупка успешно выполнена!</b>
 
-🎉 Добавлено {tariff.contacts_count} контактов!
-📊 У вас теперь: {new_count} контактов
+🎉 Добавлено {add_contact_text}!
+📊 У вас теперь: {new_contact_text}
 
 💡 Используйте их для получения телефонов заказчиков!
             """

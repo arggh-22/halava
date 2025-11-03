@@ -9,7 +9,6 @@ from bs4 import BeautifulSoup
 from datetime import datetime, date
 from PIL import Image, ImageEnhance
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -58,8 +57,8 @@ def check_ooo(query) -> bool | str:
                 "_": str(int(time.time() * 1000)),
             }
             result = requests.get(
-                f"https://egrul.nalog.ru/search-result/{request_id}", 
-                headers=headers, 
+                f"https://egrul.nalog.ru/search-result/{request_id}",
+                headers=headers,
                 params=params,
                 timeout=10
             )
@@ -212,11 +211,11 @@ async def save_portfolio_photo(user_id: int, photo_key: int):
     """
     # Создаем путь для портфолио пользователя
     portfolio_dir = f'app/data/photo/{user_id}/portfolio'
-    
+
     # Создаем папку если не существует
     if not os.path.exists(portfolio_dir):
         os.makedirs(portfolio_dir)
-    
+
     # Возвращаем путь к папке и имя файла
     return portfolio_dir, f'{photo_key}.jpg'
 
@@ -235,20 +234,20 @@ def migrate_portfolio_to_user_folder(portfolio_dict: dict, user_id: int):
     """
     if not portfolio_dict:
         return portfolio_dict
-    
+
     # Создаем папку для портфолио пользователя
     portfolio_dir = f'app/data/photo/{user_id}/portfolio'
     if not os.path.exists(portfolio_dir):
         os.makedirs(portfolio_dir)
-    
+
     new_portfolio = {}
-    
+
     for key, old_path in portfolio_dict.items():
         if os.path.exists(old_path):
             # Создаем новое имя файла
             new_filename = f'{key}.jpg'
             new_path = os.path.join(portfolio_dir, new_filename)
-            
+
             try:
                 # Перемещаем файл
                 import shutil
@@ -262,7 +261,7 @@ def migrate_portfolio_to_user_folder(portfolio_dict: dict, user_id: int):
         else:
             logger.warning(f"[PORTFOLIO_MIGRATION] Файл не найден: {old_path}")
             # Если файл не существует, не добавляем его в новый словарь
-    
+
     return new_portfolio
 
 
@@ -345,11 +344,11 @@ def cleanup_orphaned_portfolio_files():
             files = os.listdir(folder_path)
             for item in files:
                 item_path = os.path.join(folder_path, item)
-                
+
                 # Пропускаем папки (например, portfolio)
                 if os.path.isdir(item_path):
                     continue
-                
+
                 # Проверяем только .jpg файлы
                 if item.endswith('.jpg'):
                     # Проверяем, используется ли файл (profile_photo или старое portfolio_photo)
@@ -435,7 +434,7 @@ async def _check_file_in_database(file_path):
     try:
         # Локальный импорт для избежания циклических зависимостей
         from app.data.database.models import Worker
-        
+
         # Получаем всех исполнителей
         workers = await Worker.get_all()
 
@@ -584,25 +583,25 @@ def is_content_forbidden(text: str) -> bool:
     """
     if not text:
         return False
-    
+
     text_lower = text.lower().strip()
-    
+
     # Проверка на ссылки (http, https, www, домены)
     url_patterns = [
         r'https?://',  # http:// или https://
-        r'www\.',      # www.
+        r'www\.',  # www.
         r'\.(com|ru|org|net|info|biz|co|io|me|tv|cc|tk|ml|ga|cf)',  # домены
         r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',  # общий паттерн доменов
     ]
-    
+
     for pattern in url_patterns:
         if re.search(pattern, text_lower):
             return True
-    
+
     # Проверка на упоминания через @ (только латиница)
     if re.search(r'@[a-zA-Z0-9_]+', text_lower):
         return True
-    
+
     # Проверка на номера прописью (русские)
     forbidden_numbers = [
         'ноль', 'один', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять',
@@ -612,17 +611,17 @@ def is_content_forbidden(text: str) -> bool:
         'сто', 'двести', 'триста', 'четыреста', 'пятьсот', 'шестьсот', 'семьсот', 'восемьсот', 'девятьсот',
         'тысяча', 'тысяч', 'миллион', 'миллионов'
     ]
-    
+
     # Разбиваем текст на слова и проверяем каждое
     words = re.findall(r'\b\w+\b', text_lower)
     for word in words:
         if word in forbidden_numbers:
             return True
-    
+
     # Проверка на комбинации цифр и слов (например: "8 девять")
     if re.search(r'\d+\s+(ноль|один|два|три|четыре|пять|шесть|семь|восемь|девять)', text_lower):
         return True
-    
+
     return False
 
 
@@ -885,15 +884,15 @@ async def check_contact_already_sent(worker_id: int, abs_id: int) -> bool:
     try:
         # Локальный импорт для избежания циклических зависимостей
         from app.data.database.models import ContactExchange
-        
+
         # Используем новую модель ContactExchange
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
-        
+
         if contact_exchange and contact_exchange.contacts_sent:
             return True
-        
+
         return False
-        
+
     except Exception as e:
         logger.error(f"Ошибка при проверке отправки контактов: {e}")
         return False
@@ -1018,32 +1017,32 @@ async def process_contact_purchase(worker_id: int, tariff_type: str, tariff_valu
     try:
         from app.data.database.models import Worker
         from datetime import datetime, timedelta
-        
+
         worker = await Worker.get_worker(id=worker_id)
         if not worker:
             logger.error(f"Worker not found: {worker_id}")
             return False
-        
+
         if tariff_type == 'unlimited':
             # Безлимитный тариф
             days = tariff_value * 30 if tariff_value == 1 else tariff_value * 90 if tariff_value == 3 else tariff_value * 180 if tariff_value == 6 else 365
-            
+
             end_date = datetime.now() + timedelta(days=days)
             end_date_str = end_date.strftime("%Y-%m-%d")
-            
+
             await worker.update_purchased_contacts(unlimited_contacts_until=end_date_str)
             logger.info(f"Unlimited contacts activated for worker {worker_id} until {end_date_str}")
-            
+
         else:
             # Ограниченный тариф
             current_contacts = worker.purchased_contacts or 0
             new_contacts = current_contacts + tariff_value
-            
+
             await worker.update_purchased_contacts(purchased_contacts=new_contacts)
             logger.info(f"Added {tariff_value} contacts to worker {worker_id}. Total: {new_contacts}")
-        
+
         return True
-        
+
     except Exception as e:
         logger.error(f"Error processing contact purchase: {e}")
         return False
@@ -1112,11 +1111,11 @@ async def check_worker_has_unlimited_contacts(worker_id: int) -> bool:
     try:
         # Локальный импорт для избежания циклических зависимостей
         from app.data.database.models import Worker
-        
+
         worker = await Worker.get_worker(id=worker_id)
         if not worker:
             return False
-        
+
         # Проверяем безлимитный доступ по дате окончания
         if worker.unlimited_contacts_until:
             from datetime import datetime
@@ -1127,13 +1126,13 @@ async def check_worker_has_unlimited_contacts(worker_id: int) -> bool:
             except ValueError:
                 # Неверный формат даты
                 pass
-        
+
         # Проверяем количество купленных контактов
         if worker.purchased_contacts and worker.purchased_contacts > 0:
             return True
-        
+
         return False
-        
+
     except Exception as e:
         logger.error(f"Error checking unlimited contacts for worker {worker_id}: {e}")
         return False
@@ -1213,6 +1212,31 @@ def remove_portfolio_photo(d, removed_key):
     removed_file_path = new_dict.pop(removed_key, None)
 
     return new_dict, removed_file_path
+
+
+def get_month_word(months):
+    # Формируем правильное склонение для месяца
+
+    if months == 1:
+        month_word = "месяц"
+    elif months in [2, 3, 4]:
+        month_word = "месяца"
+    else:
+        month_word = "месяцев"
+
+    return month_word
+
+def get_contact_word(contacts):
+    # Формируем правильное склонение для месяца
+
+    if contacts == 1:
+        contact_word = "контакт"
+    elif contacts in [2, 3, 4]:
+        contact_word = "контакта"
+    else:
+        contact_word = "контактов"
+
+    return contact_word
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

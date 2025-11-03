@@ -1155,7 +1155,7 @@ class KeyboardCollection:
                 button_text = f"{int(price_rub)} ₽ — {tariff.name}"
             builder.add(self._inline(button_text=button_text, callback_data=f"contact-tariff_{tariff.id}"))
         
-        builder.add(self._inline(button_text="Назад", callback_data="worker_purchased_contacts"))
+        # builder.add(self._inline(button_text="Назад", callback_data="worker_purchased_contacts"))
         builder.adjust(1)
         return builder.as_markup()
 

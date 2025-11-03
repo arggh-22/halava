@@ -1890,6 +1890,77 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
             reply_markup=kbc.menu_btn())
         return
 
+    # Проверка на повторяющиеся слова
+    is_valid, repeated_word_error = checks.check_repeated_words(all_text, max_repeats=5)
+    if not is_valid:
+        banned = await Banned.get_banned(tg_id=callback.message.chat.id)
+        ban_end = str(datetime.now() + timedelta(hours=24))
+
+        customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+
+        text = (f'{work}\n\n'
+                f'Задача: {task}\n'
+                f'Время: {time}\n')
+
+        text = help_defs.escape_markdown(text=text)
+
+        file_path = help_defs.create_file_in_directory_with_timestamp(id=callback.message.chat.id, text=text,
+                                                                      path='app/data/banned/text/')
+
+        banned_abs = BannedAbs(
+            id=None,
+            customer_id=customer.id,
+            work_type_id=int(work_type_id),
+            city_id=customer.city_id,
+            photo_path=None,
+            text_path=file_path,
+            date_to_delite=datetime.today() + timedelta(days=30),
+            photos_len=0
+        )
+        await banned_abs.save()
+
+        banned_abs = await BannedAbs.get_all_by_customer(customer_id=customer.id)
+        banned_abs = banned_abs[-1]
+
+        text = (f'Заблокирован пользователь @{customer.tg_name}\n'
+                f'ID: #{customer.tg_id}\n\n'
+                f'{work}\n\n'
+                f'Задача: {task}\n'
+                f'Время: {time}\n'
+                f''
+                f'Причина: Повторяющиеся слова')
+
+        text = help_defs.escape_markdown(text=text)
+
+        # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+
+        await bot.send_message(chat_id=config.BLOCKED_CHAT, text=text, protect_content=False,
+                               reply_markup=kbc.unban(banned_abs.id, photo_num=0, photo_len=0))
+
+        if banned:
+            if banned.ban_counter >= 3:
+                await banned.update(forever=True, ban_now=True)
+                await callback.message.answer('Вы заблокированы навсегда за неоднократное нарушение правил платформы',
+                                              reply_markup=kbc.support_btn())
+                await state.set_state(BannedStates.banned)
+                return
+            await banned.update(ban_counter=banned.ban_counter + 1, ban_now=True, ban_end=ban_end)
+            await callback.message.answer(
+                'Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность (повторяющиеся слова), если считаете, что это не так, Вы можете это обжаловать написав нам.',
+                reply_markup=kbc.support_btn())
+            await state.set_state(BannedStates.banned)
+            return
+
+        new_banned = Banned(id=None, tg_id=callback.message.chat.id,
+                            ban_counter=1, ban_end=ban_end, ban_now=True,
+                            forever=False, ban_reason="Повторяющиеся слова")
+        await callback.message.answer(
+            'Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность (повторяющиеся слова), если считаете, что это не так, Вы можете это обжаловать написав нам.',
+            reply_markup=kbc.support_btn())
+        await new_banned.save()
+        await state.set_state(BannedStates.banned)
+        return
+
     text = (f'{work}\n\n'
             f'Задача: {task}\n'
             f'Время: {time}\n'
@@ -2219,6 +2290,80 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
             reply_markup=kbc.menu_btn())
         await state.set_state(CustomerStates.customer_menu)
         help_defs.delete_folder(file_path_photo)
+        return
+
+    # Проверка на повторяющиеся слова
+    is_valid, repeated_word_error = checks.check_repeated_words(all_text, max_repeats=5)
+    if not is_valid:
+        banned = await Banned.get_banned(tg_id=callback.message.chat.id)
+        ban_end = str(datetime.now() + timedelta(hours=24))
+
+        work_type = await WorkType.get_work_type(id=int(work_type_id))
+        work = work_type.work_type.capitalize()
+
+        customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+
+        text = (f'{work}\n\n'
+                f'Задача: {task}\n'
+                f'Время: {time}\n')
+
+        text = help_defs.escape_markdown(text=text)
+
+        file_path = help_defs.create_file_in_directory_with_timestamp(id=callback.message.chat.id, text=text,
+                                                                      path='app/data/banned/text/')
+
+        banned_abs = BannedAbs(
+            id=None,
+            customer_id=customer.id,
+            work_type_id=int(work_type_id),
+            city_id=customer.city_id,
+            photo_path=photos,
+            text_path=file_path,
+            date_to_delite=datetime.today() + timedelta(days=30),
+            photos_len=photos_len
+        )
+        await banned_abs.save()
+
+        banned_abs = await BannedAbs.get_all_by_customer(customer_id=customer.id)
+        banned_abs = banned_abs[-1]
+
+        text = (f'Заблокирован пользователь @{customer.tg_name}\n'
+                f'ID: #{customer.tg_id}\n\n'
+                f'{work}\n\n'
+                f'Задача: {task}\n'
+                f'Время: {time}\n'
+                f''
+                f'Причина: Повторяющиеся слова')
+
+        text = help_defs.escape_markdown(text=text)
+
+        # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+
+        await bot.send_photo(chat_id=config.BLOCKED_CHAT, photo=FSInputFile(photos['0']), caption=text, protect_content=False,
+                               reply_markup=kbc.unban(banned_abs.id, photo_num=0, photo_len=photos_len))
+
+        if banned:
+            if banned.ban_counter >= 3:
+                await banned.update(forever=True, ban_now=True)
+                await callback.message.answer('Вы заблокированы навсегда за неоднократное нарушение правил платформы',
+                                              reply_markup=kbc.support_btn())
+                await state.set_state(BannedStates.banned)
+                return
+            await banned.update(ban_counter=banned.ban_counter + 1, ban_now=True, ban_end=ban_end)
+            await callback.message.answer(
+                'Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность (повторяющиеся слова), если считаете, что это не так, Вы можете это обжаловать написав нам.',
+                reply_markup=kbc.support_btn())
+            await state.set_state(BannedStates.banned)
+            return
+
+        new_banned = Banned(id=None, tg_id=callback.message.chat.id,
+                            ban_counter=1, ban_end=ban_end, ban_now=True,
+                            forever=False, ban_reason="Повторяющиеся слова")
+        await callback.message.answer(
+            'Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность (повторяющиеся слова), если считаете, что это не так, Вы можете это обжаловать написав нам.',
+            reply_markup=kbc.support_btn())
+        await new_banned.save()
+        await state.set_state(BannedStates.banned)
         return
 
     work_type = await WorkType.get_work_type(id=int(work_type_id))
