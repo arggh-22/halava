@@ -5104,7 +5104,7 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
         else:
             text = f"✅ <b>Покупка успешно выполнена!</b>\n\n"
             text += f"🎉 Подписка на {city_count} город активирована!\n"
-        text += f"📅 Период: {months} месяц\n"
+        text += f"📅 Период: {months} {help_defs.get_month_word(months)}\n"
         text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
 
         if len(available_cities) == 0:
@@ -6033,7 +6033,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
 
 🎉 У вас теперь безлимитный доступ к контактам!
 ⏰ Действует до: {until_date.strftime('%d.%m.%Y %H:%M')}
-📅 Период: {months} месяц
+📅 Период: {months} {help_defs.get_month_word(months)}
 
 💡 Теперь вы можете получать контакты заказчиков без ограничений!
             """
