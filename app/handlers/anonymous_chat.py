@@ -1948,7 +1948,6 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
         from app.untils import help_defs
         text = f"📋 <b>Объявление #{abs_id}</b>\n\n"
         text += help_defs.read_text_file(advertisement.text_path)
-        text += "\n\n" + "=" * 30 + "\n\n"
 
         # Показываем историю переписки
         customer = await Customer.get_customer(id=advertisement.customer_id)
@@ -1975,15 +1974,12 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                     text += "📝 <b>История переписки:</b>\n\n"
                     text += truncated_history
                     text += f"\n... (показаны последние сообщения)\n"
-                    text += "\n" + "=" * 30 + "\n\n"
                 else:
                     # Если даже одна строка не влезла, не показываем историю
                     text += "\n📝 История переписки слишком длинная для отображения.\n"
-                    text += "\n" + "=" * 30 + "\n\n"
             else:
                 text += "📝 <b>История переписки:</b>\n\n"
                 text += chat_history
-                text += "\n" + "=" * 30 + "\n\n"
 
         if has_contacts:
             # Контакты уже куплены
@@ -2990,7 +2986,6 @@ async def navigate_photo_worker_response(callback: CallbackQuery, state: FSMCont
     from app.untils import help_defs
     text = f"📋 <b>Объявление #{abs_id}</b>\n\n"
     text += help_defs.read_text_file(advertisement.text_path)
-    text += "\n\n" + "=" * 30 + "\n\n"
 
     if has_contacts:
         # Контакты уже куплены

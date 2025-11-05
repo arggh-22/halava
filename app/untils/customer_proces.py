@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 
 import config
 from app.data.database.models import Banned, WorkType, Customer, BannedAbs, Worker, WorkerAndSubscription, \
@@ -58,7 +58,10 @@ async def ban_task(message, work_type_id, task, time, ban_reason, msg):
 
     text = help_defs.escape_markdown(text)
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    try:
+        await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+    except TelegramBadRequest:
+        pass
 
     await bot.send_message(chat_id=config.BLOCKED_CHAT,
                            text=text,
@@ -72,7 +75,7 @@ async def ban_task(message, work_type_id, task, time, ban_reason, msg):
             return
         await banned.update(ban_counter=banned.ban_counter + 1, ban_now=True, ban_end=ban_end)
         await message.answer(
-            'Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
+            '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
             reply_markup=kbc.support_btn())
         return
     new_banned = Banned(id=None, tg_id=message.chat.id,
@@ -80,7 +83,7 @@ async def ban_task(message, work_type_id, task, time, ban_reason, msg):
                         forever=False, ban_reason=ban_reason)
     await new_banned.save()
     await message.answer(
-        'Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
+        '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
         reply_markup=kbc.support_btn())
 
 

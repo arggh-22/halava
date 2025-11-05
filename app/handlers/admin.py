@@ -861,7 +861,7 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    text = f'Объявление {abs_now.id}\n\n' + text
+    text = f'Объявление #{abs_now.id}\n\n' + text
 
     if abs_now.photo_path:
         try:
@@ -1553,7 +1553,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now.text_path)
 
-    text = f'Объявление {abs_now.id}\n\n' + text
+    text = f'Объявление #{abs_now.id}\n\n' + text
 
     if abs_now.photo_path:
         try:

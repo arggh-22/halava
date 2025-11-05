@@ -34,7 +34,7 @@ class WorkStates(StatesGroup):
     create_portfolio = State()
     # Новые стейты для откликов и анонимного чата
     worker_response_init = State()  # Инициализация отклика
-    worker_response_chat_rules = State()  # Подтверждение правил чата
+    # worker_response_chat_rules = State()  # Подтверждение правил чата
     worker_response_write_text = State()  # Ввод текста отклика
     worker_anonymous_chat = State()  # Анонимный чат
     worker_my_responses = State()  # Просмотр откликов

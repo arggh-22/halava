@@ -31,24 +31,31 @@ print(f"[WORKER_RESPONSES] Router object: {router}")
 
 # Текст правил чата
 CHAT_RULES_TEXT = """
-⚠️ <b>ВАЖНО: Правила Анонимного Чата</b>
+🚫 Внимание!
 
-🚫 <b>СТРОГО ЗАПРЕЩЕНО:</b>
-• Передавать номера телефонов (в любом виде)
-• Отправлять email адреса
-• Делиться ссылками на соцсети/мессенджеры  
-• Использовать латинские буквы
-• Отправлять медиафайлы (фото, видео, документы)
-• Пытаться обойти фильтр (разбивать контакты)
-
-✅ <b>ДЛЯ ОБМЕНА КОНТАКТАМИ:</b>
-Используйте кнопку <b>"📞 Запросить контакт"</b>
-
-⚠️ <b>При нарушении:</b>
-Сообщение будет заблокировано, возможна блокировка аккаунта!
-
-<b>Вы ознакомились с правилами и готовы продолжить?</b>
+В чате запрещено передавать любые свои контакты: 📞 номера, ✉️ email, 🔗 ссылки, а также использовать латинские буквы, фото и видео.
 """
+
+
+# """
+# ⚠️ <b>ВАЖНО: Правила Анонимного Чата</b>
+#
+# 🚫 <b>СТРОГО ЗАПРЕЩЕНО:</b>
+# • Передавать номера телефонов (в любом виде)
+# • Отправлять email адреса
+# • Делиться ссылками на соцсети/мессенджеры
+# • Использовать латинские буквы
+# • Отправлять медиафайлы (фото, видео, документы)
+# • Пытаться обойти фильтр (разбивать контакты)
+#
+# ✅ <b>ДЛЯ ОБМЕНА КОНТАКТАМИ:</b>
+# Используйте кнопку <b>"📞 Запросить контакт"</b>
+#
+# ⚠️ <b>При нарушении:</b>
+# Сообщение будет заблокировано, возможна блокировка аккаунта!
+#
+# <b>Вы ознакомились с правилами и готовы продолжить?</b>
+# """
 
 
 # Универсальная функция для безопасного редактирования сообщений
@@ -578,15 +585,14 @@ async def initiate_response(callback: CallbackQuery, state: FSMContext):
                     await callback.answer("❌ Вы уже откликнулись на это объявление", show_alert=True)
                     return
 
-        # Показываем правила чата
-        kbc = KeyboardCollection()
-        await state.update_data(pending_response_abs_id=abs_id)
-        await state.set_state(WorkStates.worker_response_chat_rules)
+        await callback.answer(CHAT_RULES_TEXT, show_alert=True)
 
+        kbc = KeyboardCollection()
         await safe_edit_message(
             callback=callback,
-            text=CHAT_RULES_TEXT,
-            reply_markup=kbc.chat_rules_confirmation()
+            text="📝 <b>Выберите тип отклика:</b>\n\n"
+                 "Вы можете отправить отклик с сообщением и вопросами или без сообщения.",
+            reply_markup=kbc.response_type_choice(abs_id=abs_id)
         )
 
     except Exception as e:
@@ -594,25 +600,25 @@ async def initiate_response(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
-@router.callback_query(F.data == "confirm_chat_rules", StateFilter(WorkStates.worker_response_chat_rules))
-async def confirm_rules(callback: CallbackQuery, state: FSMContext):
-    """Подтверждение правил чата"""
-    try:
-        data = await state.get_data()
-        abs_id = data.get('pending_response_abs_id')
-
-        kbc = KeyboardCollection()
-        await safe_edit_message(
-            callback=callback,
-            text="📝 <b>Выберите тип отклика:</b>\n\n"
-                 "• Напишите сообщение, чтобы представиться\n"
-                 "• Или откликнитесь без сообщения",
-            reply_markup=kbc.response_type_choice(abs_id=abs_id)
-        )
-
-    except Exception as e:
-        logger.error(f"Error in confirm_rules: {e}")
-        await callback.answer("❌ Произошла ошибка", show_alert=True)
+# @router.callback_query(F.data == "confirm_chat_rules", StateFilter(WorkStates.worker_response_chat_rules))
+# async def confirm_rules(callback: CallbackQuery, state: FSMContext):
+#     """Подтверждение правил чата"""
+#     try:
+#         data = await state.get_data()
+#         abs_id = data.get('pending_response_abs_id')
+#
+#         kbc = KeyboardCollection()
+#         await safe_edit_message(
+#             callback=callback,
+#             text="📝 <b>Выберите тип отклика:</b>\n\n"
+#                  "• Напишите сообщение, чтобы представиться\n"
+#                  "• Или откликнитесь без сообщения",
+#             reply_markup=kbc.response_type_choice(abs_id=abs_id)
+#         )
+#
+#     except Exception as e:
+#         logger.error(f"Error in confirm_rules: {e}")
+#         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(F.data == "cancel_response")

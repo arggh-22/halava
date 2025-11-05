@@ -9,6 +9,10 @@ from bs4 import BeautifulSoup
 from datetime import datetime, date
 from PIL import Image, ImageEnhance
 
+from app.data.database.models import Abs, City
+from app.keyboards import KeyboardCollection
+from app.states import CustomerStates
+
 logger = logging.getLogger(__name__)
 
 
@@ -1237,6 +1241,23 @@ def get_contact_word(contacts):
         contact_word = "контактов"
 
     return contact_word
+
+async def send_customer_menu(callback, customer, state):
+    kbc = KeyboardCollection()
+    user_abs = await Abs.get_all_by_customer(customer.id)
+    city = await City.get_city(id=int(customer.city_id))
+
+    text = (
+        'Ваш профиль\n\n'
+        f'ID: {customer.id}\n'
+        f'Ваш город: {city.city}\n'
+        f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+        f'Осталось объявлений на сегодня: {customer.abs_count}'
+    )
+
+    await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
+    await state.set_state(CustomerStates.customer_menu)
+
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

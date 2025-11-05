@@ -37,11 +37,12 @@ async def registration_customer_from_start(callback: CallbackQuery, state: FSMCo
     await state.set_state(CustomerStates.registration_enter_city)
     await choose_city_start(callback, state)
 
+
 async def choose_city_start(callback: CallbackQuery, state: FSMContext) -> None:
     """Начало выбора города для заказчика"""
     logger.debug(f'choose_city_start...')
     kbc = KeyboardCollection()
-    
+
     state_data = await state.get_data()
     username = str(state_data.get('username'))
     await state.update_data(username=str(username))
@@ -222,26 +223,17 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
             await state.update_data(city_id=str(worker.city_id[0]), username=str(worker.tg_name))
             return
 
-    user_abs = await Abs.get_all_by_customer(customer.id)
-    city = await City.get_city(id=int(customer.city_id))
-
     if user_worker := await Worker.get_worker(tg_id=tg_id):
         if user_worker.active:
             await user_worker.update_active(active=False)
-
-    text = ('Ваш профиль\n\n'
-            f'ID: {customer.id}\n'
-            f'Ваш город: {city.city}\n'
-            f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-            f'Осталось объявлений на сегодня: {customer.abs_count}')
 
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    await state.set_state(CustomerStates.customer_menu)
-    await callback.message.answer(text=text,
-                                  reply_markup=kbc.menu_customer_keyboard())  # Кнопка покупки объявлений убрана - размещение всегда бесплатно
+
+    # Send customer menu
+    await help_defs.send_customer_menu(callback, customer, state)
 
 
 @router.callback_query(F.data == 'customer_menu')
@@ -273,20 +265,8 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
         if user_worker.active:
             await user_worker.update_active(active=False)
 
-    user_abs = await Abs.get_all_by_customer(customer.id)
-    city = await City.get_city(id=int(customer.city_id))
-
-    text = ('Ваш профиль\n\n'
-            f'ID: {customer.id}\n'
-            f'Ваш город: {city.city}\n'
-            f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-            f'Осталось объявлений на сегодня: {customer.abs_count}')
-
-    await state.set_state(CustomerStates.customer_menu)
-    await callback.message.answer(
-        text=text,
-        reply_markup=kbc.menu_customer_keyboard()
-    )
+    # Send customer menu
+    await help_defs.send_customer_menu(callback, customer, state)
 
 
 @router.callback_query(F.data == 'buy_single_ad')
@@ -325,7 +305,7 @@ async def buy_single_advertisement(callback: CallbackQuery, state: FSMContext) -
             send_email_to_provider=True
         )
         await state.update_data(customer_id=str(customer.id),
-                               order_price=admin.order_price)
+                                order_price=admin.order_price)
     except TelegramBadRequest as e:
         logger.error(f"Payment provider error: {e}")
         # Обрабатываем ошибку недоступности платежного метода
@@ -346,34 +326,22 @@ async def buy_single_advertisement(callback: CallbackQuery, state: FSMContext) -
                 text=error_text,
                 show_alert=True
             )
-            
+
         # Возвращаемся в меню заказчика
         await state.set_state(CustomerStates.customer_menu)
         return
+
 
 @router.callback_query(F.data == 'customer_menu')
 async def back_to_customer_menu_from_limit(callback: CallbackQuery, state: FSMContext) -> None:
     """Возврат в меню заказчика из экрана лимита"""
     logger.debug(f'back_to_customer_menu_from_limit...')
-    
-    kbc = KeyboardCollection()
-    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
-    # Получаем город пользователя
-    city = await City.get_city(id=customer.city_id)
-    user_abs = await Abs.get_all_by_customer(customer.id)
-    
-    text = ('Ваш профиль\n\n'
-            f'ID: {customer.id}\n'
-            f'Ваш город: {city.city}\n'
-            f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-            f'Осталось объявлений на сегодня: {customer.abs_count}')
 
-    await state.set_state(CustomerStates.customer_menu)
-    await callback.message.answer(
-        text=text,
-        reply_markup=kbc.menu_customer_keyboard()
-    )
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+
+    # Send customer menu
+    await help_defs.send_customer_menu(callback, customer, state)
+
 
 @router.callback_query(F.data == 'add_orders', CustomerStates.customer_menu)
 async def send_invoice_buy_subscription(callback: CallbackQuery, state: FSMContext) -> None:
@@ -401,7 +369,7 @@ async def send_invoice_buy_subscription(callback: CallbackQuery, state: FSMConte
     try:
         # Симулируем успешную покупку
         await customer.update_abs_count(abs_count=customer.abs_count + 1)
-        
+
         await callback.message.answer(
             text=f"✅ <b>Разработка: Покупка успешна!</b>\n\n"
                  f"💰 Стоимость: {admin.order_price}₽ (симуляция)\n"
@@ -413,7 +381,7 @@ async def send_invoice_buy_subscription(callback: CallbackQuery, state: FSMConte
         )
         await state.set_state(CustomerStates.customer_menu)
         return
-        
+
     except Exception as e:
         logger.error(f"Ошибка при симуляции покупки: {e}")
         await callback.message.answer(
@@ -515,7 +483,7 @@ async def create_new_abs(callback: CallbackQuery, state: FSMContext) -> None:
             "Достигнут лимит за сегодня ⚠️",
             show_alert=True
         )
-        
+
         # После нажатия "ОК" показываем меню с кнопками оплаты
         kbc = KeyboardCollection()
         text = (
@@ -579,24 +547,28 @@ async def create_new_abs_back(callback: CallbackQuery, state: FSMContext) -> Non
 async def get_customer_ads_optimized(customer_id: int):
     """Оптимизированное получение всех данных объявлений заказчика одним запросом"""
     import aiosqlite
-    
+
     conn = await aiosqlite.connect(database='app/data/database/database.db')
     try:
         cursor = await conn.execute('''
-            SELECT 
-                a.id, a.work_type_id, a.city_id, a.text_path, a.photo_path, 
-                a.views, a.count_photo,
-                c.city,
-                (SELECT COUNT(*) FROM workers_and_abs wa WHERE wa.abs_id = a.id) as responses_count
-            FROM abs a
-            LEFT JOIN cities c ON a.city_id = c.id
-            WHERE a.customer_id = ?
-            ORDER BY a.id DESC
-        ''', (customer_id,))
-        
+                                    SELECT a.id,
+                                           a.work_type_id,
+                                           a.city_id,
+                                           a.text_path,
+                                           a.photo_path,
+                                           a.views,
+                                           a.count_photo,
+                                           c.city,
+                                           (SELECT COUNT(*) FROM workers_and_abs wa WHERE wa.abs_id = a.id) as responses_count
+                                    FROM abs a
+                                             LEFT JOIN cities c ON a.city_id = c.id
+                                    WHERE a.customer_id = ?
+                                    ORDER BY a.id DESC
+                                    ''', (customer_id,))
+
         results = await cursor.fetchall()
         await cursor.close()
-        
+
         advertisements = []
         for result in results:
             ads_data = {
@@ -611,7 +583,7 @@ async def get_customer_ads_optimized(customer_id: int):
                 'responses_count': result[8]
             }
             advertisements.append(ads_data)
-        
+
         return advertisements
     finally:
         await conn.close()
@@ -625,7 +597,7 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     # Получаем заказчика
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     # Получаем все данные объявлений одним запросом
     advertisements = await get_customer_ads_optimized(customer_id=customer.id)
 
@@ -635,7 +607,7 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     await state.set_state(CustomerStates.customer_check_abs)
-    
+
     # Сохраняем данные объявлений в состоянии для оптимизации
     await state.update_data(advertisements=advertisements)
 
@@ -647,17 +619,16 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     # Используем данные из оптимизированного запроса
     city_name = abs_now['city_name']
-    
-    text = help_defs.read_text_file(abs_now['text_path'])
 
+    text = help_defs.read_text_file(abs_now['text_path'])
 
     text = f'Объявление #{abs_now["id"]} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now["views"]}'
     logger.debug(f"text {text}")
-    
+
     # Используем количество откликов из оптимизированного запроса
     has_responses = abs_now['responses_count'] > 0
     btn_responses = has_responses
-    
+
     # Для кнопки "Закрыть и оценить" нужно проверить активные отклики (applyed = True)
     # Делаем отдельный запрос для этого
     workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now['id'])
@@ -677,7 +648,7 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
             pass
         # Парсим JSON строку photo_path
         import json
-        
+
         def get_safe_photo_path(photo_path_str):
             """Безопасно извлекает путь к фотографии из JSON строки"""
             if not photo_path_str:
@@ -689,12 +660,12 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
                 return ''
             except (json.JSONDecodeError, TypeError, AttributeError):
                 return ''
-        
+
         photo_path = get_safe_photo_path(abs_now['photo_path'])
-        
+
         logger.debug(photo_path)
         logger.debug(abs_now['photo_path'])
-        
+
         # Проверяем, есть ли валидный путь к фото
         if not photo_path:
             # Нет фото - отправляем только текст
@@ -721,15 +692,17 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
             import os
             if os.path.exists(photo_path) and os.path.isfile(photo_path):
                 await callback.message.answer_photo(photo=FSInputFile(photo_path),
-                                            caption=text,
-                                            reply_markup=kbc.choose_obj_with_out_list(id_now=0, btn_next=btn_next,
-                                                                                      btn_back=False,
-                                                                                      btn_close=True,
-                                                                                      btn_responses=btn_responses,
-                                                                                      btn_close_name=btn_close_name,
-                                                                                      abs_id=abs_now['id'],
-                                                                                      count_photo=abs_now['count_photo'],
-                                                                                      idk_photo=0))
+                                                    caption=text,
+                                                    reply_markup=kbc.choose_obj_with_out_list(id_now=0,
+                                                                                              btn_next=btn_next,
+                                                                                              btn_back=False,
+                                                                                              btn_close=True,
+                                                                                              btn_responses=btn_responses,
+                                                                                              btn_close_name=btn_close_name,
+                                                                                              abs_id=abs_now['id'],
+                                                                                              count_photo=abs_now[
+                                                                                                  'count_photo'],
+                                                                                              idk_photo=0))
             else:
                 # Файл не существует - отправляем только текст
                 logger.warning(f"Photo file not found: {photo_path}")
@@ -787,14 +760,13 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now['text_path'])
 
-
     text = f'Объявление #{abs_now["id"]} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now["views"]}'
     logger.debug(f"text {text}")
 
     # Используем количество откликов из оптимизированного запроса (как в функции my_abs)
     has_responses = abs_now['responses_count'] > 0
     btn_responses = has_responses
-    
+
     # Для кнопки "Закрыть и оценить" нужно проверить активные отклики (applyed = True)
     # Делаем отдельный запрос для этого
     workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now['id'])
@@ -816,7 +788,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
         # Парсим JSON строку photo_path
         import json
-        
+
         def get_safe_photo_path(photo_path_str):
             """Безопасно извлекает путь к фотографии из JSON строки"""
             if not photo_path_str:
@@ -828,9 +800,9 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                 return ''
             except (json.JSONDecodeError, TypeError, AttributeError):
                 return ''
-        
+
         photo_path = get_safe_photo_path(abs_now['photo_path'])
-        
+
         if not photo_path:
             # Нет фото - отправляем только текст
             await callback.message.answer(
@@ -932,7 +904,6 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
     text = help_defs.read_text_file(abs_now['text_path'])
 
-
     text = f'Объявление #{abs_now["id"]} г. {city_name}\n\n' + text + f'\n\nПросмотров: {abs_now["views"]}'
     logger.debug(f"text {text}")
 
@@ -951,7 +922,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 
         # Парсим JSON строку photo_path
         import json
-        
+
         def get_safe_photo_path(photo_path_str):
             """Безопасно извлекает путь к фотографии из JSON строки"""
             if not photo_path_str:
@@ -963,9 +934,9 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                 return ''
             except (json.JSONDecodeError, TypeError, AttributeError):
                 return ''
-        
+
         photo_path = get_safe_photo_path(abs_now['photo_path'])
-        
+
         if not photo_path:
             # Нет фото - отправляем только текст
             await callback.message.answer(
@@ -1002,16 +973,16 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
             if os.path.exists(photo_path) and os.path.isfile(photo_path):
                 await callback.message.answer(
                     text=text,
-                reply_markup=kbc.choose_obj_with_out_list(
-                    id_now=abs_list_id,
-                    btn_next=btn_next,
-                    btn_back=btn_back,
-                    btn_responses=btn_responses,
-                    btn_close=True,
-                    btn_close_name=btn_close_name,
-                    abs_id=abs_now['id']
+                    reply_markup=kbc.choose_obj_with_out_list(
+                        id_now=abs_list_id,
+                        btn_next=btn_next,
+                        btn_back=btn_back,
+                        btn_responses=btn_responses,
+                        btn_close=True,
+                        btn_close_name=btn_close_name,
+                        abs_id=abs_now['id']
+                    )
                 )
-            )
             return
     try:
         await callback.message.delete()
@@ -1060,7 +1031,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     # Используем количество откликов из оптимизированного запроса (как в функции my_abs)
     has_responses = abs_now['responses_count'] > 0
     btn_responses = has_responses
-    
+
     # Для кнопки "Закрыть и оценить" нужно проверить активные отклики (applyed = True)
     # Делаем отдельный запрос для этого
     workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now['id'])
@@ -1095,7 +1066,7 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     if abs_now['photo_path']:
         # Парсим JSON строку photo_path
         import json
-        
+
         def get_safe_photo_path(photo_path_str):
             """Безопасно извлекает путь к фотографии из JSON строки"""
             if not photo_path_str:
@@ -1107,9 +1078,9 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
                 return ''
             except (json.JSONDecodeError, TypeError, AttributeError):
                 return ''
-        
+
         photo_path = get_safe_photo_path(abs_now['photo_path'])
-        
+
         if photo_path:
             try:
                 # Поддержка как локальных, так и https фото
@@ -1204,7 +1175,9 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
 # Функция обработки сообщений от заказчика полностью удалена
 
 
-@router.callback_query(lambda c: c.data.startswith('close_') and not c.data.startswith('close_and_rate_') and not c.data.startswith('close_advertisement_'), CustomerStates.customer_check_abs)
+@router.callback_query(
+    lambda c: c.data.startswith('close_') and not c.data.startswith('close_and_rate_') and not c.data.startswith(
+        'close_advertisement_'), CustomerStates.customer_check_abs)
 async def close_abs(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'close_abs...')
 
@@ -1215,13 +1188,13 @@ async def close_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements = await get_customer_ads_optimized(customer_id=customer.id)
 
     advertisement_now = advertisements[abs_list_id]
-    
+
     # Показываем подтверждение закрытия объявления
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     await callback.message.answer(
         text=f'⚠️ Вы уверены, что хотите закрыть объявление #{advertisement_now["id"]}?\n\n'
              f'После закрытия вы сможете оценить исполнителей, которые откликнулись и купили ваши контакты.',
@@ -1233,24 +1206,24 @@ async def close_abs(callback: CallbackQuery, state: FSMContext) -> None:
 async def confirm_close_advertisement(callback: CallbackQuery, state: FSMContext) -> None:
     """Подтверждение закрытия объявления с возможностью оценки исполнителей"""
     logger.debug(f'confirm_close_advertisement...')
-    
+
     kbc = KeyboardCollection()
     abs_id = int(callback.data.split('_')[1])
-    
+
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     advertisement = await Abs.get_one(id=abs_id)
-    
+
     if not advertisement:
         await callback.answer("Объявление не найдено", show_alert=True)
         return
-    
+
     # Находим исполнителей для оценки (купили контакты и еще не оценены)
     # Логика: если исполнитель купил контакты, значит он откликнулся И передал контакты
     workers_for_assessment = []
-    
+
     from app.data.database.models import ContactExchange, WorkerRating
     contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
-    
+
     if contact_exchanges:
         for contact_exchange in contact_exchanges:
             if contact_exchange.contacts_purchased:  # Купил контакты
@@ -1260,33 +1233,33 @@ async def confirm_close_advertisement(callback: CallbackQuery, state: FSMContext
                     existing_rating = await WorkerRating.get_by_worker_and_abs(contact_exchange.worker_id, abs_id)
                     if not existing_rating:  # Только если еще не оценен
                         workers_for_assessment.append(worker)
-    
+
     # НЕ удаляем объявление сразу - удалим после оценки всех исполнителей
     # await advertisement.delete(delite_photo=True)
-    
+
     # НЕ удаляем связанные записи сразу - удалим после оценки
     # from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange
     # workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
     # if workers_and_bad_responses:
     #     [await bad_response.delete() for bad_response in workers_and_bad_responses]
-    
+
     # workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
     # if workers_and_reports:
     #     [await report.delete() for report in workers_and_reports]
-    
+
     # contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
     # if contact_exchanges:
     #     [await exchange.delete() for exchange in contact_exchanges]
-    
+
     # workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
     # if workers_and_abs:
     #     [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
-    
+
     # НЕ обновляем статистику админов сразу - обновим после оценки
     # admins = await Admin.get_all()
     # for admin in admins:
     #     await admin.update(done_abs=admin.done_abs + 1)
-    
+
     # Если есть исполнители для оценки - показываем их
     if workers_for_assessment:
         names = [
@@ -1294,12 +1267,12 @@ async def confirm_close_advertisement(callback: CallbackQuery, state: FSMContext
             for worker in workers_for_assessment
         ]
         ids = [worker.id for worker in workers_for_assessment]
-        
+
         try:
             await callback.message.delete()
         except TelegramBadRequest:
             pass
-        
+
         # Сохраняем abs_id в состоянии для последующего удаления
         await state.update_data(pending_advertisement_id=abs_id)
 
@@ -1319,7 +1292,7 @@ async def confirm_close_advertisement(callback: CallbackQuery, state: FSMContext
             await callback.message.delete()
         except TelegramBadRequest:
             pass
-        
+
         await advertisement.delete(delite_photo=True)
         # Удаляем связанные записи
         from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, WorkersAndAbs
@@ -1339,7 +1312,7 @@ async def confirm_close_advertisement(callback: CallbackQuery, state: FSMContext
         admins = await Admin.get_all()
         for admin in admins:
             await admin.update(done_abs=admin.done_abs + 1)
-        
+
         try:
             await callback.message.edit_text(
                 text='✅ Объявление закрыто!\n\nВсе исполнители уже оценены.',
@@ -1357,28 +1330,28 @@ async def confirm_close_advertisement(callback: CallbackQuery, state: FSMContext
             await callback.message.delete()
         except TelegramBadRequest:
             pass
-        
+
         # Удаляем объявление, так как нет исполнителей для оценки
         await advertisement.delete(delite_photo=True)
-        
+
         # Удаляем связанные записи
         from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, WorkersAndAbs
         workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
         if workers_and_bad_responses:
             [await bad_response.delete() for bad_response in workers_and_bad_responses]
-        
+
         workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
         if workers_and_reports:
             [await report.delete() for report in workers_and_reports]
-        
+
         contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
         if contact_exchanges:
             [await exchange.delete() for exchange in contact_exchanges]
-        
+
         workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
         if workers_and_abs:
             [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
-        
+
         # Обновляем статистику админов
         from app.data.database.models import Admin
         admins = await Admin.get_all()
@@ -1402,12 +1375,12 @@ async def confirm_close_advertisement(callback: CallbackQuery, state: FSMContext
 async def cancel_close_advertisement(callback: CallbackQuery, state: FSMContext) -> None:
     """Отмена закрытия объявления"""
     logger.debug(f'cancel_close_advertisement...')
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     # Возвращаемся к просмотру объявлений
     await callback.message.answer(
         text='❌ Закрытие объявления отменено.',
@@ -1435,14 +1408,14 @@ async def close_by_end_time(callback: CallbackQuery, state: FSMContext) -> None:
     workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=advertisement_now.id)
     if workers_and_reports is not None:
         [await workers_and_report.delete() for workers_and_report in workers_and_reports]
-    
+
     # Удаляем записи ContactExchange для этого объявления
     from app.data.database.models import ContactExchange
     contact_exchanges = await ContactExchange.get_by_abs(abs_id=advertisement_now.id)
     if contact_exchanges:
         [await contact_exchange.delete() for contact_exchange in contact_exchanges]
         logger.info(f"Deleted {len(contact_exchanges)} ContactExchange records for abs_id {advertisement_now.id}")
-    
+
     workers_for_assessments = []
     if workers_and_abs:
         workers_for_assessments = await close_task(
@@ -1462,7 +1435,8 @@ async def close_by_end_time(callback: CallbackQuery, state: FSMContext) -> None:
             await advertisement_now.delete(delite_photo=True)
 
             await callback.message.answer(text='Выберите исполнителя для оценки',
-                                          reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement_now.id))
+                                          reply_markup=kbc.get_for_staring(ids=ids, names=names,
+                                                                           abs_id=advertisement_now.id))
 
             admins = await Admin.get_all()
             for admin in admins:
@@ -1493,18 +1467,18 @@ async def choose_worker_for_rating(callback: CallbackQuery) -> None:
     abs_id = int(parts[2])
 
     kbc = KeyboardCollection()
-    
+
     # Получаем информацию об исполнителе
     worker = await Worker.get_worker(id=worker_id)
     if not worker:
         await callback.answer("Исполнитель не найден", show_alert=True)
         return
-    
+
     # Формируем информацию об исполнителе
     worker_name = worker.profile_name if worker.profile_name else "Исполнитель"
     worker_rating = round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars
     worker_orders = worker.count_ratings if worker.count_ratings else 0
-    
+
     text = (
         f'👤 <b>Информация об исполнителе:</b>\n\n'
         f'• ID: {worker_id}\n'
@@ -1513,7 +1487,7 @@ async def choose_worker_for_rating(callback: CallbackQuery) -> None:
         f'• Выполнено заказов: {worker_orders}\n\n'
         f'📝 <b>Оцените качество работы исполнителя:</b>'
     )
-    
+
     try:
         await callback.message.edit_text(
             text=text,
@@ -1545,11 +1519,11 @@ async def choose_worker_for_rating(callback: CallbackQuery) -> None:
 async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'skip_star_for_worker...')
     kbc = KeyboardCollection()
-    
+
     # Получаем abs_id из состояния
     state_data = await state.get_data()
     abs_id = state_data.get('pending_advertisement_id')
-    
+
     # Если есть abs_id, проверяем и удаляем объявление
     if abs_id:
         try:
@@ -1557,25 +1531,26 @@ async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> No
             if advertisement:
                 # Объявление еще существует - удаляем его
                 await advertisement.delete(delite_photo=True)
-                
+
                 # Удаляем связанные записи
-                from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, WorkersAndAbs
+                from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, \
+                    WorkersAndAbs
                 workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
                 if workers_and_bad_responses:
                     [await bad_response.delete() for bad_response in workers_and_bad_responses]
-                
+
                 workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
                 if workers_and_reports:
                     [await report.delete() for report in workers_and_reports]
-                
+
                 contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
                 if contact_exchanges:
                     [await exchange.delete() for exchange in contact_exchanges]
-                
+
                 workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
                 if workers_and_abs:
                     [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
-                
+
                 # Обновляем статистику админов
                 from app.data.database.models import Admin
                 admins = await Admin.get_all()
@@ -1583,23 +1558,23 @@ async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> No
                     await admin.update(done_abs=admin.done_abs + 1)
         except Exception as e:
             logger.error(f"Error cleaning up advertisement in skip_star_for_worker: {e}")
-    
+
     # Проверяем, есть ли еще исполнители для оценки
     state_data = await state.get_data()
     abs_id = state_data.get('pending_advertisement_id')
-    
+
     if abs_id:
         # Получаем оставшихся исполнителей для оценки
         from app.data.database.models import ContactExchange
         contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
         remaining_workers = []
-        
+
         for contact_exchange in contact_exchanges:
             if contact_exchange.contacts_purchased:
                 worker = await Worker.get_worker(id=contact_exchange.worker_id)
                 if worker:
                     remaining_workers.append(worker)
-        
+
         if remaining_workers:
             # Есть еще исполнители для оценки - показываем их
             names = [
@@ -1607,7 +1582,7 @@ async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> No
                 for worker in remaining_workers
             ]
             ids = [worker.id for worker in remaining_workers]
-            
+
             try:
                 await callback.message.edit_text(
                     text='✅ Исполнитель пропущен!\n\nВыберите следующего исполнителя для оценки:',
@@ -1619,7 +1594,7 @@ async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> No
                     reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=abs_id)
                 )
             return
-    
+
     # Нет больше исполнителей для оценки - завершаем процесс
     await state.set_state(CustomerStates.customer_menu)
     await callback.message.answer(
@@ -1636,7 +1611,8 @@ async def create_abs_work_type(callback: CallbackQuery, state: FSMContext) -> No
     work_type_id = int(callback.data.split('_')[1])
     work_type = await WorkType.get_work_type(id=work_type_id)
 
-    template_text = help_defs.read_text_file(work_type.template) if work_type.template else "Пример объявления не найден"
+    template_text = help_defs.read_text_file(
+        work_type.template) if work_type.template else "Пример объявления не найден"
     text = f'Пример объявления для {work_type.work_type}\n\n' + template_text
 
     if work_type.template_photo:
@@ -1656,10 +1632,6 @@ async def create_abs_work_type(callback: CallbackQuery, state: FSMContext) -> No
     await state.update_data(work_type_id=work_type_id)
     await state.update_data(msg_id=msg.message_id)
     await state.update_data(example_msg_id=example_msg.message_id)
-
-
-
-
 
 
 @router.callback_query(F.data == 'back', CustomerStates.customer_create_abs_task)
@@ -1685,7 +1657,8 @@ async def create_abs_work_type_back(callback: CallbackQuery, state: FSMContext) 
     except TelegramBadRequest:
         pass
     await state.set_state(CustomerStates.customer_create_abs_work_type)
-    await callback.message.answer(text='Выберете тип работы', reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
+    await callback.message.answer(text='Выберете тип работы',
+                                  reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
 
 
 @router.message(F.text, CustomerStates.customer_create_abs_task)
@@ -1711,14 +1684,15 @@ async def customer_create_abs_price(message: Message, state: FSMContext) -> None
             await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         except TelegramBadRequest:
             pass
-        msg = await message.answer('⚠️ Упс, похоже вы пытаетесь предложить запрос без подробностей, повторите попытку снова.\n\nУкажите задачу: (не более 800 символов)',
-                                   reply_markup=kbc.back_btn())
+        msg = await message.answer(
+            '⚠️ Упс, похоже вы пытаетесь предложить запрос без подробностей, повторите попытку снова.\n\nУкажите задачу: (не более 800 символов)',
+            reply_markup=kbc.back_btn())
         await state.update_data(msg_id=msg.message_id)
         return
 
     if len(task) > 800:
         # try:
-            # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         # except TelegramBadRequest:
         #     pass
         msg = await message.answer('Укажите задачу: (не более 800 символов)',
@@ -1727,7 +1701,7 @@ async def customer_create_abs_price(message: Message, state: FSMContext) -> None
         return
 
     # try:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     # except TelegramBadRequest:
     #     pass
 
@@ -1824,14 +1798,14 @@ async def create_abs_choose_time(callback: CallbackQuery, state: FSMContext) -> 
 
     # Явно очищаем любые старые данные состояния (например, от загрузки портфолио)
     await state.update_data(album=[], processed_media_groups=[])
-    
+
     await state.set_state(CustomerStates.customer_create_abs_add_photo)
     await state.update_data(work_type_id=work_type_id)
     await state.update_data(task=task)
     await state.update_data(time=time)
     await state.update_data(end=0)
     msg = await callback.message.answer(text='Прикрепите фото, или нажмите кнопку пропустить',
-                                           reply_markup=kbc.skip_btn())
+                                        reply_markup=kbc.skip_btn())
     await state.update_data(msg=msg.message_id)
     await callback.answer(
         text=f"Вы можете прикрепить до 10 фото.\n"
@@ -1839,8 +1813,6 @@ async def create_abs_choose_time(callback: CallbackQuery, state: FSMContext) -> 
              f"Загрузка видео недоступна!\n",
         show_alert=True
     )
-
-
 
 
 @router.callback_query(F.data == 'skip_it', CustomerStates.customer_create_abs_add_photo)
@@ -1872,7 +1844,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     if checks.phone_finder(all_text):
         await state.set_state(CustomerStates.customer_menu)
         await callback.message.answer(
-            'Упс, похоже вы указали номер телефона, вернитесь в меню и создайте объявление заново 🤔',
+            '⛔️ Упс, похоже вы указали номер телефона, вернитесь в меню и создайте объявление заново 🤔',
             reply_markup=kbc.menu_btn())
         return
 
@@ -1886,7 +1858,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     if checks.contains_gibberish(all_text):
         await state.set_state(CustomerStates.customer_menu)
         await callback.message.answer(
-            'Упс, похоже у вас некорректный текст, вернитесь в меню и создайте объявление заново 🤔',
+            '⛔️ Упс, похоже у вас некорректный текст, вернитесь в меню и создайте объявление заново 🤔',
             reply_markup=kbc.menu_btn())
         return
 
@@ -1932,7 +1904,10 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
 
         text = help_defs.escape_markdown(text=text)
 
-        # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+        try:
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+        except TelegramBadRequest:
+            pass
 
         await bot.send_message(chat_id=config.BLOCKED_CHAT, text=text, protect_content=False,
                                reply_markup=kbc.unban(banned_abs.id, photo_num=0, photo_len=0))
@@ -1944,18 +1919,26 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
                                               reply_markup=kbc.support_btn())
                 await state.set_state(BannedStates.banned)
                 return
-            await banned.update(ban_counter=banned.ban_counter + 1, ban_now=True, ban_end=ban_end)
+            await banned.update(
+                ban_counter=banned.ban_counter + 1,
+                ban_now=True,
+                ban_end=ban_end,
+                ban_reason="Повторяющиеся слова"
+            )
             await callback.message.answer(
-                'Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность (повторяющиеся слова), если считаете, что это не так, Вы можете это обжаловать написав нам.',
+                ' ⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность.',
                 reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
 
-        new_banned = Banned(id=None, tg_id=callback.message.chat.id,
-                            ban_counter=1, ban_end=ban_end, ban_now=True,
-                            forever=False, ban_reason="Повторяющиеся слова")
+        new_banned = Banned(
+            id=None,
+            tg_id=callback.message.chat.id,
+            ban_counter=1, ban_end=ban_end, ban_now=True,
+            forever=False, ban_reason="Повторяющиеся слова"
+        )
         await callback.message.answer(
-            'Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность (повторяющиеся слова), если считаете, что это не так, Вы можете это обжаловать написав нам.',
+            '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность.',
             reply_markup=kbc.support_btn())
         await new_banned.save()
         await state.set_state(BannedStates.banned)
@@ -2012,7 +1995,6 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     # Используем ID из объекта, а не последнее объявление из списка
     advertisement = new_abs
 
-
     text = f'Объявление загружено\n\nОбъявление {advertisement.id}\n\n' + text
 
     text = help_defs.escape_markdown(text=text)
@@ -2020,16 +2002,16 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
     # Сразу отвечаем пользователю
     await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
     await state.set_state(CustomerStates.customer_menu)
-    
+
     # Уменьшаем счетчик объявлений
     await customer.update_abs_count(abs_count=customer.abs_count - 1)
 
     # Подготавливаем текст для рассылки
     text_for_workers = (f'{work}\n\n'
-                       f'Задача: {task}\n'
-                       f'Время: {time}\n'
-                       f'\n'
-                       f'Дата публикации: {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
+                        f'Задача: {task}\n'
+                        f'Время: {time}\n'
+                        f'\n'
+                        f'Дата публикации: {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
 
     text_for_workers = help_defs.escape_markdown(text=text_for_workers)
     text_for_workers = f'Объявление {advertisement.id}\n\n' + text_for_workers
@@ -2043,7 +2025,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
 
     # Даем админу 5 секунд на проверку и возможную блокировку объявления
     await asyncio.sleep(5)
-    
+
     # Проверяем, не было ли объявление заблокировано за это время
     # Если объявления нет в базе, значит админ его заблокировал
     try:
@@ -2157,10 +2139,14 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
 
         text = help_defs.escape_markdown(text=text)
 
-        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+        try:
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+        except TelegramBadRequest:
+            pass
 
-        await bot.send_photo(chat_id=config.BLOCKED_CHAT, photo=FSInputFile(photos['0']), caption=text, protect_content=False,
-                               reply_markup=kbc.unban(banned_abs.id, photo_num=0, photo_len=photos_len))
+        await bot.send_photo(chat_id=config.BLOCKED_CHAT, photo=FSInputFile(photos['0']), caption=text,
+                             protect_content=False,
+                             reply_markup=kbc.unban(banned_abs.id, photo_num=0, photo_len=photos_len))
         if banned:
             if banned.ban_counter >= 3:
                 await banned.update(forever=True, ban_now=True)
@@ -2170,7 +2156,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
                 return
             await banned.update(ban_counter=banned.ban_counter + 1, ban_now=True, ban_end=ban_end)
             await callback.message.answer(
-                'Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
+                '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
                 reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
@@ -2179,7 +2165,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
                             ban_counter=1, ban_end=ban_end, ban_now=True,
                             forever=False, ban_reason="текст на фото")
         await callback.message.answer(
-            'Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
+            '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
             reply_markup=kbc.support_btn())
         await new_banned.save()
         await state.set_state(BannedStates.banned)
@@ -2235,7 +2221,10 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
 
         text = help_defs.escape_markdown(text=text)
 
-        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+        try:
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+        except TelegramBadRequest:
+            pass
 
         await bot.send_photo(chat_id=config.BLOCKED_CHAT, photo=FSInputFile(photos['0']), caption=text,
                              protect_content=False,
@@ -2250,7 +2239,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
                 return
             await banned.update(ban_counter=banned.ban_counter + 1, ban_now=True, ban_end=ban_end)
             await callback.message.answer(
-                'Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
+                '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за нарушение правил, если считаете, что это не так, Вы можете это обжаловать написав нам.',
                 reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
@@ -2271,7 +2260,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     if checks.phone_finder(all_text):
         await state.set_state(CustomerStates.customer_menu)
         await callback.message.answer(
-            'Упс, похоже вы указали номер телефона, вернитесь в меню и создайте объявление заново 🤔',
+            '⛔️ Упс, похоже вы указали номер телефона, вернитесь в меню и создайте объявление заново 🤔',
             reply_markup=kbc.menu_btn())
         help_defs.delete_folder(file_path_photo)
         return
@@ -2279,7 +2268,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     if checks.contains_gibberish(all_text):
         await state.set_state(CustomerStates.customer_menu)
         await callback.message.answer(
-            'Упс, похоже у вас некорректный текст, вернитесь в меню и создайте объявление заново 🤔',
+            '⛔️ Упс, похоже у вас некорректный текст, вернитесь в меню и создайте объявление заново 🤔',
             reply_markup=kbc.menu_btn())
         help_defs.delete_folder(file_path_photo)
         return
@@ -2339,8 +2328,9 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
 
         # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
 
-        await bot.send_photo(chat_id=config.BLOCKED_CHAT, photo=FSInputFile(photos['0']), caption=text, protect_content=False,
-                               reply_markup=kbc.unban(banned_abs.id, photo_num=0, photo_len=photos_len))
+        await bot.send_photo(chat_id=config.BLOCKED_CHAT, photo=FSInputFile(photos['0']), caption=text,
+                             protect_content=False,
+                             reply_markup=kbc.unban(banned_abs.id, photo_num=0, photo_len=photos_len))
 
         if banned:
             if banned.ban_counter >= 3:
@@ -2349,18 +2339,26 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
                                               reply_markup=kbc.support_btn())
                 await state.set_state(BannedStates.banned)
                 return
-            await banned.update(ban_counter=banned.ban_counter + 1, ban_now=True, ban_end=ban_end)
+            await banned.update(
+                ban_counter=banned.ban_counter + 1,
+                ban_now=True,
+                ban_end=ban_end,
+                ban_reason="Повторяющиеся слова"
+            )
             await callback.message.answer(
-                'Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность (повторяющиеся слова), если считаете, что это не так, Вы можете это обжаловать написав нам.',
+                '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность.',
                 reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
 
-        new_banned = Banned(id=None, tg_id=callback.message.chat.id,
-                            ban_counter=1, ban_end=ban_end, ban_now=True,
-                            forever=False, ban_reason="Повторяющиеся слова")
+        new_banned = Banned(
+            id=None,
+            tg_id=callback.message.chat.id,
+            ban_counter=1, ban_end=ban_end, ban_now=True,
+            forever=False, ban_reason="Повторяющиеся слова"
+        )
         await callback.message.answer(
-            'Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность (повторяющиеся слова), если считаете, что это не так, Вы можете это обжаловать написав нам.',
+            '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность.',
             reply_markup=kbc.support_btn())
         await new_banned.save()
         await state.set_state(BannedStates.banned)
@@ -2381,7 +2379,8 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     advertisements_customer = await Abs.get_all_by_customer(customer_id=customer.id)
 
     if advertisements_customer:
-        old_text = help_defs.read_text_file(advertisements_customer[-1].text_path) if advertisements_customer[-1].text_path else "Текст не найден"
+        old_text = help_defs.read_text_file(advertisements_customer[-1].text_path) if advertisements_customer[
+            -1].text_path else "Текст не найден"
         if await checks.are_texts_similar(old_text, text):
             await callback.message.answer(
                 'Вы предлагали схожий запрос, удалите предыдущий и попробуйте снова',
@@ -2421,7 +2420,6 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     # Используем ID из объекта, а не последнее объявление из списка
     advertisement = new_abs
 
-
     text = f'Объявление загружено\n\nОбъявление {advertisement.id}\n\n' + text
 
     text = help_defs.escape_markdown(text=text)
@@ -2438,30 +2436,31 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     else:
         # Если нет фото, отправляем текстовое сообщение
         await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
-    
+
     await state.set_state(CustomerStates.customer_menu)
-    
+
     # Уменьшаем счетчик объявлений
     await customer.update_abs_count(abs_count=customer.abs_count - 1)
 
     # Подготавливаем текст для рассылки
     text_for_workers = (f'{work}\n\n'
-                       f'Задача: {task}\n'
-                       f'Время: {time}\n'
-                       f'\n'
-                       f'Дата публикации {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
+                        f'Задача: {task}\n'
+                        f'Время: {time}\n'
+                        f'\n'
+                        f'Дата публикации {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
 
     text_for_workers = help_defs.escape_markdown(text=text_for_workers)
     text_for_workers = f'Объявление {advertisement.id}\n\n' + text_for_workers
 
     # Отправляем в лог-канал
     text2 = f'ID пользователя: #{customer.tg_id}\n\n' + text_for_workers
-    await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG, caption=text2, photo=FSInputFile(photos['0']), protect_content=False,
-                           reply_markup=kbc.block_abs_log(advertisement.id, photo_num=0, photo_len=photos_len))
+    await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG, caption=text2, photo=FSInputFile(photos['0']),
+                         protect_content=False,
+                         reply_markup=kbc.block_abs_log(advertisement.id, photo_num=0, photo_len=photos_len))
 
     # Даем админу 5 секунд на проверку и возможную блокировку объявления
     await asyncio.sleep(5)
-    
+
     # Проверяем, не было ли объявление заблокировано за это время
     # Если объявления нет в базе, значит админ его заблокировал
     try:
@@ -2491,22 +2490,24 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
     logger.info(f'[CUSTOMER_AD] create_abs_with_photo вызван для пользователя {message.chat.id}')
 
     kbc = KeyboardCollection()
-    
+
     # КРИТИЧЕСКАЯ ПРОВЕРКА: убеждаемся, что пользователь действительно в состоянии загрузки фото объявления
     current_state = await state.get_state()
-    logger.info(f'[CUSTOMER_AD] Текущее состояние: {current_state}, ожидаемое: {CustomerStates.customer_create_abs_add_photo}')
-    
+    logger.info(
+        f'[CUSTOMER_AD] Текущее состояние: {current_state}, ожидаемое: {CustomerStates.customer_create_abs_add_photo}')
+
     if current_state != CustomerStates.customer_create_abs_add_photo:
-        logger.warning(f"[CUSTOMER_AD] КРИТИЧНО: Пропуск обработчика фото объявления - неправильное состояние: {current_state}")
+        logger.warning(
+            f"[CUSTOMER_AD] КРИТИЧНО: Пропуск обработчика фото объявления - неправильное состояние: {current_state}")
         return
-    
+
     # Проверяем, что пользователь действительно является заказчиком
     customer = await Customer.get_customer(tg_id=message.chat.id)
     if not customer:
         logger.warning(f"[CUSTOMER_AD] Пропуск обработчика - пользователь не является заказчиком")
         await message.answer("❌ Для загрузки фото объявления необходимо быть зарегистрированным заказчиком")
         return
-    
+
     logger.info(f'[CUSTOMER_AD] Все проверки пройдены, начинаю обработку фото для объявления')
 
     # Загружаем данные состояния
@@ -2648,18 +2649,19 @@ async def change_city_next(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(lambda c: c.data.startswith('obj-id_'), CustomerStates.customer_change_city)
 async def change_city_end(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'change_city_end...')
-    kbc = KeyboardCollection()
 
     city_id = int(callback.data.split('_')[1])
 
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     await customer.update_city(city_id=city_id)
 
-    await callback.message.answer('Вы успешно сменили город!', reply_markup=kbc.menu_customer_keyboard())
-    await state.set_state(CustomerStates.customer_menu)
+    await callback.answer('Вы успешно сменили город ✅', show_alert=True)
+    await help_defs.send_customer_menu(callback, customer, state)
 
 
-@router.callback_query(lambda c: c.data.startswith('extend_') and not c.data.startswith('extend_advertisement_') and not c.data.startswith('extend_24h_') and not c.data.startswith('extend_2d_') and not c.data.startswith('extend_3d_'))
+@router.callback_query(
+    lambda c: c.data.startswith('extend_') and not c.data.startswith('extend_advertisement_') and not c.data.startswith(
+        'extend_24h_') and not c.data.startswith('extend_2d_') and not c.data.startswith('extend_3d_'))
 async def extend_abs_time(callback: CallbackQuery, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
@@ -2670,7 +2672,8 @@ async def extend_abs_time(callback: CallbackQuery, state: FSMContext) -> None:
     names = ['В ближайшее время', 'Завтра', 'В течении недели', 'В течении месяца']
     ids = [1, 2, 3, 4]
 
-    await callback.message.answer('Выберите актуальность объявления:\n\n', reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
+    await callback.message.answer('Выберите актуальность объявления:\n\n',
+                                  reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True))
 
 
 @router.callback_query(lambda c: c.data.startswith('obj-id_'), CustomerStates.customer_extend_abc)
@@ -2706,22 +2709,26 @@ async def create_abs_choose_time(callback: CallbackQuery, state: FSMContext) -> 
 
 # Функции для оптимизированной рассылки объявлений
 
-async def send_single_message_to_worker(worker: Worker, advertisement_id: int, text: str, photo_path: dict = None, photos_len: int = 0, retry_count: int = 0):
+async def send_single_message_to_worker(worker: Worker, advertisement_id: int, text: str, photo_path: dict = None,
+                                        photos_len: int = 0, retry_count: int = 0):
     """
     Отправляет сообщение одному исполнителю с обработкой ошибок.
     """
     # Проверяем, не отправляли ли уже это сообщение этому исполнителю
     message_key = f"{worker.tg_id}_{advertisement_id}"
     if message_key in _sent_messages:
-        logger.warning(f'[DEBUG] Message already sent to worker {worker.tg_id} for advertisement {advertisement_id}, skipping')
+        logger.warning(
+            f'[DEBUG] Message already sent to worker {worker.tg_id} for advertisement {advertisement_id}, skipping')
         return
-    
+
     try:
         kbc = KeyboardCollection()
-        
-        logger.info(f'[DEBUG] send_single_message_to_worker: worker_id={worker.tg_id}, advertisement_id={advertisement_id}, retry_count={retry_count}')
-        logger.info(f'[DEBUG] Photo check: photo_path={photo_path}, photos_len={photos_len}, has_key_0={"0" in photo_path if photo_path else False}')
-        
+
+        logger.info(
+            f'[DEBUG] send_single_message_to_worker: worker_id={worker.tg_id}, advertisement_id={advertisement_id}, retry_count={retry_count}')
+        logger.info(
+            f'[DEBUG] Photo check: photo_path={photo_path}, photos_len={photos_len}, has_key_0={"0" in photo_path if photo_path else False}')
+
         if photo_path and photos_len > 0 and '0' in photo_path:
             logger.info(f'[DEBUG] Sending photo to worker {worker.tg_id}')
             # Передаем count_photo и photo_num для возможности листания фото
@@ -2743,11 +2750,11 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
                 text=text,
                 reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_id)
             )
-        
+
         # Отмечаем сообщение как отправленное
         _sent_messages.add(message_key)
         logger.info(f'[DEBUG] Message sent successfully to worker {worker.tg_id} for advertisement {advertisement_id}')
-            
+
     except TelegramForbiddenError:
         # Пользователь заблокировал бота - помечаем как неактивного
         logger.debug(f'Worker {worker.tg_id} blocked bot, marking as inactive')
@@ -2755,7 +2762,8 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
     except TelegramRetryAfter as e:
         # Rate limit - ждем указанное время, но ограничиваем количество попыток
         if retry_count < 3:  # Максимум 3 попытки
-            logger.debug(f'Rate limit for worker {worker.tg_id}, waiting {e.retry_after} seconds (attempt {retry_count + 1}/3)')
+            logger.debug(
+                f'Rate limit for worker {worker.tg_id}, waiting {e.retry_after} seconds (attempt {retry_count + 1}/3)')
             await asyncio.sleep(e.retry_after)
             # Повторяем отправку с увеличенным счетчиком
             await send_single_message_to_worker(worker, advertisement_id, text, photo_path, photos_len, retry_count + 1)
@@ -2773,6 +2781,7 @@ _sent_messages = set()  # Отслеживаем уже отправленные
 # Ленивая инициализация для совместимости
 _global_send_semaphore = None
 
+
 def get_global_semaphore():
     """Получить глобальный семафор (инициализируется при первом вызове)"""
     global _global_send_semaphore
@@ -2780,7 +2789,9 @@ def get_global_semaphore():
         _global_send_semaphore = asyncio.Semaphore(20)  # Максимум 20 параллельных отправок
     return _global_send_semaphore
 
-async def send_to_workers_background(advertisement_id: int, city_id: int, work_type_id: int, text: str, photo_path: dict = None, photos_len: int = 0):
+
+async def send_to_workers_background(advertisement_id: int, city_id: int, work_type_id: int, text: str,
+                                     photo_path: dict = None, photos_len: int = 0):
     """
     Фоновая рассылка объявлений исполнителям с батчингом и обработкой ошибок.
     """
@@ -2789,22 +2800,23 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
     if send_key in _active_sends:
         logger.warning(f'[DEBUG] Send already in progress for advertisement {advertisement_id}, skipping duplicate')
         return
-    
+
     try:
         # Добавляем в активные рассылки
         _active_sends.add(send_key)
-        
+
         # Записываем в файл логов
-        logger.info(f'[DEBUG] Starting send_to_workers_background: city_id={city_id}, work_type_id={work_type_id}, advertisement_id={advertisement_id}')
+        logger.info(
+            f'[DEBUG] Starting send_to_workers_background: city_id={city_id}, work_type_id={work_type_id}, advertisement_id={advertisement_id}')
         logger.info(f'[DEBUG] Photo params: photo_path={photo_path}, photos_len={photos_len}')
-        
+
         # Используем оптимизированный метод для получения исполнителей
         workers = await Worker.get_active_workers_for_advertisement(city_id, work_type_id)
-        
+
         if not workers:
             logger.info(f'[DEBUG] No active workers found for city {city_id} and work_type {work_type_id}')
             return
-        
+
         # ДЕДУПЛИКАЦИЯ: убираем дублирующих исполнителей
         unique_workers = []
         seen_worker_ids = set()
@@ -2814,51 +2826,53 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
                 seen_worker_ids.add(worker.tg_id)
             else:
                 logger.warning(f'[DEBUG] Duplicate worker found: {worker.tg_id}, skipping')
-        
+
         workers = unique_workers
-        logger.info(f'[DEBUG] Found {len(workers)} unique workers for advertisement {advertisement_id} (removed {len(await Worker.get_active_workers_for_advertisement(city_id, work_type_id)) - len(workers)} duplicates)')
+        logger.info(
+            f'[DEBUG] Found {len(workers)} unique workers for advertisement {advertisement_id} (removed {len(await Worker.get_active_workers_for_advertisement(city_id, work_type_id)) - len(workers)} duplicates)')
         logger.info(f'[DEBUG] Starting background send to {len(workers)} workers for advertisement {advertisement_id}')
-        
+
         # Логируем всех исполнителей
         worker_ids = [worker.tg_id for worker in workers]
         logger.info(f'[DEBUG] Worker IDs: {worker_ids}')
-        
+
         # Отправляем по 3 сообщения в батче с паузой (оптимизировано для Telegram: макс 30 сообщений/сек)
         # При множественных объявлениях это предотвратит превышение лимитов
         batch_size = 3
         for i in range(0, len(workers), batch_size):
             batch = workers[i:i + batch_size]
             batch_worker_ids = [worker.tg_id for worker in batch]
-            logger.info(f'[DEBUG] Processing batch {i//batch_size + 1}: workers {batch_worker_ids}')
-            
+            logger.info(f'[DEBUG] Processing batch {i // batch_size + 1}: workers {batch_worker_ids}')
+
             # Создаем задачи для параллельной отправки с использованием глобального семафора
             semaphore = get_global_semaphore()
+
             async def send_with_semaphore(worker):
                 async with semaphore:
                     return await send_single_message_to_worker(worker, advertisement_id, text, photo_path, photos_len)
-            
+
             tasks = [send_with_semaphore(worker) for worker in batch]
-            
+
             # Выполняем батч параллельно
             await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             # Пауза между батчами для соблюдения rate limits (увеличено до 1 сек для безопасности)
             if i + batch_size < len(workers):
                 await asyncio.sleep(1.0)  # 1 секунда пауза между батчами
-        
+
         # Обновляем счетчик просмотров один раз для всего объявления
         advertisement = await Abs.get_one(advertisement_id)
         if advertisement:
             await advertisement.update(views=len(workers))
-        
+
         logger.debug(f'Completed background send to workers for advertisement {advertisement_id}')
-        
+
     except Exception as e:
         logger.error(f"Error in background send to workers: {e}")
     finally:
         # Убираем из активных рассылок
         _active_sends.discard(send_key)
-        
+
         # Очищаем старые записи об отправленных сообщениях для этого объявления
         # (оставляем только записи для других объявлений)
         global _sent_messages
@@ -2985,30 +2999,30 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
 async def reject_contact_request_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик отклонения запроса контактов заказчиком"""
     logger.debug(f'reject_contact_request_handler...')
-    
+
     # Парсим данные из callback_data
     parts = callback.data.split('_')
     worker_id = int(parts[1])
     abs_id = int(parts[2])
-    
+
     # Получаем данные
     worker = await Worker.get_worker(id=worker_id)
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     if not worker or not customer:
         await callback.answer("Ошибка: данные не найдены", show_alert=True)
         return
-    
+
     try:
         # Уведомляем исполнителя об отклонении
         await bot.send_message(
             chat_id=worker.tg_id,
             text="Заказчик отклонил ваш запрос на получение контактов"
         )
-        
+
         # Уведомляем заказчика
         await callback.answer("Запрос контактов отклонен", show_alert=True)
-        
+
     except Exception as e:
         logger.error(f"Error rejecting contact request: {e}")
         await callback.answer("Ошибка при отклонении запроса", show_alert=True)
@@ -3152,8 +3166,6 @@ async def reject_contact_request_handler(callback: CallbackQuery, state: FSMCont
 #         await callback.answer("Ошибка при отправке контактов", show_alert=True)
 
 
-
-
 # Обработчики для системы оценки исполнителей
 
 @router.callback_query(lambda c: c.data.startswith('rate-worker_'))
@@ -3161,32 +3173,32 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик оценки исполнителя заказчиком"""
     logger.debug(f'rate_worker...')
     kbc = KeyboardCollection()
-    
+
     # Парсим данные из callback_data
     parts = callback.data.split('_')
     worker_id = int(parts[1])
     abs_id = int(parts[2])
     rating = int(parts[3])
-    
+
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     if not customer:
         await callback.answer("Ошибка: заказчик не найден", show_alert=True)
         return
-    
+
     # Проверка на покупку контактов не нужна, так как исполнители попадают в список
     # для оценки только если они уже купили контакты (проверка в confirm_close_advertisement)
-    
+
     # Проверяем, что заказчик еще не оценивал этого исполнителя
     from app.data.database.models import WorkerRating
     existing_rating = await WorkerRating.get_by_worker_and_abs(worker_id, abs_id)
-    
+
     if existing_rating:
         await callback.answer("Вы уже оценили этого исполнителя", show_alert=True)
         return
-    
+
     # Убираем проверку объявления, так как оно может быть уже удалено
     # но это не должно мешать оценке исполнителя
-    
+
     # Создаем оценку
     worker_rating = WorkerRating(
         id=None,  # ID будет автоматически присвоен при сохранении
@@ -3196,26 +3208,26 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
         rating=rating
     )
     await worker_rating.save()
-    
+
     # Обновляем рейтинг исполнителя
     worker = await Worker.get_worker(id=worker_id)
     if worker:
         # Проверяем, что у исполнителя есть поле activity_level
         if not hasattr(worker, 'activity_level') or worker.activity_level is None:
             worker.activity_level = 100  # Значение по умолчанию
-        
+
         total_stars = worker.stars + rating
         total_ratings = worker.count_ratings + 1
         await worker.update_stars(stars=total_stars, count_ratings=total_ratings)
-        
+
         # УВЕЛИЧИВАЕМ СЧЕТЧИК ВЫПОЛНЕННЫХ ЗАКАЗОВ
         # Каждая оценка = выполненный заказ (защита от двойной оценки уже есть выше)
         from app.data.database.models import WorkerAndRefsAssociation
-        
+
         # Увеличиваем счетчики (каждая оценка учитывается)
         await worker.update_order_count(order_count=worker.order_count + 1)
         await worker.update_order_count_on_week(order_count_on_week=worker.order_count_on_week + 1)
-        
+
         # Проверяем реферальную программу (5 заказов)
         if worker.order_count + 1 == 5:
             if worker_and_ref := await WorkerAndRefsAssociation.get_refs_by_worker(worker_id=worker.id):
@@ -3224,9 +3236,9 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
                     await worker_and_ref.update(worker_bonus=True, ref_bonus=True)
                     from loaders import bot
                     await bot.send_message(chat_id=worker_and_ref.ref_id,
-                                         text='Условия вашей реферальной программы выполнены!')
+                                           text='Условия вашей реферальной программы выполнены!')
                     await bot.send_message(chat_id=worker.tg_id,
-                                         text='Условия вашей реферальной программы выполнены!')
+                                           text='Условия вашей реферальной программы выполнены!')
             elif worker_and_ref := await WorkerAndRefsAssociation.get_by_ref(ref_id=worker.tg_id):
                 await worker_and_ref.update(ref_condition=True)
                 if worker_and_ref.work_condition:
@@ -3234,14 +3246,14 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
                     worker_main = await Worker.get_worker(id=worker_and_ref.worker_id)
                     from loaders import bot
                     await bot.send_message(chat_id=worker_and_ref.ref_id,
-                                         text='Условия вашей реферальной программы выполнены!')
+                                           text='Условия вашей реферальной программы выполнены!')
                     await bot.send_message(chat_id=worker_main.tg_id,
-                                         text='Условия вашей реферальной программы выполнены!')
-        
+                                           text='Условия вашей реферальной программы выполнены!')
+
         # Восстанавливаем активность исполнителя (+20 за выполнение заказа)
         old_activity = worker.activity_level
         new_activity = max(0, min(100, worker.activity_level + 20))
-        
+
         # Обновляем активность с fallback
         if hasattr(worker, 'change_activity_level'):
             new_activity = await worker.change_activity_level(20)
@@ -3249,13 +3261,13 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
             # Fallback: используем универсальную функцию
             from app.handlers.worker import update_worker_activity_fallback
             await update_worker_activity_fallback(worker, new_activity)
-        
+
         # Отправляем уведомление об изменении активности
         await send_activity_notification(worker, old_activity, new_activity)
-        
+
         # МГНОВЕННОЕ ОБНОВЛЕНИЕ РАНГА при оценке исполнителя
         await update_worker_rank_instantly(worker)
-    
+
     # Уведомляем исполнителя об оценке
     from loaders import bot
     try:
@@ -3265,9 +3277,9 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
         )
     except Exception as e:
         logger.error(f"Error sending rating notification to worker: {e}")
-    
+
     await callback.answer(f"Спасибо! Вы оценили исполнителя на {rating} звезд", show_alert=True)
-    
+
     # Проверяем, есть ли еще исполнители для оценки
     # Используем abs_id из состояния или из callback_data
     state_data = await state.get_data()
@@ -3275,7 +3287,7 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
     # Если нет в состоянии, используем abs_id из callback_data (для автоматического закрытия)
     if not abs_id_from_state:
         abs_id_from_state = abs_id  # Используем abs_id из параметров функции
-    
+
     # Проверяем, нужно ли удалить объявление после оценки
     # (удаляем только если нет больше исполнителей для оценки)
     should_delete_advertisement = False
@@ -3286,42 +3298,43 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
             from app.data.database.models import ContactExchange, WorkerRating
             contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id_from_state)
             remaining_workers_count = 0
-            
+
             for contact_exchange in contact_exchanges:
                 if contact_exchange.contacts_purchased and contact_exchange.worker_id != worker_id:
-                    existing_rating = await WorkerRating.get_by_worker_and_abs(contact_exchange.worker_id, abs_id_from_state)
+                    existing_rating = await WorkerRating.get_by_worker_and_abs(contact_exchange.worker_id,
+                                                                               abs_id_from_state)
                     if not existing_rating:
                         remaining_workers_count += 1
-            
+
             # Если нет больше исполнителей для оценки - помечаем объявление для удаления
             if remaining_workers_count == 0:
                 should_delete_advertisement = True
     except Exception as e:
         logger.error(f"Error checking advertisement status: {e}")
-    
+
     if should_delete_advertisement:
         try:
             # Удаляем объявление после последней оценки
             await advertisement.delete(delite_photo=True)
-            
+
             # Удаляем связанные записи
             from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, WorkersAndAbs
             workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id_from_state)
             if workers_and_bad_responses:
                 [await bad_response.delete() for bad_response in workers_and_bad_responses]
-            
+
             workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id_from_state)
             if workers_and_reports:
                 [await report.delete() for report in workers_and_reports]
-            
+
             contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id_from_state)
             if contact_exchanges:
                 [await exchange.delete() for exchange in contact_exchanges]
-            
+
             workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id_from_state)
             if workers_and_abs:
                 [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
-            
+
             # Обновляем статистику админов
             from app.data.database.models import Admin
             admins = await Admin.get_all()
@@ -3329,16 +3342,16 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
                 await admin.update(done_abs=admin.done_abs + 1)
         except Exception as e:
             logger.error(f"Error cleaning up advertisement after rating: {e}")
-    
+
     # Проверяем, есть ли еще исполнители для оценки
     abs_id = abs_id_from_state
-    
+
     if abs_id:
         # Получаем оставшихся исполнителей для оценки (купили контакты и еще не оценены)
         from app.data.database.models import ContactExchange, WorkerRating
         contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
         remaining_workers = []
-        
+
         for contact_exchange in contact_exchanges:
             if contact_exchange.contacts_purchased and contact_exchange.worker_id != worker_id:
                 # Проверяем, не оценен ли уже этот исполнитель
@@ -3347,7 +3360,7 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
                     worker = await Worker.get_worker(id=contact_exchange.worker_id)
                     if worker:
                         remaining_workers.append(worker)
-        
+
         if remaining_workers:
             # Есть еще исполнители для оценки - показываем их
             names = [
@@ -3355,7 +3368,7 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
                 for worker in remaining_workers
             ]
             ids = [worker.id for worker in remaining_workers]
-            
+
             kbc = KeyboardCollection()
             try:
                 await callback.message.edit_text(
@@ -3370,7 +3383,7 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
                     reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=abs_id)
                 )
             return
-    
+
     # Нет больше исполнителей для оценки - показываем финальное сообщение
     kbc = KeyboardCollection()
     await callback.message.answer(
@@ -3386,10 +3399,10 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
     try:
         # view_responses_{abs_id}
         abs_id = int(callback.data.split('_')[2])
-        
+
         # Получаем отклики на объявление
         responses = await WorkersAndAbs.get_by_abs(abs_id)
-        
+
         if not responses:
             kbc = KeyboardCollection()
             await callback.message.answer(
@@ -3399,7 +3412,7 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
                 parse_mode='HTML'
             )
             return
-        
+
         # Формируем список откликов для отображения
         responses_data = []
         for response in responses:
@@ -3407,11 +3420,11 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
             if worker:
                 # Проверяем статус контактов
                 contact_exchange = await ContactExchange.get_by_worker_and_abs(response.worker_id, abs_id)
-                
+
                 # Получаем индикатор статуса
                 from app.handlers.anonymous_chat import get_response_status_indicator
                 status_indicator = await get_response_status_indicator(response, "customer")
-                
+
                 responses_data.append({
                     'worker_id': response.worker_id,
                     'worker_public_id': f'ID#{worker.id}',
@@ -3421,14 +3434,15 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
                     'worker_verified': worker.confirmed,
                     'worker_ie': worker.individual_entrepreneur,
                     'worker_orders': worker.order_count,
-                    'worker_message': response.worker_messages[0] if response.worker_messages else "Исполнитель не отправил сообщение",
+                    'worker_message': response.worker_messages[
+                        0] if response.worker_messages else "Исполнитель не отправил сообщение",
                     'contact_requested': contact_exchange is not None,
                     'contact_confirmed': contact_exchange and contact_exchange.contacts_sent,
                     'contact_purchased': contact_exchange and contact_exchange.contacts_purchased,
                     'active': response.applyed,
                     'status_indicator': status_indicator
                 })
-        
+
         # Получаем объявление для контекста
         advertisement = await Abs.get_one(id=abs_id)
         city_name = "Неизвестно"
@@ -3436,13 +3450,13 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
             city = await City.get_city(id=advertisement.city_id)
             if city:
                 city_name = city.city
-        
+
         kbc = KeyboardCollection()
         text = f"📋 <b>Отклики на объявление #{abs_id}</b>\n"
         text += f"🏙️ Город: {city_name}\n"
         text += f"👥 Количество откликов: {len(responses_data)}\n\n"
         text += "Выберите отклик для просмотра:"
-        
+
         # Безопасное редактирование (может быть фото)
         try:
             await callback.message.answer(
@@ -3467,10 +3481,11 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
                 ),
                 parse_mode='HTML'
             )
-        
+
     except Exception as e:
         logger.error(f"Error in view_responses_handler: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
+
 
 @router.callback_query(lambda c: c.data.startswith('customer-responses_'))
 async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
@@ -3482,26 +3497,26 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
         if len(main_parts) < 2:
             await callback.answer("❌ Неверный формат callback данных", show_alert=True)
             return
-        
+
         # Берем часть после "customer-responses_"
         data_part = main_parts[1]  # "responses_{abs_id}_{id_now}"
         parts = data_part.split('_')
-        
+
         logger.info(f"[CUSTOMER_RESPONSES] Callback data: {callback.data}")
         logger.info(f"[CUSTOMER_RESPONSES] Main parts: {main_parts}")
         logger.info(f"[CUSTOMER_RESPONSES] Data part: {data_part}")
         logger.info(f"[CUSTOMER_RESPONSES] Parts: {parts}")
-        
+
         if len(parts) < 3:
             await callback.answer("❌ Неверный формат callback данных", show_alert=True)
             return
-            
+
         abs_id = int(parts[1])  # {abs_id}
         id_now = int(parts[2])  # {id_now}
-        
+
         # Получаем отклики на объявление
         responses = await WorkersAndAbs.get_by_abs(abs_id)
-        
+
         if not responses:
             kbc = KeyboardCollection()
             # Используем безопасное редактирование сообщения
@@ -3513,7 +3528,7 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
                 reply_markup=kbc.menu_btn(),
             )
             return
-        
+
         # Формируем список откликов для отображения
         responses_data = []
         for response in responses:
@@ -3521,11 +3536,11 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
             if worker:
                 # Проверяем статус контактов
                 contact_exchange = await ContactExchange.get_by_worker_and_abs(response.worker_id, abs_id)
-                
+
                 # Получаем индикатор статуса
                 from app.handlers.anonymous_chat import get_response_status_indicator
                 status_indicator = await get_response_status_indicator(response, "customer")
-                
+
                 responses_data.append({
                     'worker_id': response.worker_id,
                     'worker_public_id': f'ID#{worker.id}',
@@ -3535,14 +3550,15 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
                     'worker_verified': worker.confirmed,
                     'worker_ie': worker.individual_entrepreneur,
                     'worker_orders': worker.order_count,
-                    'worker_message': response.worker_messages[0] if response.worker_messages else "Исполнитель не отправил сообщение",
+                    'worker_message': response.worker_messages[
+                        0] if response.worker_messages else "Исполнитель не отправил сообщение",
                     'contact_requested': contact_exchange is not None,
                     'contact_confirmed': contact_exchange and contact_exchange.contacts_sent,
                     'contact_purchased': contact_exchange and contact_exchange.contacts_purchased,
                     'active': response.applyed,
                     'status_indicator': status_indicator
                 })
-        
+
         # Получаем объявление для контекста
         advertisement = await Abs.get_one(id=abs_id)
         city_name = "Неизвестно"
@@ -3550,7 +3566,7 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
             city = await City.get_city(id=advertisement.city_id)
             if city:
                 city_name = city.city
-        
+
         kbc = KeyboardCollection()
         # Используем безопасное редактирование сообщения
         from app.untils.message_utils import safe_edit_message
@@ -3565,7 +3581,7 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
                 abs_id=abs_id
             ),
         )
-        
+
     except Exception as e:
         logger.error(f"Error in customer_view_responses: {e}")
         await callback.answer("❌ Произошла ошибка", show_alert=True)
@@ -3574,7 +3590,7 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
 async def send_activity_notification(worker, old_activity: int, new_activity: int):
     """Отправляет уведомление об изменении активности исполнителя"""
     from loaders import bot
-    
+
     # Определяем зоны активности
     def get_zone(activity):
         if activity >= 74:
@@ -3585,10 +3601,10 @@ async def send_activity_notification(worker, old_activity: int, new_activity: in
             return "оранжевую"
         else:
             return "красную"
-    
+
     old_zone = get_zone(old_activity)
     new_zone = get_zone(new_activity)
-    
+
     # Отправляем уведомление только при переходе между зонами
     if old_zone != new_zone:
         if old_zone == "красную" and new_zone == "оранжевую":
@@ -3599,7 +3615,7 @@ async def send_activity_notification(worker, old_activity: int, new_activity: in
             message = "🟢 Поздравляем! Вы снова в зелёной зоне активности. Теперь у вас полный доступ к заказам. Так держать!"
         else:
             message = f"📈 Ваша активность изменилась: {old_activity} → {new_activity}"
-        
+
         try:
             await bot.send_message(
                 chat_id=worker.tg_id,
@@ -3618,48 +3634,51 @@ async def update_worker_rank_instantly(worker: Worker):
         from app.data.database.models import WorkerRank, WorkerAndSubscription
         from loaders import bot
         from aiogram.utils.keyboard import InlineKeyboardBuilder
-        
+
         logger.info(f'update_worker_rank_instantly: Updating rank for worker {worker.id}')
-        
+
         # Получаем старый ранг
         old_rank = await WorkerRank.get_by_worker(worker.id)
         old_rank_type = old_rank.rank_type if old_rank else None
         old_work_types_limit = old_rank.get_work_types_limit() if old_rank else 1
-        
+
         # Обновляем ранг (пересчитываем на основе заказов за последние 30 дней)
         new_rank = await WorkerRank.get_or_create_rank(worker.id)
         new_work_types_limit = new_rank.get_work_types_limit()
-        
+
         # Проверяем, изменился ли ранг
         if old_rank_type and old_rank_type != new_rank.rank_type:
             rank_levels = {'bronze': 1, 'silver': 2, 'gold': 3, 'platinum': 4}
             old_level = rank_levels.get(old_rank_type, 0)
             new_level = rank_levels.get(new_rank.rank_type, 0)
-            
+
             if new_level > old_level:
                 # ПОВЫШЕНИЕ РАНГА - отправляем уведомление мгновенно
-                logger.info(f'update_worker_rank_instantly: Worker {worker.id} upgraded from {old_rank_type} to {new_rank.rank_type}')
-                
+                logger.info(
+                    f'update_worker_rank_instantly: Worker {worker.id} upgraded from {old_rank_type} to {new_rank.rank_type}')
+
                 # Проверяем, может ли исполнитель выбрать больше направлений
                 from app.data.database.models import WorkerAndSubscription, WorkerWorkTypeChanges
                 worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-                current_work_types_count = len(worker_sub.work_type_ids) if worker_sub and worker_sub.work_type_ids else 0
-                
+                current_work_types_count = len(
+                    worker_sub.work_type_ids) if worker_sub and worker_sub.work_type_ids else 0
+
                 # Если новый лимит больше текущего количества направлений - разрешаем выбор
                 if new_work_types_limit is None or current_work_types_count < new_work_types_limit:
                     # Устанавливаем флаг pending_selection для разрешения выбора направлений
                     work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
                     work_type_changes.pending_selection = True
                     await work_type_changes.save()
-                    
-                    logger.info(f'update_worker_rank_instantly: Set pending_selection=True for worker {worker.id} (can choose more work types)')
-                
+
+                    logger.info(
+                        f'update_worker_rank_instantly: Set pending_selection=True for worker {worker.id} (can choose more work types)')
+
                 try:
                     old_rank_name = WorkerRank.RANK_TYPES[old_rank_type]['name']
                     old_rank_emoji = WorkerRank.RANK_TYPES[old_rank_type]['emoji']
                     new_rank_name = new_rank.get_rank_name()
                     new_rank_emoji = new_rank.get_rank_emoji()
-                    
+
                     notification_text = (
                         f"🎉 <b>Повышение ранга!</b>\n\n"
                         f"Ваш ранг изменился:\n"
@@ -3669,7 +3688,7 @@ async def update_worker_rank_instantly(worker: Worker):
                         f"Стало доступно: <b>{new_work_types_limit if new_work_types_limit else 'без ограничений'}</b>\n\n"
                         f"🎯 <b>Что это дает:</b>\n"
                     )
-                    
+
                     # Добавляем информацию о преимуществах нового ранга
                     if new_rank.rank_type == 'silver':
                         notification_text += "• Доступно до 5 направлений работы\n• Приоритет в показе объявлений"
@@ -3677,33 +3696,35 @@ async def update_worker_rank_instantly(worker: Worker):
                         notification_text += "• Доступно до 10 направлений работы\n• Высокий приоритет в показе объявлений"
                     elif new_rank.rank_type == 'platinum':
                         notification_text += "• Доступны все направления без ограничений\n• Максимальный приоритет в показе объявлений"
-                    
+
                     # Если можно выбрать больше направлений - добавляем информацию
                     if new_work_types_limit is None or current_work_types_count < new_work_types_limit:
                         notification_text += f"\n\n🎯 <b>Можете выбрать больше направлений!</b>\nПерейдите в 'Мои направления' для выбора новых направлений работы."
-                    
+
                     notification_text += f"\n\n💡 Продолжайте выполнять качественные заказы для поддержания высокого ранга!"
-                    
+
                     # Отправляем уведомление
                     await bot.send_message(
                         chat_id=worker.tg_id,
                         text=notification_text,
                         parse_mode='HTML'
                     )
-                    
+
                     logger.info(f'update_worker_rank_instantly: Sent rank upgrade notification to worker {worker.id}')
-                    
+
                 except Exception as notify_error:
-                    logger.error(f'update_worker_rank_instantly: Failed to send upgrade notification to worker {worker.id} - {notify_error}')
-            
+                    logger.error(
+                        f'update_worker_rank_instantly: Failed to send upgrade notification to worker {worker.id} - {notify_error}')
+
             elif new_level < old_level:
                 # ПОНИЖЕНИЕ РАНГА - НЕ отправляем уведомление мгновенно
                 # Оставляем это для ежедневной проверки в 00:00
-                logger.info(f'update_worker_rank_instantly: Worker {worker.id} downgraded from {old_rank_type} to {new_rank.rank_type} - notification will be sent at 00:00')
-        
+                logger.info(
+                    f'update_worker_rank_instantly: Worker {worker.id} downgraded from {old_rank_type} to {new_rank.rank_type} - notification will be sent at 00:00')
+
         else:
             logger.info(f'update_worker_rank_instantly: Worker {worker.id} rank unchanged ({new_rank.rank_type})')
-        
+
     except Exception as e:
         logger.error(f'update_worker_rank_instantly: Error updating rank for worker {worker.id} - {e}')
 
@@ -3714,15 +3735,15 @@ async def update_worker_rank_instantly(worker: Worker):
 async def customer_contacts_menu(callback: CallbackQuery, state: FSMContext) -> None:
     """Меню контактов заказчика"""
     logger.debug(f'customer_contacts_menu...')
-    
+
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     if customer.has_contacts():
         # Контакты уже настроены - показываем текущие контакты
         contact_info = customer.get_contact_info()
         text = f"<b>Ваши контакты:</b>\n\n{contact_info}"
-        
+
         await callback.message.answer(
             text=text,
             reply_markup=kbc.customer_contacts_display_menu(),
@@ -3731,12 +3752,12 @@ async def customer_contacts_menu(callback: CallbackQuery, state: FSMContext) -> 
     else:
         # Контакты не настроены - показываем меню выбора
         text = "Здесь вы можете указать, какие контакты будут отправлены исполнителю:"
-        
+
         await callback.message.answer(
             text=text,
             reply_markup=kbc.customer_contacts_menu()
         )
-    
+
     await state.set_state(CustomerStates.customer_contacts)
 
 
@@ -3744,15 +3765,15 @@ async def customer_contacts_menu(callback: CallbackQuery, state: FSMContext) -> 
 async def customer_contacts_back_from_edit(callback: CallbackQuery, state: FSMContext) -> None:
     """Возврат из меню редактирования в основное меню контактов"""
     logger.debug(f'customer_contacts_back_from_edit...')
-    
+
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     if customer.has_contacts():
         # Контакты уже настроены - показываем текущие контакты
         contact_info = customer.get_contact_info()
         text = f"<b>Ваши контакты:</b>\n\n{contact_info}"
-        
+
         await callback.message.answer(
             text=text,
             reply_markup=kbc.customer_contacts_display_menu(),
@@ -3761,12 +3782,12 @@ async def customer_contacts_back_from_edit(callback: CallbackQuery, state: FSMCo
     else:
         # Контакты не настроены - показываем меню выбора
         text = "Здесь вы можете указать, какие контакты будут отправлены исполнителю:"
-        
+
         await callback.message.answer(
             text=text,
             reply_markup=kbc.customer_contacts_menu()
         )
-    
+
     await state.set_state(CustomerStates.customer_contacts)
 
 
@@ -3774,15 +3795,15 @@ async def customer_contacts_back_from_edit(callback: CallbackQuery, state: FSMCo
 async def customer_contacts_back_from_phone_input(callback: CallbackQuery, state: FSMContext) -> None:
     """Возврат из ввода номера телефона в меню контактов"""
     logger.debug(f'customer_contacts_back_from_phone_input...')
-    
+
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     if customer.has_contacts():
         # Контакты уже настроены - показываем текущие контакты
         contact_info = customer.get_contact_info()
         text = f"<b>Ваши контакты:</b>\n\n{contact_info}"
-        
+
         await callback.message.answer(
             text=text,
             reply_markup=kbc.customer_contacts_display_menu(),
@@ -3791,12 +3812,12 @@ async def customer_contacts_back_from_phone_input(callback: CallbackQuery, state
     else:
         # Контакты не настроены - показываем меню выбора
         text = "Здесь вы можете указать, какие контакты будут отправлены исполнителю:"
-        
+
         await callback.message.answer(
             text=text,
             reply_markup=kbc.customer_contacts_menu()
         )
-    
+
     await state.set_state(CustomerStates.customer_contacts)
 
 
@@ -3804,19 +3825,19 @@ async def customer_contacts_back_from_phone_input(callback: CallbackQuery, state
 async def set_telegram_only_contacts(callback: CallbackQuery, state: FSMContext) -> None:
     """Установка только профиля Telegram"""
     logger.debug(f'set_telegram_only_contacts...')
-    
+
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     await customer.update_contacts(contact_type="telegram_only")
-    
+
     text = "✅ Ваши контакты сохранены!\n\n Исполнители будут получать только ваш профиль Telegram 📱"
-    
+
     await callback.message.answer(
         text=text,
         reply_markup=kbc.menu_customer_keyboard()
     )
-    
+
     await state.set_state(CustomerStates.customer_menu)
 
 
@@ -3824,16 +3845,16 @@ async def set_telegram_only_contacts(callback: CallbackQuery, state: FSMContext)
 async def request_phone_number(callback: CallbackQuery, state: FSMContext) -> None:
     """Запрос номера телефона"""
     logger.debug(f'request_phone_number...')
-    
+
     kbc = KeyboardCollection()
-    
+
     text = "Пожалуйста, введите номер телефона в формате +7XXXXXXXXXX"
-    
+
     await callback.message.answer(
         text=text,
         reply_markup=kbc.customer_contacts_back_menu()
     )
-    
+
     await state.update_data(contact_type="phone_only")
     await state.set_state(CustomerStates.customer_contacts_phone_input)
 
@@ -3842,16 +3863,16 @@ async def request_phone_number(callback: CallbackQuery, state: FSMContext) -> No
 async def request_phone_number_both(callback: CallbackQuery, state: FSMContext) -> None:
     """Запрос номера телефона для обоих вариантов"""
     logger.debug(f'request_phone_number_both...')
-    
+
     kbc = KeyboardCollection()
-    
+
     text = "Пожалуйста, введите номер телефона в формате +7XXXXXXXXXX"
-    
+
     await callback.message.answer(
         text=text,
         reply_markup=kbc.customer_contacts_back_menu()
     )
-    
+
     await state.update_data(contact_type="both")
     await state.set_state(CustomerStates.customer_contacts_phone_input)
 
@@ -3860,10 +3881,10 @@ async def request_phone_number_both(callback: CallbackQuery, state: FSMContext) 
 async def process_phone_number(message: Message, state: FSMContext) -> None:
     """Обработка введенного номера телефона"""
     logger.debug(f'process_phone_number...')
-    
+
     kbc = KeyboardCollection()
     phone_number = message.text.strip()
-    
+
     # Простая валидация номера телефона
     import re
     if not re.match(r'^\+7\d{10}$', phone_number):
@@ -3872,25 +3893,25 @@ async def process_phone_number(message: Message, state: FSMContext) -> None:
             reply_markup=kbc.customer_contacts_back_menu()
         )
         return
-    
+
     # Получаем тип контактов из состояния
     data = await state.get_data()
     contact_type = data.get('contact_type', 'phone_only')
-    
+
     customer = await Customer.get_customer(tg_id=message.chat.id)
     await customer.update_contacts(contact_type=contact_type, phone_number=phone_number)
-    
+
     # Формируем сообщение в зависимости от типа контактов
     if contact_type == "phone_only":
         text = f"✅ Ваши контакты сохранены!\n\n Исполнители будут получать номер (который вы указали) 📞"
     else:  # both
         text = f"✅ Ваши контакты сохранены!\n\n Исполнители будут получать профиль Telegram 📱 и номер (который вы указали) 📞"
-    
+
     await message.answer(
         text=text,
         reply_markup=kbc.menu_customer_keyboard()
     )
-    
+
     await state.set_state(CustomerStates.customer_menu)
 
 
@@ -3898,17 +3919,17 @@ async def process_phone_number(message: Message, state: FSMContext) -> None:
 async def edit_contacts_menu(callback: CallbackQuery, state: FSMContext) -> None:
     """Меню редактирования контактов"""
     logger.debug(f'edit_contacts_menu...')
-    
+
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     text = "Выберите, что хотите изменить:"
-    
+
     await callback.message.answer(
         text=text,
         reply_markup=kbc.customer_contacts_edit_menu(customer.contact_type)
     )
-    
+
     await state.set_state(CustomerStates.customer_contacts)
 
 
@@ -3916,14 +3937,14 @@ async def edit_contacts_menu(callback: CallbackQuery, state: FSMContext) -> None
 async def edit_to_telegram_only(callback: CallbackQuery, state: FSMContext) -> None:
     """Изменение контактов на только Telegram"""
     logger.debug(f'edit_to_telegram_only...')
-    
+
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     await customer.update_contacts(contact_type="telegram_only", phone_number=None)
-    
+
     text = "✅ Контакты изменены!\n\n Теперь исполнители будут получать только ваш профиль Telegram 📱"
-    
+
     await callback.message.answer(
         text=text,
         reply_markup=kbc.customer_contacts_display_menu()
@@ -3934,16 +3955,16 @@ async def edit_to_telegram_only(callback: CallbackQuery, state: FSMContext) -> N
 async def edit_to_phone_only(callback: CallbackQuery, state: FSMContext) -> None:
     """Изменение контактов на только номер телефона"""
     logger.debug(f'edit_to_phone_only...')
-    
+
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     # Всегда запрашиваем новый номер для изменения
     if customer.phone_number:
         text = f"Текущий номер: {customer.phone_number}\n\nВведите новый номер телефона в формате +7XXXXXXXXXX"
     else:
         text = "Введите номер телефона в формате +7XXXXXXXXXX"
-    
+
     await callback.message.answer(
         text=text,
         reply_markup=kbc.customer_contacts_back_menu()
@@ -3956,16 +3977,16 @@ async def edit_to_phone_only(callback: CallbackQuery, state: FSMContext) -> None
 async def edit_to_both(callback: CallbackQuery, state: FSMContext) -> None:
     """Изменение контактов на Telegram и номер"""
     logger.debug(f'edit_to_both...')
-    
+
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     # Всегда запрашиваем новый номер для изменения
     if customer.phone_number:
         text = f"Текущий номер: {customer.phone_number}\n\nВведите новый номер телефона в формате +7XXXXXXXXXX"
     else:
         text = "Введите номер телефона в формате +7XXXXXXXXXX"
-    
+
     await callback.message.answer(
         text=text,
         reply_markup=kbc.customer_contacts_back_menu()
@@ -3978,14 +3999,14 @@ async def edit_to_both(callback: CallbackQuery, state: FSMContext) -> None:
 async def confirm_delete_phone(callback: CallbackQuery, state: FSMContext) -> None:
     """Подтверждение удаления номера телефона"""
     logger.debug(f'confirm_delete_phone...')
-    
+
     kbc = KeyboardCollection()
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    
+
     await customer.update_contacts(contact_type="telegram_only", phone_number=None)
-    
+
     text = "✅ Номер удален успешно! Теперь исполнители будут получать только ваш профиль Telegram! 📱"
-    
+
     await callback.message.answer(
         text=text,
         reply_markup=kbc.customer_contacts_back_menu()
@@ -4009,53 +4030,54 @@ async def customer_view_worker_portfolio(callback: CallbackQuery, state: FSMCont
         # worker-portfolio_{worker_id}_{abs_id}
         parts = callback.data.split('_')
         logger.info(f"[CUSTOMER_PORTFOLIO] Callback data: {callback.data}, parts: {parts}")
-        
+
         if len(parts) < 3:
             logger.error(f"[CUSTOMER_PORTFOLIO] Invalid callback data format: {callback.data}")
             await callback.answer("❌ Неверный формат данных", show_alert=True)
             return
-            
+
         worker_id = int(parts[1])
         abs_id = int(parts[2])
-        
-        logger.info(f"[CUSTOMER_PORTFOLIO] Customer {callback.from_user.id} viewing portfolio: worker_id={worker_id}, abs_id={abs_id}")
-        
+
+        logger.info(
+            f"[CUSTOMER_PORTFOLIO] Customer {callback.from_user.id} viewing portfolio: worker_id={worker_id}, abs_id={abs_id}")
+
         customer = await Customer.get_customer(tg_id=callback.from_user.id)
         if not customer:
             await callback.answer("❌ Заказчик не найден", show_alert=True)
             return
-        
+
         worker = await Worker.get_worker(id=worker_id)
         if not worker:
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
-        
+
         # Проверяем, что заказчик имеет доступ к этому объявлению
         advertisement = await Abs.get_one(id=abs_id)
         if not advertisement or advertisement.customer_id != customer.id:
             await callback.answer("❌ Доступ запрещен", show_alert=True)
             return
-        
+
         # Проверяем наличие портфолио
         if not worker.portfolio_photo or len(worker.portfolio_photo) == 0:
             await callback.answer("❌ У исполнителя нет портфолио", show_alert=True)
             return
-        
+
         # Показываем первое фото из портфолио
         from aiogram.types import FSInputFile
         kbc = KeyboardCollection()
-        
+
         photo_len = len(worker.portfolio_photo)
         # Получаем первый доступный ключ из словаря портфолио
         first_photo_key = min(worker.portfolio_photo.keys(), key=int)
         first_photo_path = worker.portfolio_photo[first_photo_key]
-        
+
         text = f"📸 <b>Портфолио исполнителя</b>\n\n"
         text += f"👤 <b>ID:</b> {worker.id}\n"
         text += f"📋 <b>Имя:</b> {worker.profile_name or worker.tg_name}\n"
         text += f"🖼️ <b>Фото в портфолио:</b> {photo_len}\n\n"
         text += f"Фото 1 из {photo_len}"
-        
+
         try:
             # Всегда отправляем новое сообщение с фото портфолио
             await callback.message.answer_photo(
@@ -4072,9 +4094,9 @@ async def customer_view_worker_portfolio(callback: CallbackQuery, state: FSMCont
         except Exception as e:
             logger.error(f"Error sending portfolio photo: {e}")
             await callback.answer("❌ Ошибка при загрузке фото", show_alert=True)
-        
+
         await callback.answer()
-        
+
     except Exception as e:
         logger.error(f"Error in customer_view_worker_portfolio: {e}")
         await callback.answer("❌ Произошла ошибка при просмотре портфолио", show_alert=True)
@@ -4087,65 +4109,66 @@ async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSM
         # go-to-portfolio_{photo_num}_{worker_id}_{abs_id}
         parts = callback.data.split('_')
         logger.info(f"[CUSTOMER_PORTFOLIO_NAV] Callback data: {callback.data}, parts: {parts}")
-        
+
         if len(parts) < 4:
             logger.error(f"[CUSTOMER_PORTFOLIO_NAV] Invalid callback data format: {callback.data}")
             await callback.answer("❌ Неверный формат данных", show_alert=True)
             return
-            
+
         photo_num = int(parts[1])
         worker_id = int(parts[2])
         abs_id = int(parts[3])
-        
-        logger.info(f"[CUSTOMER_PORTFOLIO_NAV] Customer {callback.from_user.id} navigating portfolio: worker_id={worker_id}, abs_id={abs_id}, photo_num={photo_num}")
-        
+
+        logger.info(
+            f"[CUSTOMER_PORTFOLIO_NAV] Customer {callback.from_user.id} navigating portfolio: worker_id={worker_id}, abs_id={abs_id}, photo_num={photo_num}")
+
         customer = await Customer.get_customer(tg_id=callback.from_user.id)
         if not customer:
             await callback.answer("❌ Заказчик не найден", show_alert=True)
             return
-        
+
         worker = await Worker.get_worker(id=worker_id)
         if not worker:
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
-        
+
         # Проверяем, что заказчик имеет доступ к этому объявлению
         advertisement = await Abs.get_one(id=abs_id)
         if not advertisement or advertisement.customer_id != customer.id:
             await callback.answer("❌ Доступ запрещен", show_alert=True)
             return
-        
+
         # Проверяем наличие портфолио
         if not worker.portfolio_photo or len(worker.portfolio_photo) == 0:
             await callback.answer("❌ У исполнителя нет портфолио", show_alert=True)
             return
-        
+
         photo_len = len(worker.portfolio_photo)
-        
+
         # Получаем отсортированные ключи из словаря портфолио
         sorted_keys = sorted(worker.portfolio_photo.keys(), key=int)
-        
+
         # Обработка циклической навигации
         if photo_num < 0:
             photo_num = len(sorted_keys) - 1
         elif photo_num >= len(sorted_keys):
             photo_num = 0
-        
+
         # Получаем реальный ключ по индексу
         real_key = sorted_keys[photo_num]
-        
+
         # Показываем фото
         from aiogram.types import FSInputFile
         kbc = KeyboardCollection()
-        
+
         photo_path = worker.portfolio_photo[real_key]
-        
+
         text = f"📸 <b>Портфолио исполнителя</b>\n\n"
         text += f"👤 <b>ID:</b> {worker.id}\n"
         text += f"📋 <b>Имя:</b> {worker.profile_name or worker.tg_name}\n"
         text += f"🖼️ <b>Фото в портфолио:</b> {photo_len}\n\n"
         text += f"Фото {photo_num + 1} из {photo_len}"
-        
+
         try:
             # Пытаемся отредактировать существующее сообщение
             await callback.message.edit_media(
@@ -4170,7 +4193,7 @@ async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSM
             except TelegramBadRequest:
                 # Сообщение уже удалено, это нормально
                 pass
-            
+
             # Отправляем новое сообщение с фото
             await callback.message.answer_photo(
                 photo=FSInputFile(photo_path),
@@ -4202,9 +4225,9 @@ async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSM
             except Exception as send_error:
                 logger.error(f"[CUSTOMER_PORTFOLIO_NAV] Error sending new message: {send_error}")
                 await callback.answer("❌ Произошла ошибка при отображении портфолио", show_alert=True)
-        
+
         await callback.answer()
-        
+
     except Exception as e:
         logger.error(f"Error in customer_navigate_worker_portfolio: {e}")
         await callback.answer("❌ Произошла ошибка при навигации по портфолио", show_alert=True)
@@ -4214,37 +4237,38 @@ async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSM
 async def extend_advertisement_handler(callback: CallbackQuery) -> None:
     """Обработчик кнопки 'Продлить' при истечении объявления"""
     logger.debug(f'extend_advertisement_handler...')
-    
+
     kbc = KeyboardCollection()
     abs_id = int(callback.data.split('_')[2])
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     await callback.message.answer(
         text='⏰ Выберите период продления:',
         reply_markup=kbc.extend_advertisement_periods(abs_id)
     )
 
 
-@router.callback_query(lambda c: c.data.startswith('extend_24h_') or c.data.startswith('extend_2d_') or c.data.startswith('extend_3d_'))
+@router.callback_query(
+    lambda c: c.data.startswith('extend_24h_') or c.data.startswith('extend_2d_') or c.data.startswith('extend_3d_'))
 async def extend_advertisement_period_handler(callback: CallbackQuery) -> None:
     """Обработчик выбора периода продления"""
     logger.debug(f'extend_advertisement_period_handler...')
-    
+
     kbc = KeyboardCollection()
     parts = callback.data.split('_')
     period = parts[1]  # 24h, 2d, 3d
     abs_id = int(parts[2])
-    
+
     # Получаем объявление
     advertisement = await Abs.get_one(id=abs_id)
     if not advertisement:
         await callback.answer("Объявление не найдено", show_alert=True)
         return
-    
+
     # Определяем период продления
     from datetime import timedelta
     if period == '24h':
@@ -4259,31 +4283,31 @@ async def extend_advertisement_period_handler(callback: CallbackQuery) -> None:
     else:
         await callback.answer("Неверный период", show_alert=True)
         return
-    
+
     # Обновляем срок истечения
     new_date = advertisement.date_to_delite + extension
     await advertisement.update(date_to_delite=new_date)
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     # Показываем всплывающее сообщение
     await callback.answer(f"✅ Срок актуальности объявления продлен на {period_text}!", show_alert=True)
-    
+
     # Получаем данные заказчика для формирования текста меню
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     user_abs = await Abs.get_all_by_customer(customer.id)
     city = await City.get_city(id=int(customer.city_id))
-    
+
     # Формируем текст профиля заказчика
     menu_text = ('Ваш профиль\n\n'
-                f'ID: {customer.id}\n'
-                f'Ваш город: {city.city}\n'
-                f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                f'Осталось объявлений на сегодня: {customer.abs_count}')
-    
+                 f'ID: {customer.id}\n'
+                 f'Ваш город: {city.city}\n'
+                 f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+                 f'Осталось объявлений на сегодня: {customer.abs_count}')
+
     # Отправляем меню заказчика
     await callback.message.answer(
         text=menu_text,
@@ -4295,11 +4319,11 @@ async def extend_advertisement_period_handler(callback: CallbackQuery) -> None:
 async def dont_extend_advertisement_handler(callback: CallbackQuery) -> None:
     """Обработчик кнопки 'Не продлять'"""
     logger.debug(f'dont_extend_advertisement_handler...')
-    
+
     kbc = KeyboardCollection()
-    
+
     await callback.answer("❌ Вы отменили продление объявления!", show_alert=True)
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
@@ -4316,7 +4340,7 @@ async def dont_extend_advertisement_handler(callback: CallbackQuery) -> None:
                  f'Ваш город: {city.city}\n'
                  f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
                  f'Осталось объявлений на сегодня: {customer.abs_count}')
-    
+
     await callback.message.answer(
         text=menu_text,
         reply_markup=kbc.menu_customer_keyboard()
@@ -4327,23 +4351,23 @@ async def dont_extend_advertisement_handler(callback: CallbackQuery) -> None:
 async def close_advertisement_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик кнопки 'Закрыть' (без оценки) - показывает подтверждение"""
     logger.debug(f'close_advertisement_handler...')
-    
+
     kbc = KeyboardCollection()
     abs_id = int(callback.data.split('_')[2])
-    
+
     # Получаем объявление для отображения информации
     advertisement = await Abs.get_one(id=abs_id)
     if not advertisement:
         await callback.answer("Объявление не найдено", show_alert=True)
         return
-    
+
     text = help_defs.read_text_file(advertisement.text_path)
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     await callback.message.answer(
         text=f'⚠️ Вы уверены, что хотите закрыть объявление #{abs_id}?\n\n'
              f'{text}\n\n'
@@ -4356,48 +4380,48 @@ async def close_advertisement_handler(callback: CallbackQuery, state: FSMContext
 async def confirm_close_advertisement_expiry_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Подтверждение закрытия объявления при истечении"""
     logger.debug(f'confirm_close_advertisement_expiry_handler...')
-    
+
     kbc = KeyboardCollection()
     abs_id = int(callback.data.split('_')[3])
-    
+
     # Получаем объявление
     advertisement = await Abs.get_one(id=abs_id)
     if not advertisement:
         await callback.answer("Объявление не найдено", show_alert=True)
         return
-    
+
     # Удаляем объявление
     await advertisement.delete(delite_photo=True)
-    
+
     # Удаляем связанные записи
     from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, WorkersAndAbs
     workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
     if workers_and_bad_responses:
         [await bad_response.delete() for bad_response in workers_and_bad_responses]
-    
+
     workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
     if workers_and_reports:
         [await report.delete() for report in workers_and_reports]
-    
+
     contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
     if contact_exchanges:
         [await exchange.delete() for exchange in contact_exchanges]
-    
+
     workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
     if workers_and_abs:
         [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
-    
+
     # Обновляем статистику админов
     from app.data.database.models import Admin
     admins = await Admin.get_all()
     for admin in admins:
         await admin.update(done_abs=admin.done_abs + 1)
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     await callback.message.answer(
         text='✅ Объявление было успешно закрыто!',
         reply_markup=kbc.menu_customer_keyboard()
@@ -4408,16 +4432,16 @@ async def confirm_close_advertisement_expiry_handler(callback: CallbackQuery, st
 async def cancel_close_advertisement_expiry_handler(callback: CallbackQuery) -> None:
     """Отмена закрытия объявления при истечении"""
     logger.debug(f'cancel_close_advertisement_expiry_handler...')
-    
+
     kbc = KeyboardCollection()
-    
+
     await callback.answer("❌ Закрытие объявления отменено", show_alert=True)
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     await callback.message.answer(
         text='Объявление остается активным.',
         reply_markup=kbc.menu_customer_keyboard()
@@ -4428,34 +4452,34 @@ async def cancel_close_advertisement_expiry_handler(callback: CallbackQuery) -> 
 async def close_and_rate_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик кнопки 'Закрыть и оценить' - показывает подтверждение"""
     logger.debug(f'close_and_rate_handler...')
-    
+
     kbc = KeyboardCollection()
     abs_id = int(callback.data.split('_')[3])  # close_and_rate_abs_id
-    
+
     # Получаем объявление для отображения информации
     advertisement = await Abs.get_one(id=abs_id)
     if not advertisement:
         await callback.answer("Объявление не найдено", show_alert=True)
         return
-    
+
     text = help_defs.read_text_file(advertisement.text_path)
-    
+
     # Проверяем, есть ли исполнители для оценки
     from app.data.database.models import ContactExchange
     contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
     workers_for_assessment = []
-    
+
     for contact_exchange in contact_exchanges:
         if contact_exchange.contacts_purchased:  # Купил контакты
             worker = await Worker.get_worker(id=contact_exchange.worker_id)
             if worker:
                 workers_for_assessment.append(worker)
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     if workers_for_assessment:
         await callback.message.answer(
             text=f'⚠️ Вы уверены, что хотите закрыть объявление #{abs_id} и оценить исполнителей?\n\n'
@@ -4476,21 +4500,21 @@ async def close_and_rate_handler(callback: CallbackQuery, state: FSMContext) -> 
 async def confirm_close_and_rate_advertisement_expiry_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Подтверждение закрытия и оценки объявления при истечении"""
     logger.debug(f'confirm_close_and_rate_advertisement_expiry_handler...')
-    
+
     kbc = KeyboardCollection()
     abs_id = int(callback.data.split('_')[5])  # confirm_close_and_rate_expiry_abs_id
-    
+
     # Получаем объявление
     advertisement = await Abs.get_one(id=abs_id)
     if not advertisement:
         await callback.answer("Объявление не найдено", show_alert=True)
         return
-    
+
     # Находим исполнителей для оценки (купили контакты и еще не оценены)
     from app.data.database.models import ContactExchange, WorkerRating
     contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
     workers_for_assessment = []
-    
+
     for contact_exchange in contact_exchanges:
         if contact_exchange.contacts_purchased:  # Купил контакты
             worker = await Worker.get_worker(id=contact_exchange.worker_id)
@@ -4499,34 +4523,34 @@ async def confirm_close_and_rate_advertisement_expiry_handler(callback: Callback
                 existing_rating = await WorkerRating.get_by_worker_and_abs(contact_exchange.worker_id, abs_id)
                 if not existing_rating:  # Только если еще не оценен
                     workers_for_assessment.append(worker)
-    
+
     # НЕ удаляем объявление сразу - удалим после оценки
     # await advertisement.delete(delite_photo=True)
-    
+
     # НЕ удаляем связанные записи сразу - удалим после оценки
     # from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, WorkersAndAbs
     # workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
     # if workers_and_bad_responses:
     #     [await bad_response.delete() for bad_response in workers_and_bad_responses]
-    
+
     # workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
     # if workers_and_reports:
     #     [await report.delete() for report in workers_and_reports]
-    
+
     # contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
     # if contact_exchanges:
     #     [await exchange.delete() for exchange in contact_exchanges]
-    
+
     # workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
     # if workers_and_abs:
     #     [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
-    
+
     # НЕ обновляем статистику админов сразу - обновим после оценки
     # from app.data.database.models import Admin
     # admins = await Admin.get_all()
     # for admin in admins:
     #     await admin.update(done_abs=admin.done_abs + 1)
-    
+
     # Если есть исполнители для оценки - показываем их
     if workers_for_assessment:
         names = [
@@ -4534,12 +4558,12 @@ async def confirm_close_and_rate_advertisement_expiry_handler(callback: Callback
             for worker in workers_for_assessment
         ]
         ids = [worker.id for worker in workers_for_assessment]
-        
+
         try:
             await callback.message.delete()
         except TelegramBadRequest:
             pass
-        
+
         # Сохраняем abs_id в состоянии для последующего удаления
         await state.update_data(pending_advertisement_id=abs_id)
 
@@ -4559,34 +4583,34 @@ async def confirm_close_and_rate_advertisement_expiry_handler(callback: Callback
             await callback.message.delete()
         except TelegramBadRequest:
             pass
-        
+
         # Удаляем объявление, так как нет исполнителей для оценки
         await advertisement.delete(delite_photo=True)
-        
+
         # Удаляем связанные записи
         from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, WorkersAndAbs
         workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
         if workers_and_bad_responses:
             [await bad_response.delete() for bad_response in workers_and_bad_responses]
-        
+
         workers_and_reports = await WorkerAndReport.get_by_abs(abs_id=abs_id)
         if workers_and_reports:
             [await report.delete() for report in workers_and_reports]
-        
+
         contact_exchanges = await ContactExchange.get_by_abs(abs_id=abs_id)
         if contact_exchanges:
             [await exchange.delete() for exchange in contact_exchanges]
-        
+
         workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
         if workers_and_abs:
             [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
-        
+
         # Обновляем статистику админов
         from app.data.database.models import Admin
         admins = await Admin.get_all()
         for admin in admins:
             await admin.update(done_abs=admin.done_abs + 1)
-        
+
         await callback.message.answer(
             text='✅ Объявление закрыто!\n\nИсполнителей для оценки не найдено.',
             reply_markup=kbc.menu_customer_keyboard()
@@ -4598,21 +4622,20 @@ async def confirm_close_and_rate_advertisement_expiry_handler(callback: Callback
 async def cancel_close_and_rate_advertisement_expiry_handler(callback: CallbackQuery) -> None:
     """Отмена закрытия и оценки объявления при истечении"""
     logger.debug(f'cancel_close_and_rate_advertisement_expiry_handler...')
-    
+
     kbc = KeyboardCollection()
-    
+
     await callback.answer("❌ Закрытие и оценка объявления отменены", show_alert=True)
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     await callback.message.answer(
         text='Объявление остается активным.',
         reply_markup=kbc.menu_customer_keyboard()
     )
-
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

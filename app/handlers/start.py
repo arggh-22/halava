@@ -83,7 +83,7 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
 
     # Проверяем блокировку
     if user_data['banned_id']:
-        await message_utils.send_message_with_cleanup(message, 'Упс, вы заблокированы')
+        await message_utils.send_message_with_cleanup(message, '⛔️ Упс, вы заблокированы')
         await state.set_state(BannedStates.banned)
         return
 
@@ -247,7 +247,7 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
     logger.debug(f"user_name: {message.from_user.username}")
     if user_baned := await Banned.get_banned(tg_id=message.chat.id):
         if user_baned.ban_now or user_baned.forever:
-            await message.answer(text='Упс, вы заблокированы', reply_markup=kbc.support_btn())
+            await message.answer(text='⛔️ Упс, вы заблокированы', reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
     await state.set_state(UserStates.menu)
@@ -336,7 +336,7 @@ async def menu_universal(callback: CallbackQuery, state: FSMContext) -> None:
     # Проверяем, заблокирован ли пользователь
     if user_baned := await Banned.get_banned(tg_id=callback.message.chat.id):
         if user_baned.ban_now or user_baned.forever:
-            await callback.message.answer(text='Упс, вы заблокированы', reply_markup=kbc.support_btn())
+            await callback.message.answer(text='⛔️ Упс, вы заблокированы', reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
     
@@ -361,30 +361,32 @@ async def menu_universal(callback: CallbackQuery, state: FSMContext) -> None:
                 return
             
             # Показываем меню заказчика для неактивного исполнителя
-            user_abs = await Abs.get_all_by_customer(customer.id)
-            city = await City.get_city(id=int(customer.city_id))
-
-            text = ('Ваш профиль\n\n'
-                    f'ID: {customer.id}\n'
-                    f'Ваш город: {city.city}\n'
-                    f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                    f'Осталось объявлений на сегодня: {customer.abs_count}')
-
-            await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
-            await state.set_state(CustomerStates.customer_menu)
+            await help_defs.send_customer_menu(callback, customer, state)
+            # user_abs = await Abs.get_all_by_customer(customer.id)
+            # city = await City.get_city(id=int(customer.city_id))
+            #
+            # text = ('Ваш профиль\n\n'
+            #         f'ID: {customer.id}\n'
+            #         f'Ваш город: {city.city}\n'
+            #         f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+            #         f'Осталось объявлений на сегодня: {customer.abs_count}')
+            #
+            # await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
+            # await state.set_state(CustomerStates.customer_menu)
     elif customer := await Customer.get_customer(tg_id=callback.message.chat.id):
         print(f"[DEBUG] User {callback.message.chat.id} is a Customer")
-        user_abs = await Abs.get_all_by_customer(customer.id)
-        city = await City.get_city(id=int(customer.city_id))
-
-        text = ('Ваш профиль\n\n'
-                f'ID: {customer.id}\n'
-                f'Ваш город: {city.city}\n'
-                f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                f'Осталось объявлений на сегодня: {customer.abs_count}')
-
-        await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
-        await state.set_state(CustomerStates.customer_menu)
+        # user_abs = await Abs.get_all_by_customer(customer.id)
+        # city = await City.get_city(id=int(customer.city_id))
+        #
+        # text = ('Ваш профиль\n\n'
+        #         f'ID: {customer.id}\n'
+        #         f'Ваш город: {city.city}\n'
+        #         f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+        #         f'Осталось объявлений на сегодня: {customer.abs_count}')
+        #
+        # await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
+        await help_defs.send_customer_menu(callback, customer, state)
+        # await state.set_state(CustomerStates.customer_menu)
     elif await Admin.get_by_tg_id(tg_id=callback.message.chat.id):
         print(f"[DEBUG] User {callback.message.chat.id} is an Admin")
         await state.set_state(AdminStates.menu)
@@ -425,7 +427,7 @@ async def user_change_role(message: Message, state: FSMContext) -> None:
 
     if user_baned := await Banned.get_banned(tg_id=message.chat.id):
         if user_baned.ban_now or user_baned.forever:
-            await message.answer(text='Упс, вы заблокированы', reply_markup=kbc.support_btn())
+            await message.answer(text='⛔️ Упс, вы заблокированы', reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
     if await Worker.get_worker(tg_id=message.chat.id) or await Customer.get_customer(

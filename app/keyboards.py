@@ -1361,15 +1361,15 @@ class KeyboardCollection:
             builder.adjust(1)
         return builder.as_markup()
 
-    def chat_rules_confirmation(self) -> InlineKeyboardMarkup:
-        """Кнопка подтверждения правил чата"""
-        builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="✅ Ознакомлен, Продолжить", 
-                                 callback_data="confirm_chat_rules"))
-        builder.add(self._inline(button_text="❌ Отмена", 
-                                 callback_data="cancel_response"))
-        builder.adjust(1)
-        return builder.as_markup()
+    # def chat_rules_confirmation(self) -> InlineKeyboardMarkup:
+    #     """Кнопка подтверждения правил чата"""
+    #     builder = InlineKeyboardBuilder()
+    #     builder.add(self._inline(button_text="✅ Ознакомлен, Продолжить",
+    #                              callback_data="confirm_chat_rules"))
+    #     builder.add(self._inline(button_text="❌ Отмена",
+    #                              callback_data="cancel_response"))
+    #     builder.adjust(1)
+    #     return builder.as_markup()
 
     def response_type_choice(self, abs_id: int) -> InlineKeyboardMarkup:
         """Выбор типа отклика"""
