@@ -23,16 +23,26 @@ async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=Non
     try:
         if callback.message.photo:
             # Если сообщение содержит фото, редактируем подпись
+            # ID автоматически сохранится через патч edit_caption
             await callback.message.edit_caption(
                 caption=text,
                 reply_markup=reply_markup,
             )
         else:
-            # Если сообщение текстовое, редактируем текст
-            await callback.message.answer(
-                text=text,
-                reply_markup=reply_markup,
-            )
+            # Пытаемся отредактировать текст
+            try:
+                # ID автоматически сохранится через патч edit_text
+                await callback.message.edit_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                )
+            except Exception:
+                # Если редактирование не удалось, отправляем новое сообщение
+                sent_message = await callback.message.answer(
+                    text=text,
+                    reply_markup=reply_markup,
+                )
+                # ID автоматически сохранится через патч answer
     except Exception as e:
         logger.error(f"Error in safe_edit_message: {e}")
         # Fallback: отправляем новое сообщение
@@ -41,8 +51,7 @@ async def safe_edit_message(callback: CallbackQuery, text: str, reply_markup=Non
                 text=text,
                 reply_markup=reply_markup,
             )
-            # Сохраняем ID нового сообщения для очистки
-            cleanup_middleware.save_message_id(callback.message.chat.id, sent_message.message_id)
+            # ID автоматически сохранится через патч answer
         except Exception as fallback_error:
             logger.error(f"Error in fallback message sending: {fallback_error}")
             # Последняя попытка - просто отвечаем на callback

@@ -287,8 +287,9 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def menu_worker_keyboard(self, confirmed, choose_works, individual_entrepreneur,
-                             create_photo, create_name, has_status=False) -> InlineKeyboardMarkup:
+    # def menu_worker_keyboard(self, confirmed, choose_works, individual_entrepreneur,
+    def menu_worker_keyboard(self, has_status=False) -> InlineKeyboardMarkup:
+                             # create_photo, create_name, has_status=False) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         
         # Основные функции
@@ -1195,13 +1196,13 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    def chat_closed_buttons(self, abs_id: int):
-        """Кнопки для закрытого чата"""
-        builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="⬅️ Назад к откликам", 
-                                 callback_data=f"back-to-responses_{abs_id}"))
-        builder.adjust(1)
-        return builder.as_markup()
+    # def chat_closed_buttons(self, abs_id: int):
+    #     """Кнопки для закрытого чата"""
+    #     builder = InlineKeyboardBuilder()
+    #     builder.add(self._inline(button_text="⬅️ Назад к откликам",
+    #                              callback_data=f"back-to-responses_{abs_id}"))
+    #     builder.adjust(1)
+    #     return builder.as_markup()
 
 
     async def new_contact_tariffs(self):
@@ -1249,17 +1250,17 @@ class KeyboardCollection:
         builder.adjust(5)
         return builder.as_markup()
 
-    def chat_closed_buttons(self, role: str, abs_id: int):
-        """Кнопки для закрытого чата"""
-        builder = InlineKeyboardBuilder()
-        if role == 'customer':
-            builder.add(self._inline(button_text="⬅️ Назад к откликам", 
-                                     callback_data=f"back-to-responses_{abs_id}"))
-        else:
-            builder.add(self._inline(button_text="⬅️ Назад к объявлениям", 
-                                     callback_data="worker_menu"))
-        builder.adjust(1)
-        return builder.as_markup()
+    # def chat_closed_buttons(self, role: str, abs_id: int):
+    #     """Кнопки для закрытого чата"""
+    #     builder = InlineKeyboardBuilder()
+    #     if role == 'customer':
+    #         builder.add(self._inline(button_text="⬅️ Назад к откликам",
+    #                                  callback_data=f"back-to-responses_{abs_id}"))
+    #     else:
+    #         builder.add(self._inline(button_text="⬅️ Назад к объявлениям",
+    #                                  callback_data="worker_menu"))
+    #     builder.adjust(1)
+    #     return builder.as_markup()
 
     # ========== КЛАВИАТУРЫ ДЛЯ КОНТАКТОВ ЗАКАЗЧИКА ==========
     
@@ -1371,6 +1372,12 @@ class KeyboardCollection:
     #     builder.adjust(1)
     #     return builder.as_markup()
 
+    def worker_menu(self):
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline("🏠 В меню", "worker_menu"))
+        builder.adjust(1)
+        return builder.as_markup()
+
     def response_type_choice(self, abs_id: int) -> InlineKeyboardMarkup:
         """Выбор типа отклика"""
         builder = InlineKeyboardBuilder()
@@ -1385,8 +1392,16 @@ class KeyboardCollection:
 
     def anonymous_chat_worker_buttons(self, abs_id: int, has_contacts: bool = False, 
                                      contacts_requested: bool = False, contacts_sent: bool = False,
+                                     worker_initiated: bool = False,
                                      count_photo: int = 0, photo_num: int = 0) -> InlineKeyboardMarkup:
-        """Кнопки для анонимного чата исполнителя"""
+        """Кнопки для анонимного чата исполнителя
+        
+        Args:
+            has_contacts: Контакты уже куплены
+            contacts_requested: Заказчик подтвердил/предложил контакты (contacts_sent=True в ContactExchange)
+            contacts_sent: Исполнитель запросил контакты, ждет подтверждения (contacts_sent=False в ContactExchange)
+            worker_initiated: True если исполнитель сам запросил контакты, False если заказчик предложил
+        """
         builder = InlineKeyboardBuilder()
         
         # Кнопки навигации по фотографиям объявления
@@ -1403,17 +1418,19 @@ class KeyboardCollection:
             builder.add(self._inline(button_text="◀️ К моим откликам", 
                                      callback_data="my_responses"))
         elif contacts_requested:
-            # Контакты переданы, но не куплены - нужно покупать
+            # Заказчик подтвердил/предложил контакты - нужно покупать
             builder.add(self._inline(button_text="💳 Купить контакты", 
                                      callback_data=f"buy_contacts_for_abs_{abs_id}"))
-            builder.add(self._inline(button_text="❌ Отказаться", 
-                                     callback_data=f"reject_contact_offer_{abs_id}"))
-        elif contacts_sent:
-            # Контакты запрошены, ждем подтверждения
-            builder.add(self._inline(button_text="⏳ Ожидание подтверждения", 
-                                     callback_data="noop"))
-            builder.add(self._inline(button_text="❌ Отменить запрос", 
-                                     callback_data=f"cancel_contact_request_{abs_id}"))
+            # Показываем "Отказаться" только если заказчик предложил (не исполнитель запросил)
+            if not worker_initiated:
+                builder.add(self._inline(button_text="❌ Отказаться", 
+                                         callback_data=f"reject_contact_offer_{abs_id}"))
+        elif contacts_sent or worker_initiated:
+            # Исполнитель запросил контакты - показываем кнопку "Купить контакты"
+            # (когда заказчик подтвердит, контакты можно будет купить)
+            # НЕ показываем "Ожидание подтверждения" и "Отменить запрос" - исполнитель сам запросил
+            builder.add(self._inline(button_text="💳 Купить контакты", 
+                                     callback_data=f"buy_contacts_for_abs_{abs_id}"))
         else:
             # Можно запросить контакты
             builder.add(self._inline(button_text="📞 Запросить контакт", 
@@ -1447,10 +1464,10 @@ class KeyboardCollection:
         # Показываем кнопки в зависимости от состояния контактов
         
         # Кнопка подтверждения/статуса контактов
+        # Если contact_sent=True - контакты уже предложены, информация в тексте, кнопку не показываем
         if contact_sent:
-            # Контакты уже отправлены - убираем кнопку подтверждения
-            builder.add(self._inline(button_text="✅ Контакты отправлены", 
-                                     callback_data="noop"))
+            # Контакты уже отправлены - не показываем кнопку, информация уже в тексте сообщения
+            pass
         elif contact_requested:
             # Исполнитель запросил контакты
             builder.add(self._inline(button_text="✅ Подтвердить передачу", 
@@ -1465,8 +1482,10 @@ class KeyboardCollection:
             builder.add(self._inline(button_text="📸 Портфолио исполнителя", 
                                      callback_data=f"worker-portfolio_{worker_id}_{abs_id}"))
         
-        # Кнопка отклонения передачи контактов (показываем только если есть что отклонять)
-        if contact_requested or contact_sent:
+        # Кнопка отклонения передачи контактов (показываем только если исполнитель запросил контакты, а заказчик еще не подтвердил)
+        # Т.е. показываем только если contact_requested=True и contact_sent=False (исполнитель запросил, заказчик может отказать)
+        # НЕ показываем если contact_sent=True без запроса (заказчик сам предложил - он не может сам отклонить)
+        if contact_requested and not contact_sent:
             builder.add(self._inline(button_text="❌ Отклонить передачу контактов", 
                                      callback_data=f"decline_contact_share_{worker_id}_{abs_id}"))
         
@@ -1484,8 +1503,12 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    async def buy_tokens_tariffs(self) -> InlineKeyboardMarkup:
-        """Тарифы покупки жетонов (загружает из БД)"""
+    async def buy_tokens_tariffs(self, abs_id: int | None = None) -> InlineKeyboardMarkup:
+        """Тарифы покупки жетонов (загружает из БД)
+
+        Args:
+            abs_id: ID объявления. Если указан, кнопка возврата вернет к чату по этому объявлению.
+        """
         from app.data.database.models import ContactTariff
         
         builder = InlineKeyboardBuilder()
@@ -1508,8 +1531,16 @@ class KeyboardCollection:
                 button_text = f"{tariff.contacts_count} жетон{'а' if tariff.contacts_count == 2 else 'ов'} — {int(price_rub)}₽{discount_text}"
             builder.add(self._inline(button_text=button_text, callback_data=f"buy_tokens_{tariff.id}"))
         
-        builder.add(self._inline(button_text="◀️ Отмена", 
-                                 callback_data="cancel_token_purchase"))
+        if abs_id is not None:
+            builder.add(self._inline(
+                button_text="⏪ Назад",
+                callback_data=f"view_my_response_{abs_id}"
+            ))
+        else:
+            builder.add(self._inline(
+                button_text="◀️ Отмена",
+                callback_data="cancel_token_purchase"
+            ))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1535,10 +1566,30 @@ class KeyboardCollection:
         builder = InlineKeyboardBuilder()
         
         for response in responses_data:
-            worker_public_id = response['worker_public_id']
             # Используем индикатор из данных или fallback на старую логику
             status_emoji = response.get('status_indicator', "💬" if response['active'] else "✅")
-            text = f"{status_emoji} {worker_public_id}"
+            
+            # Формируем текст кнопки с именем и рейтингом
+            worker_name = response.get('worker_name')
+            worker_stars = response.get('worker_stars', 0)
+            worker_ratings = response.get('worker_ratings', 0)
+            worker_id = response.get('worker_id')
+            
+            # Вычисляем рейтинг
+            if worker_ratings > 0:
+                rating = round(worker_stars / worker_ratings, 1)
+            else:
+                rating = worker_stars if worker_stars > 0 else 0
+            
+            # Формируем имя: если есть profile_name, используем его, иначе ID
+            if worker_name and worker_name.strip():
+                name_text = worker_name
+            else:
+                name_text = response.get('worker_public_id', f'ID#{worker_id}')
+            
+            # Формируем текст кнопки: имя рейтинг ⭐️ (количество оценок)
+            text = f"{status_emoji} {name_text} {rating} ⭐️ ({worker_ratings} оценок)"
+            
             builder.add(self._inline(button_text=text, 
                                      callback_data=f"view_response_{response['worker_id']}_{abs_id}"))
         

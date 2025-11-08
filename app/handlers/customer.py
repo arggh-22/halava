@@ -525,23 +525,11 @@ async def create_new_abs(callback: CallbackQuery, state: FSMContext) -> None:
 async def create_new_abs_back(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'create_new_abs_back...')
 
-    kbc = KeyboardCollection()
-
     tg_id = callback.message.chat.id
-
     customer = await Customer.get_customer(tg_id=tg_id)
 
-    user_abs = await Abs.get_all_by_customer(customer.id)
-    city = await City.get_city(id=int(customer.city_id))
-
-    text = ('Ваш профиль\n\n'
-            f'ID: {customer.id}\n'
-            f'Ваш город: {city.city}\n'
-            f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-            f'Осталось объявлений на сегодня: {customer.abs_count}')
-
-    await state.set_state(CustomerStates.customer_menu)
-    await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
+    # Send customer menu
+    await help_defs.send_customer_menu(callback, customer, state)
 
 
 async def get_customer_ads_optimized(customer_id: int):
@@ -1821,10 +1809,14 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
 
     kbc = KeyboardCollection()
 
+    state_data = await state.get_data()
+    msg = str(state_data.get('msg'))
+
     try:
-        msg = await callback.message.answer('Подождите идет проверка')
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg)
     except TelegramBadRequest:
-        msg = await callback.message.answer('Подождите идет проверка')
+        pass
+    msg = await callback.message.answer('Подождите идет проверка')
 
     state_data = await state.get_data()
     work_type_id = str(state_data.get('work_type_id'))
@@ -1840,6 +1832,11 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
 
     work_type = await WorkType.get_work_type(id=int(work_type_id))
     work = work_type.work_type.capitalize()
+
+    try:
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+    except TelegramBadRequest:
+        pass
 
     if checks.phone_finder(all_text):
         await state.set_state(CustomerStates.customer_menu)
@@ -2063,9 +2060,10 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     time = str(state_data.get('time'))
     album = state_data.get('album', [])
 
-    photo = None
-
-    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg, )
+    try:
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg)
+    except TelegramBadRequest:
+        pass
     msg = await callback.message.answer(text='Подождите идет проверка')
 
     text_photo_bool = False
@@ -2431,7 +2429,6 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
             photo=FSInputFile(photos['0']),
             caption=text,
             reply_markup=kbc.menu_customer_keyboard(),
-            # parse_mode='Markdown'
         )
     else:
         # Если нет фото, отправляем текстовое сообщение
@@ -2518,7 +2515,10 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
     if len(album) == 10:
         msg = str(data.get('msg'))
         try:
-            await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+            try:
+                await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+            except TelegramBadRequest:
+                pass
             msg = await message.answer(text='Больше фото загрузить нельзя\nНажмите, чтобы закончить загрузку',
                                        reply_markup=kbc.done_btn())
             await state.update_data(msg=msg.message_id)
@@ -2531,7 +2531,10 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
     if end == 0:
         msg = str(data.get('msg'))
         try:
-            await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+            try:
+                await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
+            except TelegramBadRequest:
+                pass
             msg = await message.answer(text='Нажмите, чтобы закончить загрузку', reply_markup=kbc.done_btn())
             await state.update_data(msg=msg.message_id)
         except TelegramBadRequest:
@@ -2542,18 +2545,6 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
 
     if len(album) > 10:
         return
-
-
-# Функция принятия отклика look-worker-it_ полностью удалена
-
-
-# Функция worker_portfolio удалена - использовалась только для откликов
-
-
-# Функция worker_portfolio (go-to-portfolio) удалена - использовалась только для откликов
-
-
-# Функция send_worker_with_msg удалена - использовалась только для откликов
 
 
 @router.callback_query(F.data == "customer_change_city", CustomerStates.customer_menu)
@@ -2995,37 +2986,37 @@ async def send_to_workers_background(advertisement_id: int, city_id: int, work_t
 #             await callback.answer("Ошибка при отправке контактов", show_alert=True)
 
 
-@router.callback_query(lambda c: c.data.startswith('reject-contact-request_'))
-async def reject_contact_request_handler(callback: CallbackQuery, state: FSMContext) -> None:
-    """Обработчик отклонения запроса контактов заказчиком"""
-    logger.debug(f'reject_contact_request_handler...')
-
-    # Парсим данные из callback_data
-    parts = callback.data.split('_')
-    worker_id = int(parts[1])
-    abs_id = int(parts[2])
-
-    # Получаем данные
-    worker = await Worker.get_worker(id=worker_id)
-    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-
-    if not worker or not customer:
-        await callback.answer("Ошибка: данные не найдены", show_alert=True)
-        return
-
-    try:
-        # Уведомляем исполнителя об отклонении
-        await bot.send_message(
-            chat_id=worker.tg_id,
-            text="Заказчик отклонил ваш запрос на получение контактов"
-        )
-
-        # Уведомляем заказчика
-        await callback.answer("Запрос контактов отклонен", show_alert=True)
-
-    except Exception as e:
-        logger.error(f"Error rejecting contact request: {e}")
-        await callback.answer("Ошибка при отклонении запроса", show_alert=True)
+# @router.callback_query(lambda c: c.data.startswith('reject-contact-request_'))
+# async def reject_contact_request_handler(callback: CallbackQuery, state: FSMContext) -> None:
+#     """Обработчик отклонения запроса контактов заказчиком"""
+#     logger.debug(f'reject_contact_request_handler...')
+#
+#     # Парсим данные из callback_data
+#     parts = callback.data.split('_')
+#     worker_id = int(parts[1])
+#     abs_id = int(parts[2])
+#
+#     # Получаем данные
+#     worker = await Worker.get_worker(id=worker_id)
+#     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+#
+#     if not worker or not customer:
+#         await callback.answer("Ошибка: данные не найдены", show_alert=True)
+#         return
+#
+#     try:
+#         # Уведомляем исполнителя об отклонении
+#         await bot.send_message(
+#             chat_id=worker.tg_id,
+#             text="Заказчик отклонил ваш запрос на получение контактов"
+#         )
+#
+#         # Уведомляем заказчика
+#         await callback.answer("Запрос контактов отклонен", show_alert=True)
+#
+#     except Exception as e:
+#         logger.error(f"Error rejecting contact request: {e}")
+#         await callback.answer("Ошибка при отклонении запроса", show_alert=True)
 
 
 # @router.callback_query(lambda c: c.data.startswith('send-contacts-new_'))
@@ -3268,15 +3259,15 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
         # МГНОВЕННОЕ ОБНОВЛЕНИЕ РАНГА при оценке исполнителя
         await update_worker_rank_instantly(worker)
 
-    # Уведомляем исполнителя об оценке
-    from loaders import bot
-    try:
-        await bot.send_message(
-            chat_id=worker.tg_id,
-            text=f"⭐ Вам поставили оценку {rating}/5!\n\nОбъявление #{abs_id}\nСпасибо за качественную работу!"
-        )
-    except Exception as e:
-        logger.error(f"Error sending rating notification to worker: {e}")
+    # # Уведомляем исполнителя об оценке
+    # from loaders import bot
+    # try:
+    #     await bot.send_message(
+    #         chat_id=worker.tg_id,
+    #         text=f"⭐ Вам поставили оценку {rating}/5!\n\nОбъявление #{abs_id}\nСпасибо за качественную работу!"
+    #     )
+    # except Exception as e:
+    #     logger.error(f"Error sending rating notification to worker: {e}")
 
     await callback.answer(f"Спасибо! Вы оценили исполнителя на {rating} звезд", show_alert=True)
 
@@ -3428,7 +3419,7 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
                 responses_data.append({
                     'worker_id': response.worker_id,
                     'worker_public_id': f'ID#{worker.id}',
-                    'worker_name': worker.profile_name or worker.tg_name,
+                    'worker_name': worker.profile_name,  # Только profile_name, не tg_name
                     'worker_stars': worker.stars,
                     'worker_ratings': worker.count_ratings,
                     'worker_verified': worker.confirmed,
@@ -3455,6 +3446,17 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
         text = f"📋 <b>Отклики на объявление #{abs_id}</b>\n"
         text += f"🏙️ Город: {city_name}\n"
         text += f"👥 Количество откликов: {len(responses_data)}\n\n"
+        
+        # Добавляем текст объявления
+        if advertisement and advertisement.text_path:
+            ad_text = help_defs.read_text_file(advertisement.text_path) or ""
+            if ad_text:
+                # Ограничиваем длину текста объявления
+                MAX_AD_TEXT_LENGTH = 2000
+                if len(ad_text) > MAX_AD_TEXT_LENGTH:
+                    ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+                text += f"📝 <b>Текст объявления:</b>\n{ad_text}\n"
+        
         text += "Выберите отклик для просмотра:"
 
         # Безопасное редактирование (может быть фото)
@@ -3544,7 +3546,7 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
                 responses_data.append({
                     'worker_id': response.worker_id,
                     'worker_public_id': f'ID#{worker.id}',
-                    'worker_name': worker.profile_name or worker.tg_name,
+                    'worker_name': worker.profile_name,  # Только profile_name, не tg_name
                     'worker_stars': worker.stars,
                     'worker_ratings': worker.count_ratings,
                     'worker_verified': worker.confirmed,
@@ -3568,14 +3570,28 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
                 city_name = city.city
 
         kbc = KeyboardCollection()
+        # Формируем текст с объявлением
+        response_text = f"📋 <b>Отклики на объявление #{abs_id}</b>\n"
+        response_text += f"🏙️ Город: {city_name}\n"
+        response_text += f"👥 Количество откликов: {len(responses_data)}\n\n"
+        
+        # Добавляем текст объявления
+        if advertisement and advertisement.text_path:
+            ad_text = help_defs.read_text_file(advertisement.text_path) or ""
+            if ad_text:
+                # Ограничиваем длину текста объявления
+                MAX_AD_TEXT_LENGTH = 2000
+                if len(ad_text) > MAX_AD_TEXT_LENGTH:
+                    ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+                response_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+        
+        response_text += "Выберите отклик для просмотра:"
+        
         # Используем безопасное редактирование сообщения
         from app.untils.message_utils import safe_edit_message
         await safe_edit_message(
             callback=callback,
-            text=f"📋 <b>Отклики на объявление #{abs_id}</b>\n"
-                 f"🏙️ Город: {city_name}\n"
-                 f"👥 Количество откликов: {len(responses_data)}\n\n"
-                 "Выберите отклик для просмотра:",
+            text=response_text,
             reply_markup=kbc.customer_responses_list_buttons(
                 responses_data=responses_data,
                 abs_id=abs_id
@@ -4298,21 +4314,8 @@ async def extend_advertisement_period_handler(callback: CallbackQuery) -> None:
 
     # Получаем данные заказчика для формирования текста меню
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    user_abs = await Abs.get_all_by_customer(customer.id)
-    city = await City.get_city(id=int(customer.city_id))
 
-    # Формируем текст профиля заказчика
-    menu_text = ('Ваш профиль\n\n'
-                 f'ID: {customer.id}\n'
-                 f'Ваш город: {city.city}\n'
-                 f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                 f'Осталось объявлений на сегодня: {customer.abs_count}')
-
-    # Отправляем меню заказчика
-    await callback.message.answer(
-        text=menu_text,
-        reply_markup=kbc.menu_customer_keyboard()
-    )
+    await help_defs.send_customer_menu(callback, customer)
 
 
 @router.callback_query(lambda c: c.data.startswith('dont_extend_advertisement_'))
@@ -4331,20 +4334,9 @@ async def dont_extend_advertisement_handler(callback: CallbackQuery) -> None:
 
     # Получаем данные заказчика для формирования текста меню
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
-    user_abs = await Abs.get_all_by_customer(customer.id)
-    city = await City.get_city(id=int(customer.city_id))
 
-    # Формируем текст профиля заказчика
-    menu_text = ('Ваш профиль\n\n'
-                 f'ID: {customer.id}\n'
-                 f'Ваш город: {city.city}\n'
-                 f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                 f'Осталось объявлений на сегодня: {customer.abs_count}')
-
-    await callback.message.answer(
-        text=menu_text,
-        reply_markup=kbc.menu_customer_keyboard()
-    )
+    # Send customer menu
+    await help_defs.send_customer_menu(callback, customer)
 
 
 @router.callback_query(lambda c: c.data.startswith('close_advertisement_'))

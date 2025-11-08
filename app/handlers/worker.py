@@ -521,9 +521,9 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
     # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
     is_unlimited = (not worker_sub.work_type_ids or
                     (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
-    choose_works = is_unlimited
-
-    profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
+    # choose_works = is_unlimited
+    #
+    # profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
 
     # has_status уже определен выше при формировании текста статуса
     has_status = False
@@ -535,11 +535,11 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
             photo=FSInputFile(user_worker.profile_photo),
             caption=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=False,
-                create_name=profile_name,
+                # confirmed=True,  # Верификация убрана
+                # choose_works=choose_works,
+                # individual_entrepreneur=user_worker.individual_entrepreneur,
+                # create_photo=False,
+                # create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -548,11 +548,11 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=False,
-                create_name=profile_name,
+                # confirmed=True,  # Верификация убрана
+                # choose_works=choose_works,
+                # individual_entrepreneur=user_worker.individual_entrepreneur,
+                # create_photo=False,
+                # create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -668,9 +668,9 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
     # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
     is_unlimited = (not worker_sub.work_type_ids or
                     (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
-    choose_works = is_unlimited
-
-    profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
+    # choose_works = is_unlimited
+    #
+    # profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
 
     # has_status уже определен выше при формировании текста статуса
     has_status = False
@@ -682,11 +682,11 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
             photo=FSInputFile(user_worker.profile_photo),
             caption=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=False,
-                create_name=profile_name,
+                # confirmed=True,  # Верификация убрана
+                # choose_works=choose_works,
+                # individual_entrepreneur=user_worker.individual_entrepreneur,
+                # create_photo=False,
+                # create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -695,11 +695,11 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
         await message.answer(
             text=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=True,
-                create_name=profile_name,
+                # confirmed=True,  # Верификация убрана
+                # choose_works=choose_works,
+                # individual_entrepreneur=user_worker.individual_entrepreneur,
+                # create_photo=True,
+                # create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -813,17 +813,17 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
     text += f"Выполненных заказов: {user_worker.order_count}\n"
     text += f"Зарегистрирован: {user_worker.registration_data}"
 
-    # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
-    is_unlimited = (not worker_sub.work_type_ids or
-                    (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
-    choose_works = is_unlimited
+    # # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
+    # is_unlimited = (not worker_sub.work_type_ids or
+    #                 (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
+    # choose_works = is_unlimited
 
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
 
-    profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
+    # profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
 
     # has_status уже определен выше при формировании текста статуса
     has_status = False
@@ -835,11 +835,6 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
             photo=FSInputFile(user_worker.profile_photo),
             caption=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=False,
-                create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -848,11 +843,6 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_worker_keyboard(
-                confirmed=True,  # Верификация убрана
-                choose_works=choose_works,
-                individual_entrepreneur=user_worker.individual_entrepreneur,
-                create_photo=True,
-                create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -932,7 +922,6 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
     user_worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
     if not user_worker:
-
         await (callback.message.answer(
             text=f'''Упс, вы пока не зарегистрированы, как исполнитель''',
             reply_markup=kbc.registration_worker(),
@@ -971,6 +960,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
             return
 
     # Используем общую функцию для отображения меню
+    await callback.message.delete()
     await show_worker_menu(callback, state, user_worker)
 
 
@@ -6052,7 +6042,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
 🎉 Добавлено {add_contact_text}!
 📊 У вас теперь: {new_contact_text}
 
-💡 Используйте их для получения телефонов заказчиков!
+💡 Используйте их для получения контактов заказчиков!
             """
 
         await callback.message.answer(

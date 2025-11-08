@@ -267,40 +267,46 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
                 return
             logger.debug(f'customer_menu...')
 
-            kbc = KeyboardCollection()
+            # Send customer menu
+            await help_defs.send_customer_menu(message, customer, state, message=True)
 
-            user_abs = await Abs.get_all_by_customer(customer.id)
-            city = await City.get_city(id=int(customer.city_id))
+            # kbc = KeyboardCollection()
+            #
+            # user_abs = await Abs.get_all_by_customer(customer.id)
+            # city = await City.get_city(id=int(customer.city_id))
 
-            text = ('Ваш профиль\n\n'
-                    f'ID: {customer.id}\n'
-                    f'Ваш город: {city.city}\n'
-                    f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                    f'Осталось объявлений на сегодня: {customer.abs_count}')
+            # text = ('Ваш профиль\n\n'
+            #         f'ID: {customer.id}\n'
+            #         f'Ваш город: {city.city}\n'
+            #         f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+            #         f'Осталось объявлений на сегодня: {customer.abs_count}')
 
-            await state.set_state(CustomerStates.customer_menu)
-            await message.answer(text=text,
-                                 reply_markup=kbc.menu_customer_keyboard())
+            # await state.set_state(CustomerStates.customer_menu)
+            # await message.answer(text=text,
+            #                      reply_markup=kbc.menu_customer_keyboard())
             return
     elif customer := await Customer.get_customer(tg_id=message.chat.id):
         logger.debug(f'customer_menu...')
 
-        kbc = KeyboardCollection()
+        # Send customer menu
+        await help_defs.send_customer_menu(message, customer, state, message=True)
 
-        user_abs = await Abs.get_all_by_customer(customer.id)
-        city = await City.get_city(id=int(customer.city_id))
+        # kbc = KeyboardCollection()
 
-        text = ('Ваш профиль\n\n'
-                f'ID: {customer.id}\n'
-                f'Ваш город: {city.city}\n'
-                f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-                f'Осталось объявлений на сегодня: {customer.abs_count}')
-
-        await state.set_state(CustomerStates.customer_menu)
-        await message.answer(
-            text=text,
-            reply_markup=kbc.menu_customer_keyboard()
-        )
+        # user_abs = await Abs.get_all_by_customer(customer.id)
+        # city = await City.get_city(id=int(customer.city_id))
+        #
+        # text = ('Ваш профиль\n\n'
+        #         f'ID: {customer.id}\n'
+        #         f'Ваш город: {city.city}\n'
+        #         f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+        #         f'Осталось объявлений на сегодня: {customer.abs_count}')
+        #
+        # await state.set_state(CustomerStates.customer_menu)
+        # await message.answer(
+        #     text=text,
+        #     reply_markup=kbc.menu_customer_keyboard()
+        # )
         return
     else:
         text = ('Размещаются запросы только на услуги:\n'

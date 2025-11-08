@@ -9,14 +9,14 @@ Handlers для работы с откликами исполнителя:
 import logging
 from datetime import datetime
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
 from app.states import WorkStates, CustomerStates
 from app.keyboards import KeyboardCollection
-from app.data.database.models import Worker, Customer, Abs, WorkersAndAbs, ContactExchange
+from app.data.database.models import Worker, Customer, Abs, WorkersAndAbs, ContactExchange, City
 from loaders import bot
 from app.untils.contact_filter import check_message_for_contacts
 from app.untils.message_utils import safe_edit_message
@@ -257,12 +257,19 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
 
         # Проверяем статус контактов и чата
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker_id, abs_id)
+        # contact_requested = True если исполнитель запросил контакты (есть ContactExchange)
         contact_requested = contact_exchange is not None
-        contacts_purchased = contact_exchange and contact_exchange.contacts_purchased
+        # contacts_sent = True если заказчик подтвердил передачу контактов
         contacts_sent = contact_exchange and contact_exchange.contacts_sent
+        # contacts_purchased = True если контакты куплены/получены исполнителем
+        contacts_purchased = contact_exchange and contact_exchange.contacts_purchased
 
         # Проверяем наличие портфолио у исполнителя
         has_portfolio = worker.portfolio_photo is not None and len(worker.portfolio_photo) > 0
+
+        # Если контакты предложены/подтверждены, но еще не куплены, показываем статус
+        if contacts_sent and not contacts_purchased:
+            text += "\n✅ <b>Контакты переданы исполнителю!</b>\n\n"
 
         # Если контакты переданы (куплены), показываем что чат закрыт
         if contacts_purchased:
@@ -345,7 +352,7 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
                     reply_markup=kbc.anonymous_chat_customer_buttons(
                         worker_id=worker_id,
                         abs_id=abs_id,
-                        contact_requested=contacts_sent,
+                        contact_requested=contact_requested,
                         contact_sent=contacts_sent,
                         contacts_purchased=contacts_purchased,
                         has_portfolio=has_portfolio
@@ -477,25 +484,88 @@ async def confirm_reject_customer_response(callback: CallbackQuery, state: FSMCo
         # НЕ снижаем активность исполнителя
         # Это отклонение заказчиком, не отмена исполнителем        
         # Отправляем уведомление исполнителю
+        kbc = KeyboardCollection()
+
         from loaders import bot
         try:
             await bot.send_message(
                 chat_id=worker.tg_id,
                 text=f"📨 Заказчик отклонил ваш отклик на объявление #{abs_id}\n\n"
-                     f"Это не влияет на вашу активность."
+                     f"Это не влияет на вашу активность.",
+                reply_markup=kbc.worker_menu()
             )
         except Exception as e:
             logger.error(f"Error sending rejection notification to worker {worker.tg_id}: {e}")
 
+
         # Возвращаемся к списку откликов
-        kbc = KeyboardCollection()
-        from app.untils.message_utils import safe_edit_message
-        await safe_edit_message(
-            callback=callback,
-            text="✅ Отклик отклонен\n\nВы вернулись к списку откликов",
-            reply_markup=kbc.menu_btn()
-        )
-        await state.set_state(CustomerStates.customer_menu)
+        remaining_responses = await WorkersAndAbs.get_by_abs(abs_id)
+
+        await callback.answer("✅ Отклик отклонен\n\nВы вернулись к списку откликов", show_alert=True)
+
+        if remaining_responses:
+            responses_data = []
+            from app.handlers.anonymous_chat import get_response_status_indicator
+
+            for resp_item in remaining_responses:
+                worker_obj = await Worker.get_worker(id=resp_item.worker_id)
+                if not worker_obj:
+                    continue
+
+                status_indicator = await get_response_status_indicator(resp_item, "customer")
+
+                responses_data.append({
+                    'worker_id': resp_item.worker_id,
+                    'worker_public_id': f'ID#{worker_obj.id}',
+                    'worker_name': worker_obj.profile_name or worker_obj.tg_name or f'ID#{worker_obj.id}',
+                    'worker_stars': worker_obj.stars,
+                    'worker_ratings': worker_obj.count_ratings,
+                    'active': resp_item.applyed,
+                    'status_indicator': status_indicator
+                })
+
+            # Формируем текст списка
+            city_name = "Неизвестно"
+            if advertisement and advertisement.city_id:
+                city = await City.get_city(id=advertisement.city_id)
+                if city:
+                    city_name = city.city
+
+            text = (
+                f"📋 <b>Отклики на объявление #{abs_id}</b>\n"
+                f"🏙️ Город: {city_name}\n"
+                f"👥 Количество откликов: {len(responses_data)}\n\n"
+                "Выберите отклик для просмотра:"
+            )
+
+            try:
+                await callback.message.answer(
+                    text=text,
+                    reply_markup=kbc.customer_responses_list_buttons(
+                        responses_data=responses_data,
+                        abs_id=abs_id
+                    ),
+                    parse_mode='HTML'
+                )
+            except Exception:
+                try:
+                    await callback.message.delete()
+                except Exception:
+                    pass
+                await callback.message.answer(
+                    text=text,
+                    reply_markup=kbc.customer_responses_list_buttons(
+                        responses_data=responses_data,
+                        abs_id=abs_id
+                    ),
+                    parse_mode='HTML'
+                )
+
+            await state.set_state(CustomerStates.customer_view_responses)
+        else:
+            # Если откликов больше нет, возвращаем в меню заказчика
+            from app.untils import help_defs
+            await help_defs.send_customer_menu(callback, customer, state=state)
 
     except Exception as e:
         logger.error(f"Error in reject_customer_response: {e}")

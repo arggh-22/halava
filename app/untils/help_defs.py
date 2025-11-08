@@ -5,6 +5,7 @@ import time
 import shutil
 import logging
 import requests
+from aiogram.exceptions import TelegramBadRequest
 from bs4 import BeautifulSoup
 from datetime import datetime, date
 from PIL import Image, ImageEnhance
@@ -465,7 +466,7 @@ def read_text_file(file_path):
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
             content = file.read()
-        return content
+        return f"{content}\n\n"
     except FileNotFoundError:
         return "Файл не найден"
     except Exception:
@@ -1230,6 +1231,7 @@ def get_month_word(months):
 
     return month_word
 
+
 def get_contact_word(contacts):
     # Формируем правильное склонение для месяца
 
@@ -1242,7 +1244,8 @@ def get_contact_word(contacts):
 
     return contact_word
 
-async def send_customer_menu(callback, customer, state):
+
+async def send_customer_menu(event, customer, state=None, message=None):
     kbc = KeyboardCollection()
     user_abs = await Abs.get_all_by_customer(customer.id)
     city = await City.get_city(id=int(customer.city_id))
@@ -1254,10 +1257,48 @@ async def send_customer_menu(callback, customer, state):
         f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
         f'Осталось объявлений на сегодня: {customer.abs_count}'
     )
+    if not message:
+        await event.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
+    else:
+        await event.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
 
-    await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
-    await state.set_state(CustomerStates.customer_menu)
+    if state:
+        await state.set_state(CustomerStates.customer_menu)
 
+
+async def update_worker_or_customer_chat_status(message, data, state, worker=None):
+    from loaders import bot
+
+    if worker:
+        # Перед отправкой нового статуса пытаемся удалить предыдущий, чтобы не копить уведомления
+        worker_status_message_id = data.get('worker_chat_status_message_id')
+        if worker_status_message_id:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=worker_status_message_id)
+            except TelegramBadRequest:
+                logger.debug(
+                    f"[WORKER_CHAT] Could not delete previous status message {worker_status_message_id} in chat {message.chat.id}"
+                )
+            except Exception as delete_error:
+                logger.error(f"[WORKER_CHAT] Unexpected error deleting status message: {delete_error}")
+
+        sent_status_message = await message.answer("Сообщение успешно отправлено ✅")
+        await state.update_data(worker_chat_status_message_id=sent_status_message.message_id)
+    else:
+        # Перед отправкой нового статуса пытаемся удалить предыдущий, чтобы не копить уведомления
+        customer_status_message_id = data.get('customer_chat_status_message_id')
+        if customer_status_message_id:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=customer_status_message_id)
+            except TelegramBadRequest:
+                logger.debug(
+                    f"[CUSTOMER_CHAT] Could not delete previous status message {customer_status_message_id} in chat {message.chat.id}"
+                )
+            except Exception as delete_error:
+                logger.error(f"[CUSTOMER_CHAT] Unexpected error deleting status message: {delete_error}")
+
+        sent_status_message = await message.answer("Сообщение успешно отправлено ✅")
+        await state.update_data(customer_chat_status_message_id=sent_status_message.message_id)
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

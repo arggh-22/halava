@@ -25,7 +25,7 @@ from app.data.database.models import (
 from loaders import bot
 from app.untils.contact_filter import check_message_for_contacts
 from app.untils.checks import fool_check
-from app.untils.help_defs import is_content_forbidden, get_contact_word
+from app.untils.help_defs import is_content_forbidden, get_contact_word, update_worker_or_customer_chat_status
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -49,7 +49,6 @@ async def parse_contacts_message(customer):
         contacts_text = (
             f"📱 <b>Telegram:</b> "
             f"<a href='tg://user?id={customer.tg_id}'>@{tg_name}</a>\n"
-            f"🆔 <b>ID:</b> {customer.tg_id}"
         )
     elif customer.contact_type == "phone_only":
         contacts_text = (
@@ -60,7 +59,6 @@ async def parse_contacts_message(customer):
         contacts_text = (
             f"📱 <b>Telegram:</b> "
             f"<a href='tg://user?id={customer.tg_id}'>@{tg_name}</a>\n"
-            f"🆔 <b>ID:</b> {customer.tg_id}\n"
             f"📞 <b>Номер телефона:</b> "
             f"<a href='tel:{phone}'>{phone}</a>"
         )
@@ -69,7 +67,6 @@ async def parse_contacts_message(customer):
         contacts_text = (
             f"📱 <b>Telegram:</b> "
             f"<a href='tg://user?id={customer.tg_id}'>@{tg_name}</a>\n"
-            f"🆔 <b>ID:</b> {customer.tg_id}"
         )
 
     return contacts_text
@@ -167,10 +164,18 @@ def get_sender_name(sender_type: str, user_type: str, worker, customer) -> str:
         return "Неизвестно"
 
 
-async def format_chat_history_for_display(user_type: str, abs_id: int, worker, customer) -> str:
+async def format_chat_history_for_display(user_type: str, abs_id: int, worker, customer,
+                                          show_unread_indicators: bool = True) -> str:
     """
     Форматирует историю чата для отображения в просмотре отклика
     Возвращает текст истории переписки с индикаторами непрочитанных сообщений
+    
+    Args:
+        user_type: "worker" или "customer"
+        abs_id: ID объявления
+        worker: объект Worker
+        customer: объект Customer
+        show_unread_indicators: Показывать ли индикаторы непрочитанных сообщений (по умолчанию True)
     """
     try:
         # Получаем WorkersAndAbs для истории сообщений
@@ -288,22 +293,25 @@ async def format_chat_history_for_display(user_type: str, abs_id: int, worker, c
                 customer_msg_index = msg_data.get('customer_msg_index', -1)
 
                 # Определяем, нужно ли показать индикатор "•" рядом с СОБСТВЕННЫМИ сообщениями
-                show_indicator = False
-                if user_type == "customer":
-                    # Для заказчика: показываем "•" рядом с СОБСТВЕННЫМИ сообщениями,
-                    # которые исполнитель НЕ ПРОЧИТАЛ
-                    if msg_sender == "customer" and customer_msg_index >= 0:
-                        # Показываем "•" если исполнитель не прочитал это сообщение
-                        show_indicator = customer_msg_index >= last_read_by_worker
-                else:  # worker
-                    # Для исполнителя: показываем "•" рядом с СОБСТВЕННЫМИ сообщениями,
-                    # которые заказчик НЕ ПРОЧИТАЛ
-                    if msg_sender == "worker" and worker_msg_index >= 0:
-                        # Показываем "•" если заказчик не прочитал это сообщение
-                        show_indicator = worker_msg_index >= last_read_by_customer
+                # Только если show_unread_indicators=True
+                unread_indicator = ""
+                if show_unread_indicators:
+                    show_indicator = False
+                    if user_type == "customer":
+                        # Для заказчика: показываем "•" рядом с СОБСТВЕННЫМИ сообщениями,
+                        # которые исполнитель НЕ ПРОЧИТАЛ
+                        if msg_sender == "customer" and customer_msg_index >= 0:
+                            # Показываем "•" если исполнитель не прочитал это сообщение
+                            show_indicator = customer_msg_index >= last_read_by_worker
+                    else:  # worker
+                        # Для исполнителя: показываем "•" рядом с СОБСТВЕННЫМИ сообщениями,
+                        # которые заказчик НЕ ПРОЧИТАЛ
+                        if msg_sender == "worker" and worker_msg_index >= 0:
+                            # Показываем "•" если заказчик не прочитал это сообщение
+                            show_indicator = worker_msg_index >= last_read_by_customer
 
-                # Добавляем индикатор неотвеченного сообщения
-                unread_indicator = " • " if show_indicator else ""
+                    # Добавляем индикатор неотвеченного сообщения
+                    unread_indicator = " • " if show_indicator else ""
 
                 sender_name = get_sender_name(msg_sender, user_type, worker, customer)
                 chat_history += f"{unread_indicator} <b>{sender_name}:</b> {msg_text}\n"
@@ -500,8 +508,12 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
 
         # Проверяем статус контактов для кнопок
         contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
-        contacts_purchased = contact_exchange and contact_exchange.contacts_purchased
+        # contact_requested = True если исполнитель запросил контакты (есть ContactExchange)
+        contact_requested = contact_exchange is not None
+        # contacts_sent = True если заказчик подтвердил передачу контактов
         contacts_sent = contact_exchange and contact_exchange.contacts_sent
+        # contacts_purchased = True если контакты куплены/получены исполнителем
+        contacts_purchased = contact_exchange and contact_exchange.contacts_purchased
 
         # Отладочная информация
         logger.info(f"[CHAT_STATUS] ContactExchange found: {contact_exchange is not None}")
@@ -518,16 +530,21 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
             reply_markup = kbc.anonymous_chat_customer_buttons(
                 worker_id=worker.id,
                 abs_id=abs_id,
-                contact_requested=contacts_sent,
+                contact_requested=contact_requested,
                 contact_sent=contacts_sent,
                 contacts_purchased=contacts_purchased
             )
         else:  # worker
             # Кнопки для исполнителя
+            # worker_initiated = True если исполнитель сам запросил контакты (contacts_sent=False в ContactExchange)
+            # worker_initiated = False если заказчик предложил контакты (contacts_sent=True в ContactExchange)
+            worker_initiated = contact_exchange and not contact_exchange.contacts_sent
             reply_markup = kbc.anonymous_chat_worker_buttons(
                 abs_id=abs_id,
                 has_contacts=contacts_purchased,
-                contacts_requested=contacts_sent
+                contacts_requested=contacts_sent,  # Заказчик подтвердил/предложил
+                contacts_sent=contact_requested and not contacts_sent,  # Исполнитель запросил, ждет
+                worker_initiated=worker_initiated
             )
 
         # Проверяем, есть ли уже сообщение чата для этого пользователя
@@ -580,8 +597,9 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
 
         customer = await Customer.get_customer(tg_id=callback.from_user.id)
         worker = await Worker.get_worker(id=worker_id)
+        advertisement = await Abs.get_one(id=abs_id)
 
-        if not customer or not worker:
+        if not customer or not worker or not advertisement:
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
 
@@ -595,6 +613,20 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
         if contact_exchange.contacts_sent:
             await callback.answer("⚠️ Контакты уже подтверждены для передачи!", show_alert=True)
             return
+
+        # Получаем текст объявления
+        from app.untils import help_defs
+        ad_text = ""
+        try:
+            advertisement = await Abs.get_one(id=abs_id)
+            if advertisement and advertisement.text_path:
+                ad_text = help_defs.read_text_file(advertisement.text_path) or ""
+                # Ограничиваем длину текста объявления
+                MAX_AD_TEXT_LENGTH = 1500
+                if len(ad_text) > MAX_AD_TEXT_LENGTH:
+                    ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+        except Exception as e:
+            print(e)
 
         # Обновляем запись - заказчик подтвердил
         await contact_exchange.update(contacts_sent=True)
@@ -615,21 +647,60 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
                     # contacts_text = await parse_contacts_message(customer)
 
                     contacts_text = (
-                    f"📞 <b>Контакты заказчика:</b>\n\n"
-                    f"{await parse_contacts_message(customer)}"
+                        f"📞 <b>Контакты заказчика:</b>\n\n"
+                        f"{await parse_contacts_message(customer)}"
                     )
+
+                    # Формируем текст сообщения с объявлением
+                    message_text = f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n"
+                    if ad_text:
+                        message_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+                    message_text += contacts_text
+
+                    worker_keyboard = InlineKeyboardBuilder()
+                    worker_keyboard.add(kbc._inline(
+                        button_text="⏪ Перейти к отклику",
+                        callback_data=f"view_my_response_{abs_id}"
+                    ))
+                    worker_keyboard.add(kbc._inline(
+                        button_text="🏠 В меню",
+                        callback_data="worker_menu"
+                    ))
+                    worker_keyboard.adjust(1)
 
                     await bot.send_message(
                         chat_id=worker.tg_id,
-                        text=f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n{contacts_text}",
-                        parse_mode='HTML'
+                        text=message_text,
+                        parse_mode='HTML',
+                        reply_markup=worker_keyboard.as_markup()
                     )
 
-                    # Уведомляем заказчика
+                    # Формируем текст сообщения с объявлением
+                    notification_text = (
+                        f"✅ <b>Контакты переданы исполнителю!</b>\n\n"
+                        f"📋 Объявление: #{abs_id}\n"
+                        f"👤 Исполнитель: {f'ID#{worker.id}'}\n\n"
+                    )
+                    if ad_text:
+                        notification_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+                    notification_text += "💬 Чат закрыт - теперь общайтесь напрямую."
+
+                    customer_keyboard = InlineKeyboardBuilder()
+                    customer_keyboard.add(kbc._inline(
+                        button_text="⏪ Перейти к отклику",
+                        callback_data=f"view_response_{worker.id}_{abs_id}"
+                    ))
+                    customer_keyboard.add(kbc._inline(
+                        button_text="🏠 В меню",
+                        callback_data="customer_menu"
+                    ))
+                    customer_keyboard.adjust(1)
+
                     await bot.send_message(
                         chat_id=customer.tg_id,
-                        text=f"✅ <b>Контакты переданы исполнителю!</b>\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
-                        parse_mode='HTML'
+                        text=notification_text,
+                        parse_mode='HTML',
+                        reply_markup=customer_keyboard.as_markup()
                     )
 
                     # Закрываем чат
@@ -705,17 +776,52 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
             # Передаем контакты исполнителю с учетом нового функционала
             contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
 
+            # Формируем текст сообщения с объявлением
+            message_text = f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n"
+            if ad_text:
+                message_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+            message_text += contacts_text
+
+            worker_keyboard = InlineKeyboardBuilder()
+            worker_keyboard.add(kbc._inline(
+                button_text="⏪ Перейти к отклику",
+                callback_data=f"view_my_response_{abs_id}"
+            ))
+            worker_keyboard.add(kbc._inline(
+                button_text="🏠 В меню",
+                callback_data="worker_menu"
+            ))
+            worker_keyboard.adjust(1)
+
             await bot.send_message(
                 chat_id=worker.tg_id,
-                text=f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n{contacts_text}",
-                parse_mode='HTML'
+                text=message_text,
+                parse_mode='HTML',
+                reply_markup=worker_keyboard.as_markup()
             )
 
             # Уведомляем заказчика
+            customer_keyboard = InlineKeyboardBuilder()
+            customer_keyboard.add(kbc._inline(
+                button_text="⏪ Перейти к отклику",
+                callback_data=f"view_response_{worker.id}_{abs_id}"
+            ))
+            customer_keyboard.add(kbc._inline(
+                button_text="🏠 В меню",
+                callback_data="customer_menu"
+            ))
+            customer_keyboard.adjust(1)
+
             await bot.send_message(
                 chat_id=customer.tg_id,
-                text=f"✅ <b>Контакты переданы исполнителю!</b>\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
-                parse_mode='HTML'
+                text=(
+                    f"✅ <b>Контакты переданы исполнителю!</b>\n\n"
+                    f"📋 Объявление: #{abs_id}\n"
+                    f"👤 Исполнитель: {f'ID#{worker.id}'}\n\n"
+                    "💬 Чат закрыт - теперь общайтесь напрямую."
+                ),
+                parse_mode='HTML',
+                reply_markup=customer_keyboard.as_markup()
             )
 
             # Закрываем чат
@@ -779,12 +885,17 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
             await callback.answer("✅ Контакты переданы исполнителю!")
             return
 
-        # СЦЕНАРИЙ 3: Исполнитель не имеет контактов - нужно покупать
-        # Отправляем уведомление исполнителю (только один раз, так как есть проверка выше)
         notification_text = (
             f"🔔 <b>Заказчик подтвердил передачу контактов!</b>\n\n"
             f"📋 Объявление: #{abs_id}\n"
             f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
+        )
+
+        # Добавляем текст объявления, если есть
+        if ad_text:
+            notification_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+
+        notification_text += (
             f"💰 У вас нет купленных контактов.\n"
             f"Для получения контактов вам необходимо купить контакты."
         )
@@ -912,17 +1023,38 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
             # Передаем контакты исполнителю с учетом нового функционала
             contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
 
+            # Получаем текст объявления
+            from app.untils import help_defs
+            advertisement = await Abs.get_one(id=abs_id)
+            ad_text = ""
+            if advertisement and advertisement.text_path:
+                ad_text = help_defs.read_text_file(advertisement.text_path) or ""
+                # Ограничиваем длину текста объявления
+                MAX_AD_TEXT_LENGTH = 1500
+                if len(ad_text) > MAX_AD_TEXT_LENGTH:
+                    ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+
+            # Формируем текст сообщения с объявлением
+            message_text = f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n"
+            if ad_text:
+                message_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+            message_text += f"{contacts_text}\n\n💰 Осталось контактов: {new_count}"
+
+            kbc = KeyboardCollection()
+
             await bot.send_message(
                 chat_id=worker.tg_id,
-                text=f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n{contacts_text}\n\n💰 Осталось контактов: {new_count}",
-                parse_mode='HTML'
+                text=message_text,
+                parse_mode='HTML',
+                reply_markup=kbc.menu_btn()
             )
 
             # Уведомляем заказчика
             await bot.send_message(
                 chat_id=customer.tg_id,
                 text=f"✅ <b>Контакты переданы исполнителю!</b>\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=kbc.menu_btn()
             )
 
             # Закрываем чат
@@ -931,7 +1063,6 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
                 await response.update(applyed=False)
 
             # Обновляем сообщение
-            kbc = KeyboardCollection()
             try:
                 await callback.message.answer(
                     text=f"✅ <b>Контакты переданы!</b>\n\n📋 Объявление: #{abs_id}\n\n{contacts_text}\n\n💰 Осталось контактов: {new_count}",
@@ -957,14 +1088,14 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
         try:
             await callback.message.answer(
                 text="💰 <b>Тарифы на покупку контактов</b>\n\nВыберите подходящий тариф:",
-                reply_markup=await kbc.buy_tokens_tariffs(),
+                reply_markup=await kbc.buy_tokens_tariffs(abs_id),
                 parse_mode='HTML'
             )
         except TelegramBadRequest:
             # Если сообщение недоступно для редактирования, отправляем новое
             await callback.message.answer(
                 text="💰 <b>Тарифы на покупку контактов</b>\n\nВыберите подходящий тариф:",
-                reply_markup=await kbc.buy_tokens_tariffs(),
+                reply_markup=await kbc.buy_tokens_tariffs(abs_id),
                 parse_mode='HTML'
             )
 
@@ -980,9 +1111,9 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
-@router.callback_query(lambda c: c.data.startswith('reject_contact_offer_'))
+@router.callback_query(lambda c: c.data.startswith('reject_contact_offer_') and len(c.data.split('_')) == 4)
 async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
-    """Исполнитель отказывается от покупки контактов"""
+    """Исполнитель отказывается от покупки контактов (когда заказчик подтвердил передачу)"""
     try:
         # reject_contact_offer_{abs_id}
         parts = callback.data.split('_')
@@ -1003,10 +1134,39 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
         customer = await Customer.get_customer(id=advertisement.customer_id)
 
         # Уведомляем заказчика об отказе
+        from app.untils import help_defs
+        ad_text = help_defs.read_text_file(advertisement.text_path) if advertisement.text_path else ""
+        if ad_text:
+            MAX_AD_TEXT_LENGTH = 1500
+            if len(ad_text) > MAX_AD_TEXT_LENGTH:
+                ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+
+        customer_notification = (
+            f"❌ <b>Исполнитель отказался от покупки контактов</b>\n\n"
+            f"📋 Объявление: #{abs_id}\n"
+            f"👤 Исполнитель: {f'ID#{worker.id}'}\n\n"
+        )
+        if ad_text:
+            customer_notification += f"📝 <b>Текст объявления:</b>\n{ad_text}\n"
+        customer_notification += "Отклик возвращен в обычный режим."
+
+        customer_keyboard = InlineKeyboardBuilder()
+        kbc = KeyboardCollection()
+        customer_keyboard.add(kbc._inline(
+            button_text="⏪ Перейти к отклику",
+            callback_data=f"view_response_{worker.id}_{abs_id}"
+        ))
+        customer_keyboard.add(kbc._inline(
+            button_text="🏠 В меню",
+            callback_data="customer_menu"
+        ))
+        customer_keyboard.adjust(1)
+
         await bot.send_message(
             chat_id=customer.tg_id,
-            text=f"❌ <b>Исполнитель отказался от покупки контактов</b>\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\nОтклик возвращен в обычный режим.",
-            parse_mode='HTML'
+            text=customer_notification,
+            parse_mode='HTML',
+            reply_markup=customer_keyboard.as_markup()
         )
 
         # Удаляем запись ContactExchange
@@ -1015,25 +1175,12 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
             await contact_exchange.delete()
 
         # Обновляем сообщение исполнителя
-        kbc = KeyboardCollection()
-        try:
-            await callback.message.answer(
-                text="❌ <b>Вы отказались от покупки контактов</b>\n\nОтклик возвращен в обычный режим.",
-                reply_markup=kbc.menu_btn(),
-                parse_mode='HTML'
-            )
-        except TelegramBadRequest:
-            # Если сообщение недоступно для редактирования, отправляем новое
-            await callback.message.answer(
-                text="❌ <b>Вы отказались от покупки контактов</b>\n\nОтклик возвращен в обычный режим.",
-                reply_markup=kbc.menu_btn(),
-                parse_mode='HTML'
-            )
+        # kbc = KeyboardCollection()
+        await callback.answer("❌ Вы отказались от покупки контактов", show_alert=True)
 
-        # Устанавливаем правильное состояние
-        await state.set_state(WorkStates.worker_menu)
-
-        await callback.answer("❌ Вы отказались от покупки контактов")
+        # Возвращаем исполнителя к отклику
+        new_callback = callback.model_copy(update={'data': f"view_my_response_{abs_id}"})
+        await view_my_response(new_callback, state)
 
     except Exception as e:
         logger.error(f"Error in reject_contact_offer: {e}")
@@ -1055,8 +1202,9 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
 
         customer = await Customer.get_customer(tg_id=callback.from_user.id)
         worker = await Worker.get_worker(id=worker_id)
+        advertisement = await Abs.get_one(id=abs_id)
 
-        if not customer or not worker:
+        if not customer or not worker or not advertisement:
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
 
@@ -1066,6 +1214,8 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
             await callback.answer("❌ Запрос контакта уже отменен исполнителем", show_alert=True)
             return
 
+        kbc = KeyboardCollection()
+
         # Сохраняем message_id перед удалением contact_exchange
         message_id_to_delete = None
         if contact_exchange.message_id:
@@ -1074,19 +1224,46 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
         # Удаляем запись ContactExchange
         await contact_exchange.delete()
 
+        from app.untils import help_defs
+        ad_text = ""
+        if advertisement and advertisement.text_path:
+            ad_text = help_defs.read_text_file(advertisement.text_path) or ""
+            MAX_AD_TEXT_LENGTH = 1200
+            if len(ad_text) > MAX_AD_TEXT_LENGTH:
+                ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+
         # Уведомляем исполнителя
         notification_text = (
             f"❌ <b>Заказчик отклонил передачу контактов</b>\n\n"
             f"📋 Объявление: #{abs_id}\n"
             f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
-            f"К сожалению, заказчик не готов поделиться контактами.\n"
-            f"Вы можете запросить контакт позже."
         )
+
+        if ad_text:
+            notification_text += f"📝 <b>Текст объявления:</b>\n{ad_text}\n\n"
+
+        notification_text += (
+            "К сожалению, заказчик не готов поделиться контактами.\n"
+            "Вы можете запросить контакт позже."
+        )
+
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        notification_keyboard = InlineKeyboardBuilder()
+        notification_keyboard.add(kbc._inline(
+            button_text="⏪ Перейти к отклику",
+            callback_data=f"view_my_response_{abs_id}"
+        ))
+        notification_keyboard.add(kbc._inline(
+            button_text="🏠 В меню",
+            callback_data="worker_menu"
+        ))
+        notification_keyboard.adjust(1)
 
         await bot.send_message(
             chat_id=worker.tg_id,
             text=notification_text,
-            parse_mode='HTML'
+            parse_mode='HTML',
+            reply_markup=notification_keyboard.as_markup(),
         )
 
         # Удаляем сообщение с предложением контактов, если оно есть
@@ -1115,6 +1292,9 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
                         responses_data=[{
                             'worker_id': worker_id,
                             'worker_public_id': f'ID#{worker.id}',
+                            'worker_name': worker.profile_name,  # Только profile_name, не tg_name
+                            'worker_stars': worker.stars,
+                            'worker_ratings': worker.count_ratings,
                             'active': True
                         }],
                         abs_id=abs_id
@@ -1129,6 +1309,9 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
                         responses_data=[{
                             'worker_id': worker_id,
                             'worker_public_id': f'ID#{worker.id}',
+                            'worker_name': worker.profile_name,  # Только profile_name, не tg_name
+                            'worker_stars': worker.stars,
+                            'worker_ratings': worker.count_ratings,
                             'active': True
                         }],
                         abs_id=abs_id
@@ -1147,6 +1330,9 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
                     responses_data=[{
                         'worker_id': worker_id,
                         'worker_public_id': f'ID#{worker.id}',
+                        'worker_name': worker.profile_name or worker.tg_name,
+                        'worker_stars': worker.stars,
+                        'worker_ratings': worker.count_ratings,
                         'active': True
                     }],
                     abs_id=abs_id
@@ -1206,11 +1392,48 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
             await contact_exchange.update(contacts_sent=True)
             # message_id будет обновлен после отправки сообщения
 
+        # Получаем текст объявления
+        advertisement = await Abs.get_one(id=abs_id)
+        if not advertisement:
+            await callback.answer("❌ Объявление не найдено", show_alert=True)
+            return
+
+        from app.untils import help_defs
+        ad_text = help_defs.read_text_file(
+            advertisement.text_path) if advertisement.text_path else "Текст объявления не найден"
+
+        # Ограничиваем длину текста объявления (оставляем запас для остального текста)
+        MAX_AD_TEXT_LENGTH = 2000  # Максимальная длина текста объявления в уведомлении
+        if len(ad_text) > MAX_AD_TEXT_LENGTH:
+            ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+
+        # Проверяем, есть ли история переписки
+        response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
+        has_history = False
+        if response:
+            worker_messages_list = []
+            customer_messages_list = []
+
+            if response.worker_messages:
+                worker_messages_list = [
+                    msg for msg in response.worker_messages
+                    if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
+                ]
+
+            if response.customer_messages:
+                customer_messages_list = [
+                    msg for msg in response.customer_messages
+                    if msg and msg.strip()
+                ]
+
+            has_history = len(worker_messages_list) > 0 or len(customer_messages_list) > 0
+
         # Уведомляем исполнителя с кнопками принятия/отклонения
         notification_text = (
             f"🔔 <b>Заказчик предлагает передать контакты!</b>\n\n"
             f"📋 Объявление: #{abs_id}\n"
             f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
+            f"📝 <b>Текст объявления:</b>\n{ad_text}"
             f"Хотите получить контакты заказчика?"
         )
 
@@ -1220,6 +1443,10 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
                                 callback_data=f"accept_contact_offer_{worker_id}_{abs_id}"))
         builder.add(kbc._inline(button_text="❌ Отклонить",
                                 callback_data=f"reject_contact_offer_{worker_id}_{abs_id}"))
+        # Показываем кнопку "История" только если есть история переписки
+        if has_history:
+            builder.add(kbc._inline(button_text="📝 История",
+                                    callback_data=f"show_chat_history_{worker_id}_{abs_id}"))
         builder.adjust(1)
 
         message = await bot.send_message(
@@ -1374,7 +1601,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                          f"📋 Объявление: #{abs_id}\n"
                          f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
                          f"Выберите тариф:",
-                    reply_markup=await kbc.buy_tokens_tariffs(),
+                    reply_markup=await kbc.buy_tokens_tariffs(abs_id),
                     parse_mode='HTML'
                 )
             except TelegramBadRequest:
@@ -1384,7 +1611,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
                          f"📋 Объявление: #{abs_id}\n"
                          f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
                          f"Выберите тариф:",
-                    reply_markup=await kbc.buy_tokens_tariffs(),
+                    reply_markup=await kbc.buy_tokens_tariffs(abs_id),
                     parse_mode='HTML'
                 )
 
@@ -1402,9 +1629,174 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
-@router.callback_query(lambda c: c.data.startswith('reject_contact_offer_'))
+@router.callback_query(lambda c: c.data.startswith('show_chat_history_'))
+async def show_chat_history(callback: CallbackQuery, state: FSMContext):
+    """Показывает историю переписки для исполнителя из уведомления о предложении контактов"""
+    try:
+        # show_chat_history_{worker_id}_{abs_id}
+        parts = callback.data.split('_')
+        worker_id = int(parts[3])
+        abs_id = int(parts[4])
+
+        worker = await Worker.get_worker(tg_id=callback.from_user.id)
+        if not worker or worker.id != worker_id:
+            await callback.answer("❌ Исполнитель не найден", show_alert=True)
+            return
+
+        advertisement = await Abs.get_one(id=abs_id)
+        if not advertisement:
+            await callback.answer("❌ Объявление не найдено", show_alert=True)
+            return
+
+        customer = await Customer.get_customer(id=advertisement.customer_id)
+        if not customer:
+            await callback.answer("❌ Заказчик не найден", show_alert=True)
+            return
+
+        # Получаем историю переписки без индикаторов прочитанности (все как прочитанные)
+        chat_history = await format_chat_history_for_display("worker", abs_id, worker, customer,
+                                                             show_unread_indicators=False)
+
+        if chat_history:
+            history_text = (
+                f"📝 <b>История переписки</b>\n\n"
+                f"📋 Объявление: #{abs_id}\n"
+                f"👤 Заказчик: ID#{customer.id}\n\n"
+                f"{chat_history}"
+            )
+        else:
+            history_text = (
+                f"📝 <b>История переписки</b>\n\n"
+                f"📋 Объявление: #{abs_id}\n"
+                f"👤 Заказчик: ID#{customer.id}\n\n"
+                f"💬 Переписка еще не началась."
+            )
+
+        kbc = KeyboardCollection()
+        builder = InlineKeyboardBuilder()
+        builder.add(kbc._inline(button_text="◀️ Назад",
+                                callback_data=f"back_to_contact_offer_{worker_id}_{abs_id}"))
+        builder.adjust(1)
+
+        try:
+            await callback.message.answer(
+                text=history_text,
+                reply_markup=builder.as_markup(),
+                parse_mode='HTML'
+            )
+        except TelegramBadRequest:
+            await callback.message.answer(
+                text=history_text,
+                reply_markup=builder.as_markup(),
+                parse_mode='HTML'
+            )
+
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in show_chat_history: {e}")
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith('back_to_contact_offer_'))
+async def back_to_contact_offer(callback: CallbackQuery, state: FSMContext):
+    """Возврат к уведомлению о предложении контактов"""
+    try:
+        # back_to_contact_offer_{worker_id}_{abs_id}
+        parts = callback.data.split('_')
+        worker_id = int(parts[4])
+        abs_id = int(parts[5])
+
+        worker = await Worker.get_worker(tg_id=callback.from_user.id)
+        if not worker or worker.id != worker_id:
+            await callback.answer("❌ Исполнитель не найден", show_alert=True)
+            return
+
+        advertisement = await Abs.get_one(id=abs_id)
+        if not advertisement:
+            await callback.answer("❌ Объявление не найдено", show_alert=True)
+            return
+
+        customer = await Customer.get_customer(id=advertisement.customer_id)
+        if not customer:
+            await callback.answer("❌ Заказчик не найден", show_alert=True)
+            return
+
+        # Получаем текст объявления
+        from app.untils import help_defs
+        ad_text = help_defs.read_text_file(
+            advertisement.text_path) if advertisement.text_path else "Текст объявления не найден"
+
+        # Ограничиваем длину текста объявления (оставляем запас для остального текста)
+        MAX_AD_TEXT_LENGTH = 2000  # Максимальная длина текста объявления в уведомлении
+        if len(ad_text) > MAX_AD_TEXT_LENGTH:
+            ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+
+        # Проверяем, есть ли история переписки
+        response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
+        has_history = False
+        if response:
+            worker_messages_list = []
+            customer_messages_list = []
+
+            if response.worker_messages:
+                worker_messages_list = [
+                    msg for msg in response.worker_messages
+                    if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
+                ]
+
+            if response.customer_messages:
+                customer_messages_list = [
+                    msg for msg in response.customer_messages
+                    if msg and msg.strip()
+                ]
+
+            has_history = len(worker_messages_list) > 0 or len(customer_messages_list) > 0
+
+        # Формируем текст уведомления
+        notification_text = (
+            f"🔔 <b>Заказчик предлагает передать контакты!</b>\n\n"
+            f"📋 Объявление: #{abs_id}\n"
+            f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
+            f"📝 <b>Текст объявления:</b>\n{ad_text}"
+            f"Хотите получить контакты заказчика?"
+        )
+
+        kbc = KeyboardCollection()
+        builder = InlineKeyboardBuilder()
+        builder.add(kbc._inline(button_text="✅ Принять",
+                                callback_data=f"accept_contact_offer_{worker_id}_{abs_id}"))
+        builder.add(kbc._inline(button_text="❌ Отклонить",
+                                callback_data=f"reject_contact_offer_{worker_id}_{abs_id}"))
+        # Показываем кнопку "История" только если есть история переписки
+        if has_history:
+            builder.add(kbc._inline(button_text="📝 История",
+                                    callback_data=f"show_chat_history_{worker_id}_{abs_id}"))
+        builder.adjust(1)
+
+        try:
+            await callback.message.answer(
+                text=notification_text,
+                reply_markup=builder.as_markup(),
+                parse_mode='HTML'
+            )
+        except TelegramBadRequest:
+            await callback.message.answer(
+                text=notification_text,
+                reply_markup=builder.as_markup(),
+                parse_mode='HTML'
+            )
+
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in back_to_contact_offer: {e}")
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith('reject_contact_offer_') and len(c.data.split('_')) == 5)
 async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
-    """Исполнитель отклоняет предложение контактов"""
+    """Исполнитель отклоняет предложение контактов (когда заказчик предложил контакты)"""
     try:
         # reject_contact_offer_{worker_id}_{abs_id}
         parts = callback.data.split('_')
@@ -1419,26 +1811,54 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
             await callback.answer("❌ Пользователь не найден", show_alert=True)
             return
 
+        # Проверяем, что worker_id в callback_data соответствует текущему исполнителю
+        if worker.id != worker_id:
+            await callback.answer("❌ Неверный запрос", show_alert=True)
+            return
+
         # Проверяем, что объявление существует (может быть уже удалено)
         advertisement = await Abs.get_one(id=abs_id)
-        customer = None
-        
+
         if advertisement:
             customer = await Customer.get_customer(id=advertisement.customer_id)
             if customer:
+                # Получаем текст объявления
+                from app.untils import help_defs
+                ad_text = help_defs.read_text_file(
+                    advertisement.text_path) if advertisement.text_path else "Текст объявления не найден"
+
+                # Ограничиваем длину текста объявления
+                MAX_AD_TEXT_LENGTH = 2000
+                if len(ad_text) > MAX_AD_TEXT_LENGTH:
+                    ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+
                 # Уведомляем заказчика только если объявление и заказчик еще существуют
                 try:
+                    kbc = KeyboardCollection()
+                    builder = InlineKeyboardBuilder()
+                    builder.add(kbc._inline(
+                        button_text="⏪ Перейти к отклику",
+                        callback_data=f"view_response_{worker.id}_{abs_id}"
+                    ))
+                    builder.add(kbc._inline(
+                        button_text="🏠 Меню",
+                        callback_data="customer_menu"
+                    ))
+                    builder.adjust(1)
+
                     await bot.send_message(
                         chat_id=customer.tg_id,
                         text=f"❌ <b>Исполнитель отклонил получение контактов</b>\n\n"
                              f"📋 Объявление: #{abs_id}\n"
                              f"👤 Исполнитель: ID#{worker.id}\n\n"
+                             f"📝 <b>Текст объявления:</b>\n{ad_text}"
                              f"Исполнитель не готов получить контакты в данный момент.",
-                        parse_mode='HTML'
+                        parse_mode='HTML',
+                        reply_markup=builder.as_markup()
                     )
                 except Exception as e:
                     logger.warning(f"Could not notify customer about contact rejection: {e}")
-        
+
         # Удаляем запись ContactExchange если она существует
         try:
             contact_exchange = await ContactExchange.get_by_worker_and_abs(worker.id, abs_id)
@@ -1450,20 +1870,22 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
 
         # Отправляем подтверждение исполнителю (даже если объявление уже удалено)
         try:
-            await callback.message.answer(
-                text="❌ <b>Предложение контактов отклонено</b>\n\n"
+            await callback.answer(
+                text="❌ Предложение контактов отклонено\n\n"
                      "Вы отклонили получение контактов заказчика.",
-                parse_mode='HTML'
+                show_alert=True
             )
         except TelegramBadRequest:
             # Если сообщение недоступно для редактирования, отправляем новое
             await callback.message.answer(
-                text="❌ <b>Предложение контактов отклонено</b>\n\n"
+                text="❌ Предложение контактов отклонено\n\n"
                      "Вы отклонили получение контактов заказчика.",
-                parse_mode='HTML'
+                show_alert=True
             )
 
-        await callback.answer("✅ Предложение отклонено")
+        # Возвращаем исполнителя к отклику
+        new_callback = callback.model_copy(update={'data': f"view_my_response_{abs_id}"})
+        await view_my_response(new_callback, state)
 
     except Exception as e:
         logger.error(f"Error in reject_contact_offer: {e}")
@@ -1480,12 +1902,11 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         logger.info(f"[WORKER_CHAT] Worker sent message in chat")
 
         # Проверяем на контакты
-        is_valid, error_message = check_message_for_contacts(message.text)
+        is_valid, _ = check_message_for_contacts(message.text)
         if not is_valid:
             await message.answer(
-                f"🚫 <b>Сообщение заблокировано!</b>\n\n"
-                f"{error_message}\n\n"
-                "Используйте кнопку 'Запросить контакт' для получения контактов заказчика.",
+                "🚫 <b>Сообщение заблокировано!</b>\n\n"
+                "Используйте кнопку «Запросить контакт» для получения контактов заказчика.",
                 parse_mode='HTML'
             )
             return
@@ -1493,8 +1914,8 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         # Проверяем на запрещенный контент (ссылки, упоминания, номера прописью)
         if is_content_forbidden(message.text):
             await message.answer(
-                f"🚫 <b>Сообщение заблокировано!</b>\n\n"
-                f"Запрещённый контент или контактные данные. Исправьте и отправьте снова.",
+                "🚫 <b>Сообщение заблокировано!</b>\n\n"
+                "Запрещённый контент или контактные данные. Исправьте и отправьте снова.",
                 parse_mode='HTML'
             )
             return
@@ -1588,19 +2009,7 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
             sender="worker"
         )
 
-        await message.answer("✅ Сообщение отправлено заказчику!")
-
-        # Возвращаем исполнителя в меню
-        from app.handlers.worker import menu_worker
-        from aiogram.types import CallbackQuery
-        fake_callback = CallbackQuery(
-            id="fake_callback_id",
-            message=message,
-            from_user=message.from_user,
-            data="menu",
-            chat_instance=""
-        )
-        await menu_worker(fake_callback, state)
+        await update_worker_or_customer_chat_status(message, data, state, worker=True)
 
     except Exception as e:
         logger.error(f"Error in handle_worker_chat_message: {e}")
@@ -1615,12 +2024,11 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
         logger.info(f"[CUSTOMER_CHAT] Customer sent message in chat")
 
         # Проверяем на контакты
-        is_valid, error_message = check_message_for_contacts(message.text)
+        is_valid, _ = check_message_for_contacts(message.text)
         if not is_valid:
             await message.answer(
-                f"🚫 <b>Сообщение заблокировано!</b>\n\n"
-                f"{error_message}\n\n"
-                "Используйте кнопку 'Предложить контакты' для передачи контактов исполнителю.",
+                "🚫 <b>Сообщение заблокировано!</b>\n\n"
+                "Используйте кнопку «Предложить контакты» для передачи контактов исполнителю.",
                 parse_mode='HTML'
             )
             return
@@ -1719,7 +2127,8 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
             sender="customer"
         )
 
-        await message.answer("✅ Сообщение отправлено исполнителю!")
+        # Перед отправкой нового статуса пытаемся удалить предыдущий, чтобы не копить уведомления
+        await update_worker_or_customer_chat_status(message, data, state, worker=False)
 
     except Exception as e:
         logger.error(f"Error in handle_customer_chat_message: {e}")
@@ -1878,6 +2287,13 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
         advertisement = await Abs.get_one(id=abs_id)
 
+        # Сбрасываем данные о покупке контактов (если были сохранены ранее)
+        await state.update_data(
+            buying_contacts_for_abs=False,
+            target_worker_id=None,
+            target_abs_id=None
+        )
+
         if not advertisement:
             await callback.answer("❌ Объявление не найдено", show_alert=True)
             return
@@ -1989,7 +2405,7 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
             text += "\n\n🔒 Чат закрыт"
         elif customer_confirmed:
             # Заказчик подтвердил, исполнитель может покупать
-            text += "💰 <b>Заказчик подтвердил передачу контактов</b>\n\n"
+            text += "\n💰 <b>Заказчик подтвердил передачу контактов</b>\n\n"
             text += "Для получения контактов необходимо их купить."
         elif waiting_confirmation:
             # Ожидаем подтверждения от заказчика
@@ -2053,6 +2469,7 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                             has_contacts=has_contacts,
                             contacts_requested=customer_confirmed,
                             contacts_sent=waiting_confirmation,
+                            worker_initiated=waiting_confirmation,  # True если исполнитель запросил
                             count_photo=count_photo,
                             photo_num=0
                         ),
@@ -2067,6 +2484,7 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
                             has_contacts=has_contacts,
                             contacts_requested=customer_confirmed,
                             contacts_sent=waiting_confirmation,
+                            worker_initiated=waiting_confirmation,  # True если исполнитель запросил
                             count_photo=count_photo,
                             photo_num=0
                         ),
@@ -2253,15 +2671,14 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
 
         # Отправляем уведомление исполнителю
         from loaders import bot
-        notification_text = f"Отмена отклика:\n\n—13 активность\n\n{zone_emoji} Текущая активность: {new_activity}"
+        notification_text = (
+            f"Отмена отклика:\n\n—13 активность\n\n"
+            f"{zone_emoji} Текущая активность: {new_activity}\n\n"
+            "Вы вернулись к списку откликов"
+        )
 
-        try:
-            await bot.send_message(
-                chat_id=worker.tg_id,
-                text=notification_text
-            )
-        except Exception as e:
-            logger.error(f"Error sending cancellation notification to worker {worker.tg_id}: {e}")
+        await callback.answer(notification_text, show_alert=True)
+        kbc = KeyboardCollection()
 
         # Отправляем уведомление заказчику
         from app.data.database.models import Abs, Customer
@@ -2269,24 +2686,63 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
         if advertisement:
             customer = await Customer.get_customer(id=advertisement.customer_id)
             if customer:
+                from app.untils import help_defs
+                ad_text = help_defs.read_text_file(advertisement.text_path) or ""
+                MAX_AD_TEXT_LENGTH = 1500
+                if len(ad_text) > MAX_AD_TEXT_LENGTH:
+                    ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+
+                notification_to_customer = (
+                    f"📨 Исполнитель отменил отклик на объявление #{abs_id}\n\n"
+                )
+                if ad_text:
+                    notification_to_customer += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+
                 try:
                     await bot.send_message(
                         chat_id=customer.tg_id,
-                        text=f"📨 Исполнитель отменил отклик на объявление #{abs_id}"
+                        text=notification_to_customer,
+                        reply_markup=kbc.menu_btn(),
+                        parse_mode='HTML'
                     )
                 except Exception as e:
                     logger.error(f"Error sending cancellation notification to customer {customer.tg_id}: {e}")
 
         # Возвращаемся к списку откликов
-        kbc = KeyboardCollection()
-        # Безопасное редактирование сообщения
+
         from app.untils.message_utils import safe_edit_message
-        await safe_edit_message(
-            callback=callback,
-            text="✅ Отклик отменен\n\nВы вернулись к списку откликов",
-            reply_markup=kbc.menu_btn()
-        )
-        await state.set_state(WorkStates.worker_menu)
+        responses = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
+
+        if responses:
+            responses_data = []
+            for resp in responses:
+                # Пропускаем текущий отклик (он уже удален, но на всякий случай)
+                contact_exchange_resp = await ContactExchange.get_by_worker_and_abs(worker.id, resp.abs_id)
+                status_indicator = await get_response_status_indicator(resp, "worker")
+                responses_data.append({
+                    'abs_id': resp.abs_id,
+                    'active': not (contact_exchange_resp and contact_exchange_resp.contacts_purchased),
+                    'status_indicator': status_indicator
+                })
+
+            text = f"📋 <b>Ваши Отклики ({len(responses_data)})</b>\n\n"
+            text += "💬 — Активный чат\n"
+            text += "✅ — Контакты получены"
+
+            await safe_edit_message(
+                callback=callback,
+                text=text,
+                reply_markup=kbc.my_responses_list_buttons(responses_data)
+            )
+            await state.set_state(WorkStates.worker_my_responses)
+        else:
+            text = "📭 <b>У вас пока нет откликов</b>\n\nОткликайтесь на объявления, чтобы найти работу!"
+            await safe_edit_message(
+                callback=callback,
+                text=text,
+                reply_markup=kbc.menu_btn()
+            )
+            await state.set_state(WorkStates.worker_menu)
 
     except Exception as e:
         logger.error(f"Error in cancel_worker_response: {e}")
@@ -2300,12 +2756,13 @@ async def worker_chat_message(message: Message, state: FSMContext):
     """Обработка сообщения от исполнителя в анонимном чате"""
     try:
         # Проверяем сообщение на контакты
-        is_valid, error_message = check_message_for_contacts(message.text)
+        is_valid, _ = check_message_for_contacts(message.text)
 
         if not is_valid:
             kbc = KeyboardCollection()
             await message.answer(
-                text=f"🚫 <b>Сообщение заблокировано!</b>\n\n{error_message}",
+                text="🚫 <b>Сообщение заблокировано!</b>\n\n"
+                     "Используйте кнопку «Предложить контакты» для передачи контактов исполнителю.",
                 reply_markup=kbc.menu(),
                 parse_mode='HTML'
             )
@@ -2428,19 +2885,8 @@ async def worker_chat_message(message: Message, state: FSMContext):
                 parse_mode='HTML'
             )
 
-        await message.answer("✅ Сообщение отправлено заказчику")
-
-        # Возвращаем исполнителя в меню
-        from app.handlers.worker import menu_worker
-        from aiogram.types import CallbackQuery
-        fake_callback = CallbackQuery(
-            id="fake_callback_id",
-            message=message,
-            from_user=message.from_user,
-            data="menu",
-            chat_instance=""
-        )
-        await menu_worker(fake_callback, state)
+        # Перед отправкой нового статуса пытаемся удалить предыдущий, чтобы не копить уведомления
+        await update_worker_or_customer_chat_status(message, data, state, worker=True)
 
     except Exception as e:
         logger.error(f"Error in worker_chat_message: {e}")
@@ -2558,7 +3004,9 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
                  "Вы получите уведомление, когда заказчик ответит.",
             reply_markup=kbc.anonymous_chat_worker_buttons(
                 abs_id=abs_id,
-                contacts_requested=True
+                contacts_requested=False,  # Исполнитель запросил, ждет подтверждения
+                contacts_sent=True,  # Исполнитель запросил
+                worker_initiated=True  # Исполнитель сам запросил
             ),
         )
 
@@ -2594,7 +3042,6 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
 
         price_rub = tariff.price / 100
-
 
         # Формируем информацию о тарифе
         if tariff.unlimited:
@@ -2637,10 +3084,20 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
             button_text=f"✅ Оплатить {int(price_rub)}₽",
             callback_data=f"confirm_token_purchase_{tariff_id}"
         ))
-        keyboard_builder.add(kbc._inline(
-            button_text="❌ Отмена",
-            callback_data="cancel_token_purchase"
-        ))
+
+        state_data = await state.get_data()
+        buying_for_abs = state_data.get('buying_contacts_for_abs')
+        target_abs_id = state_data.get('target_abs_id')
+        if buying_for_abs and target_abs_id:
+            keyboard_builder.add(kbc._inline(
+                button_text="⏪ Назад",
+                callback_data=f"view_my_response_{target_abs_id}"
+            ))
+        else:
+            keyboard_builder.add(kbc._inline(
+                button_text="◀️ Отмена",
+                callback_data="cancel_token_purchase"
+            ))
         keyboard_builder.adjust(1)
 
         try:
@@ -2690,6 +3147,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
         import aiosqlite
         conn = await aiosqlite.connect('app/data/database/database.db')
         try:
+
             if tariff.unlimited:
                 # Безлимит
                 until_date = (datetime.now() + timedelta(days=tariff.unlimited_days)).strftime('%Y-%m-%d')
@@ -2725,6 +3183,16 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                     await callback.answer("❌ Объявление не найдено", show_alert=True)
                     return
 
+                # Получаем текст объявления
+                from app.untils import help_defs
+                ad_text = ""
+                if advertisement and advertisement.text_path:
+                    ad_text = help_defs.read_text_file(advertisement.text_path) or ""
+                    # Ограничиваем длину текста объявления
+                    MAX_AD_TEXT_LENGTH = 1500
+                    if len(ad_text) > MAX_AD_TEXT_LENGTH:
+                        ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
+
                 customer = await Customer.get_customer(id=advertisement.customer_id)
 
                 if worker and customer:
@@ -2741,37 +3209,59 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                     # Передаем контакты исполнителю с учетом нового функционала
                     contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
 
+                    # Формируем текст сообщения с объявлением
+                    message_text = f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{target_abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n"
+                    if ad_text:
+                        message_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+                    message_text += contacts_text
+
+                    worker_keyboard = InlineKeyboardBuilder()
+                    worker_keyboard.add(kbc._inline(
+                        button_text="⏪ Перейти к отклику",
+                        callback_data=f"view_my_response_{target_abs_id}"
+                    ))
+                    worker_keyboard.add(kbc._inline(
+                        button_text="🏠 В меню",
+                        callback_data="worker_menu"
+                    ))
+                    worker_keyboard.adjust(1)
+
                     await bot.send_message(
                         chat_id=worker.tg_id,
-                        text=f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{target_abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n{contacts_text}",
-                        parse_mode='HTML'
+                        text=message_text,
+                        parse_mode='HTML',
+                        reply_markup=worker_keyboard.as_markup()
                     )
 
-                    # Уведомляем заказчика
+                    # Формируем текст сообщения с объявлением
+                    notification_text = f"✅ <b>Контакты переданы исполнителю!</b>\n\n📋 Объявление: #{target_abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n"
+                    if ad_text:
+                        notification_text += f"📝 <b>Текст объявления:</b>\n{ad_text}\n\n"
+                    notification_text += "💬 Чат закрыт - теперь общайтесь напрямую."
+
+                    customer_keyboard = InlineKeyboardBuilder()
+                    customer_keyboard.add(kbc._inline(
+                        button_text="⏪ Перейти к отклику",
+                        callback_data=f"view_response_{worker.id}_{target_abs_id}"
+                    ))
+                    customer_keyboard.add(kbc._inline(
+                        button_text="🏠 В меню",
+                        callback_data="customer_menu"
+                    ))
+                    customer_keyboard.adjust(1)
+
+                    kbc = KeyboardCollection()
                     await bot.send_message(
                         chat_id=customer.tg_id,
-                        text=f"✅ <b>Контакты переданы исполнителю!</b>\n\n📋 Объявление: #{target_abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n💬 Чат закрыт - теперь общайтесь напрямую.",
-                        parse_mode='HTML'
+                        text=notification_text,
+                        parse_mode='HTML',
+                        reply_markup=customer_keyboard.as_markup()
                     )
 
                     # Закрываем чат
                     response = await WorkersAndAbs.get_by_worker_and_abs(target_worker_id, target_abs_id)
                     if response:
                         await response.update(applyed=False)
-
-                    try:
-                        await callback.message.answer(
-                            text=f"✅ <b>Покупка успешна!</b>\n\nКонтакты заказчика переданы!",
-                            reply_markup=kbc.menu_btn(),
-                            parse_mode='HTML'
-                        )
-                    except TelegramBadRequest:
-                        # Если сообщение недоступно для редактирования, отправляем новое
-                        await callback.message.answer(
-                            text=f"✅ <b>Покупка успешна!</b>\n\nКонтакты заказчика переданы!",
-                            reply_markup=kbc.menu_btn(),
-                            parse_mode='HTML'
-                        )
                 else:
                     try:
                         await callback.message.answer(
@@ -2995,7 +3485,7 @@ async def navigate_photo_worker_response(callback: CallbackQuery, state: FSMCont
         text += "\n\n🔒 Чат закрыт"
     elif customer_confirmed:
         # Заказчик подтвердил, исполнитель может покупать
-        text += "💰 <b>Заказчик подтвердил передачу контактов</b>\n\n"
+        text += "\n💰 <b>Заказчик подтвердил передачу контактов</b>\n\n"
         text += "Для получения контактов необходимо их купить."
     elif waiting_confirmation:
         # Ожидаем подтверждения от заказчика

@@ -60,6 +60,58 @@ async def patched_answer_video(self, video, **kwargs):
     return result
 
 
+async def patched_edit_text(self, text, **kwargs):
+    """Патчим edit_text для автоматического сохранения ID"""
+    result = await self._original_edit_text(text, **kwargs)
+    
+    # edit_text может вернуть True или Message объект
+    # Сохраняем ID отредактированного сообщения для очистки
+    try:
+        chat_id = self.chat.id if hasattr(self, 'chat') else None
+        message_id = None
+        
+        if hasattr(result, 'message_id'):
+            # Если вернулся Message объект, используем его ID
+            message_id = result.message_id
+        elif result is True and hasattr(self, 'message_id'):
+            # Если вернулось True, используем ID текущего сообщения (которое было отредактировано)
+            message_id = self.message_id
+        
+        if message_id and chat_id:
+            cleanup_middleware.save_message_id(chat_id, message_id)
+            logger.debug(f"Auto-saved edit_text ID {message_id} for chat {chat_id}")
+    except Exception as e:
+        logger.debug(f"Could not save edit_text message ID: {e}")
+    
+    return result
+
+
+async def patched_edit_caption(self, caption=None, **kwargs):
+    """Патчим edit_caption для автоматического сохранения ID"""
+    result = await self._original_edit_caption(caption=caption, **kwargs)
+    
+    # edit_caption может вернуть True или Message объект
+    # Сохраняем ID отредактированного сообщения для очистки
+    try:
+        chat_id = self.chat.id if hasattr(self, 'chat') else None
+        message_id = None
+        
+        if hasattr(result, 'message_id'):
+            # Если вернулся Message объект, используем его ID
+            message_id = result.message_id
+        elif result is True and hasattr(self, 'message_id'):
+            # Если вернулось True, используем ID текущего сообщения (которое было отредактировано)
+            message_id = self.message_id
+        
+        if message_id and chat_id:
+            cleanup_middleware.save_message_id(chat_id, message_id)
+            logger.debug(f"Auto-saved edit_caption ID {message_id} for chat {chat_id}")
+    except Exception as e:
+        logger.debug(f"Could not save edit_caption message ID: {e}")
+    
+    return result
+
+
 def apply_patches():
     """Применяет патчи для автоматического сохранения ID сообщений"""
     from aiogram.types import Message
@@ -79,6 +131,14 @@ def apply_patches():
     if not hasattr(Message, '_original_answer_video'):
         Message._original_answer_video = Message.answer_video
         Message.answer_video = patched_answer_video
+    
+    if not hasattr(Message, '_original_edit_text'):
+        Message._original_edit_text = Message.edit_text
+        Message.edit_text = patched_edit_text
+    
+    if not hasattr(Message, '_original_edit_caption'):
+        Message._original_edit_caption = Message.edit_caption
+        Message.edit_caption = patched_edit_caption
     
     logger.info("Applied monkey patches for automatic message ID saving")
 

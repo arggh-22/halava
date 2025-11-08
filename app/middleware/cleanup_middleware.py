@@ -100,6 +100,18 @@ class DeletePreviousMiddleware(BaseMiddleware):
                 result = await handler(event, data)
                 return result
         
+        # Специальные callback'и, для которых нельзя удалять сообщения (нужно оставить интерфейс на месте)
+        skip_cleanup_for_event = False
+        if isinstance(event, CallbackQuery):
+            callback_data = event.data or ""
+            skip_cleanup_callbacks_prefixes = (
+                "buy_contacts_for_abs_",
+            )
+
+            if any(callback_data.startswith(prefix) for prefix in skip_cleanup_callbacks_prefixes):
+                skip_cleanup_for_event = True
+                logger.debug(f"Skipping cleanup for callback data '{callback_data}'")
+
         # Определяем chat_id и message_id в зависимости от типа события
         chat_id = None
         message_id = None
@@ -120,8 +132,14 @@ class DeletePreviousMiddleware(BaseMiddleware):
             logger.debug(f"Skipping cleanup for chat_id: {chat_id}")
             return await handler(event, data)
         
-        # Удаляем предыдущие сообщения бота и пользователя
-        await self._cleanup_previous_messages(bot, chat_id)
+        # Удаляем предыдущие сообщения бота и пользователя (если не пропускаем очистку)
+        if not skip_cleanup_for_event:
+            await self._cleanup_previous_messages(bot, chat_id)
+        else:
+            # Сохраняем ID сообщения, чтобы при следующем событии можно было корректно удалить
+            if message_id:
+                self.last_bot_messages[chat_id] = message_id
+                logger.debug(f"Preserved bot message ID {message_id} for chat {chat_id} (skip cleanup)")
         
         # Сохраняем ID текущего сообщения пользователя для следующей очистки
         if message_id:
