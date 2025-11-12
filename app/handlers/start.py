@@ -1,5 +1,6 @@
 import logging
 from aiogram import Router, F
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, CallbackQuery, FSInputFile, ReplyKeyboardRemove
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -473,7 +474,6 @@ async def user_look_info(callback: CallbackQuery, state: FSMContext) -> None:
         btn_next = False
 
     if 'txt' in info_now.text_path:
-        await callback.message.delete()
         text = help_defs.read_text_file(info_now.text_path)
         await callback.message.answer(text=text, parse_mode='HTML',
                                       reply_markup=kbc.choose_obj_with_out_list(id_now=0,
@@ -482,20 +482,16 @@ async def user_look_info(callback: CallbackQuery, state: FSMContext) -> None:
                                                                                 abs_id=info_now.id))
     else:
         text = ('✅ <b>Размещаются запросы только на разовые услуги:</b>\n'
-                '\n- Анонимно;\n'
-                '- Без ссылок;\n'
-                '- Номера телефона;\n'
-                '\nПосле успешной публикации, заказчику в личку поступают отклики от исполнителей - остается только выбрать подходящего.\n'
-                '\n🚫 <b>Запрещается предлагать:</b>\n\n'
-                '- Рекламу;\n'
-                '- Вакансии;\n'
-                '- Работу вахтой;\n'
-                '- Бригаду на объемы;\n\n'
-                'И другие запросы, которые не связанные с тематикой сервиса — предусмотрена блокировка профиля.')
-        await callback.message.delete()
-        await callback.message.answer_photo(
-            photo=FSInputFile('app/data/database/Haltura_info.jpg'),
-            caption=text,
+                '\n— Анонимно;\n'
+                '— Без ссылок;\n'
+                '— Номера телефона;\n'
+                '\n🚫 Запрещается предлагать:\n\n'
+                '— Рекламу;\n'
+                '— Вакансии;\n'
+                '— Работу вахтой;\n'
+                '\nИ другие запросы, которые не связаны с тематикой сервиса.')
+        await callback.message.answer(
+            text=text,
             reply_markup=kbc.choose_obj_with_out_list(id_now=0,
                                                       btn_next=btn_next,
                                                       btn_back=False,
@@ -537,19 +533,16 @@ async def user_look_info(message: Message, state: FSMContext) -> None:
                                                                        abs_id=info_now.id))
     else:
         text = ('✅ <b>Размещаются запросы только на разовые услуги:</b>\n'
-                '\n- Анонимно;\n'
-                '- Без ссылок;\n'
-                '- Номера телефона;\n'
-                '\nПосле успешной публикации, заказчику в личку поступают отклики от исполнителей - остается только выбрать подходящего.\n'
-                '\n🚫 <b>Запрещается предлагать:</b>\n\n'
-                '- Рекламу;\n'
-                '- Вакансии;\n'
-                '- Работу вахтой;\n'
-                '- Бригаду на объемы;\n\n'
-                'И другие запросы, которые не связанные с тематикой сервиса — предусмотрена блокировка профиля.')
-        await message.answer_photo(
-            photo=FSInputFile('app/data/database/Haltura_info.jpg'),
-            caption=text,
+                '\n— Анонимно;\n'
+                '— Без ссылок;\n'
+                '— Номера телефона;\n'
+                '\n🚫 Запрещается предлагать:\n\n'
+                '— Рекламу;\n'
+                '— Вакансии;\n'
+                '— Работу вахтой;\n'
+                '\nИ другие запросы, которые не связаны с тематикой сервиса.')
+        await message.answer(
+            text=text,
             reply_markup=kbc.choose_obj_with_out_list(id_now=0,
                                                       btn_next=btn_next,
                                                       btn_back=False,
@@ -579,7 +572,6 @@ async def check_abs(callback: CallbackQuery) -> None:
         btn_back = True
 
     if 'txt' in info_now.text_path:
-        await callback.message.delete()
         text = help_defs.read_text_file(info_now.text_path)
         await callback.message.answer(text=text, parse_mode='HTML',
                                       reply_markup=kbc.choose_obj_with_out_list(id_now=info_list_id,
@@ -588,53 +580,22 @@ async def check_abs(callback: CallbackQuery) -> None:
                                                                                 abs_id=info_now.id))
     else:
         text = ('✅ <b>Размещаются запросы только на разовые услуги:</b>\n'
-                '\n- Анонимно;\n'
-                '- Без ссылок;\n'
-                '- Номера телефона;\n'
-                '\nПосле успешной публикации, заказчику в личку поступают отклики от исполнителей - остается только выбрать подходящего.\n'
-                '\n🚫 <b>Запрещается предлагать:</b>\n\n'
-                '- Рекламу;\n'
-                '- Вакансии;\n'
-                '- Работу вахтой;\n'
-                '- Бригаду на объемы;\n\n'
-                'И другие запросы, которые не связанные с тематикой сервиса — предусмотрена блокировка профиля.')
-        await callback.message.delete()
-        await callback.message.answer_photo(
-            photo=FSInputFile('app/data/database/Haltura_info.jpg'),
-            caption=text,
+                '\n— Анонимно;\n'
+                '— Без ссылок;\n'
+                '— Номера телефона;\n'
+                '\n🚫 Запрещается предлагать:\n\n'
+                '— Рекламу;\n'
+                '— Вакансии;\n'
+                '— Работу вахтой;\n'
+                '\nИ другие запросы, которые не связаны с тематикой сервиса.')
+        await callback.message.answer(
+            text=text,
             reply_markup=kbc.choose_obj_with_out_list(id_now=info_list_id,
                                                       btn_next=btn_next,
                                                       btn_back=btn_back,
                                                       abs_id=info_now.id),
             parse_mode='HTML'
         )
-
-
-async def show_blocking_info_message(message: Message, state: FSMContext, banned: 'Banned') -> None:
-    """Показывает информацию о блокировке пользователю через сообщение"""
-    kbc = KeyboardCollection()
-    
-    # Формируем текст с информацией о блокировке
-    if banned.forever:
-        ban_text = "Вы заблокированы навсегда"
-    else:
-        # Форматируем дату без секунд
-        ban_end_formatted = banned.ban_end.strftime('%Y-%m-%d %H:%M') if banned.ban_end else "неизвестно"
-        ban_text = f"Вы заблокированы до {ban_end_formatted}"
-    
-    text = f"🚫 {ban_text}\n\n"
-    text += f"Причина: {banned.ban_reason}\n\n"
-    
-    if not banned.forever:
-        text += f"Срок блокировки: 24 часа\n\n"
-    
-    text += "Если вы считаете, что блокировка была ошибочной, можете задать вопрос поддержке."
-    
-    await message.answer(
-        text=text,
-        reply_markup=kbc.support_after_blocking_info_buttons()
-    )
-    await state.clear()
 
 
 async def show_blocking_info(callback: CallbackQuery, state: FSMContext, banned: 'Banned') -> None:
@@ -645,18 +606,16 @@ async def show_blocking_info(callback: CallbackQuery, state: FSMContext, banned:
     if banned.forever:
         ban_text = "Вы заблокированы навсегда"
     else:
-        # Форматируем дату без секунд
-        ban_end_formatted = banned.ban_end.strftime('%Y-%m-%d %H:%M') if banned.ban_end else "неизвестно"
-        ban_text = f"Вы заблокированы до {ban_end_formatted}"
+        # Форматируем дату в виде ДД.ММ.ГГГГ
+        ban_end_formatted = banned.ban_end.strftime('%d.%m.%Y') if banned.ban_end else "неизвестно"
+        ban_text = f"Вы заблокированы До {ban_end_formatted}"
     
     text = f"🚫 {ban_text}\n\n"
     text += f"Причина: {banned.ban_reason}\n\n"
     
     if not banned.forever:
         text += f"Срок блокировки: 24 часа\n\n"
-    
-    text += "Если вы считаете, что блокировка была ошибочной, можете задать вопрос поддержке."
-    
+
     await callback.message.answer(
         text=text,
         reply_markup=kbc.support_after_blocking_info_buttons()
@@ -695,7 +654,7 @@ async def support_blocking_no(callback: CallbackQuery, state: FSMContext) -> Non
     await state.set_state(UserStates.support_ask_question)
     msg = await callback.message.answer(
         'Напишите ваш вопрос',
-        reply_markup=kbc.support_btn()
+        # reply_markup=kbc.support_btn()
     )
     await state.update_data(msg_id=msg.message_id)
 
@@ -710,9 +669,24 @@ async def support_ask_question(callback: CallbackQuery, state: FSMContext) -> No
     await state.set_state(UserStates.support_ask_question)
     msg = await callback.message.answer(
         'Напишите ваш вопрос',
-        reply_markup=kbc.support_btn()
+        # reply_markup=kbc.support_btn()
     )
     await state.update_data(msg_id=msg.message_id)
+
+
+@router.callback_query(F.data == 'support_reply_hide')
+async def support_reply_hide(callback: CallbackQuery, state: FSMContext) -> None:
+    """Скрывает ответ поддержки и открывает соответствующее меню"""
+    logger.debug('support_reply_hide...')
+    
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    
+    await callback.answer()
+    await menu_universal(callback, state)
+    return
 
 
 @router.callback_query(F.data == 'support_history')
@@ -737,9 +711,7 @@ async def support_history(callback: CallbackQuery, state: FSMContext) -> None:
                     text += f"<b>Ответ поддержки:</b>\n{admin_msg}\n\n"
                 else:
                     text += "<b>Ответ поддержки:</b> Ожидается ответ\n\n"
-                
-                text += "─" * 30 + "\n\n"
-            
+
             await callback.message.answer(
                 text=text,
                 reply_markup=kbc.menu_btn(),
@@ -902,8 +874,6 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
                         text += f'<b>Ответ поддержки:</b>\n{admin_msg}\n'
                     else:
                         text += '<b>Ответ поддержки:</b> Ожидается ответ\n'
-                    
-                    text += '─' * 20 + '\n'
 
     # Убираем автоответы - сразу отправляем в чат поддержки
     await bot.send_message(chat_id=config.SUPPORT_CHAT, text=text,
@@ -943,7 +913,7 @@ async def skip_send_photo(callback: CallbackQuery, state: FSMContext):
     for ask_answer in ask_answers:
         if await checks.levenshtein_distance_check_faq(phrase=ask, words=ask_answer.questions):
             answer = f'Ответ от поддержки: "{ask_answer.answer}"'
-            await callback.message.answer(text=answer, reply_markup=kbc.support_btn())
+            await callback.message.answer(text=answer, reply_markup=kbc.support_reply_buttons())
             await callback.message.answer('Ваш вопрос отправлен', reply_markup=kbc.menu_btn())
             await state.set_state(UserStates.menu)
             if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(
@@ -1007,7 +977,7 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
             answer = f'Ответ от поддержки: "{ask_answer.answer}"'
             # await bot.delete_message(chat_id=message.from_user.id, message_id=msg, )
             await message.answer('Ваш вопрос отправлен', reply_markup=kbc.menu_btn())
-            await message.answer(text=answer, reply_markup=kbc.support_btn())
+            await message.answer(text=answer, reply_markup=kbc.support_reply_buttons())
             await state.set_state(UserStates.menu)
             if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=message.chat.id):
                 user_and_support_queue.user_messages.append(ask)

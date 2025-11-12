@@ -145,7 +145,7 @@ class Customer:
                 )
             await conn.commit()
             await cursor.close()
-            
+
             # Обновляем объект
             self.contact_type = contact_type
             self.phone_number = phone_number
@@ -156,7 +156,7 @@ class Customer:
         """Возвращает информацию о контактах заказчика для отображения"""
         if not self.contact_type:
             return "Контакты не настроены"
-        
+
         if self.contact_type == "telegram_only":
             return f"📱 [Профиль Telegram](tg://user?id={self.tg_id}) (@{self.tg_name})"
         elif self.contact_type == "phone_only":
@@ -378,7 +378,8 @@ class Worker:
         """
         import logging
         logger = logging.getLogger()
-        logger.debug(f'[OPTIMIZED] get_active_workers_for_advertisement: city_id={city_id}, work_type_id={work_type_id}')
+        logger.debug(
+            f'[OPTIMIZED] get_active_workers_for_advertisement: city_id={city_id}, work_type_id={work_type_id}')
 
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
@@ -386,13 +387,12 @@ class Worker:
             # GROUP_CONCAT агрегирует все подписки для каждого воркера
             # Используем запятую как разделитель в GROUP_CONCAT, так как city_ids внутри уже содержит |
             query = '''
-                    SELECT 
-                        w.*, 
-                        ws.work_type_ids,
-                        GROUP_CONCAT(wcs.city_ids) as subscription_cities
+                    SELECT w.*,
+                           ws.work_type_ids,
+                           GROUP_CONCAT(wcs.city_ids) as subscription_cities
                     FROM workers w
-                    LEFT JOIN worker_and_subscription ws ON w.id = ws.worker_id
-                    LEFT JOIN worker_city_subscriptions wcs ON w.id = wcs.worker_id AND wcs.active = 1
+                             LEFT JOIN worker_and_subscription ws ON w.id = ws.worker_id
+                             LEFT JOIN worker_city_subscriptions wcs ON w.id = wcs.worker_id AND wcs.active = 1
                     WHERE w.active = 1
                     GROUP BY w.id
                     '''
@@ -410,7 +410,8 @@ class Worker:
                 # Проверяем основной город (формат: "1 | 2 | 3")
                 try:
                     main_city_str = str(record[4]) if record[4] is not None else ''
-                    main_city_ids = [cid.strip() for cid in main_city_str.split(' | ') if cid.strip()] if main_city_str else []
+                    main_city_ids = [cid.strip() for cid in main_city_str.split(' | ') if
+                                     cid.strip()] if main_city_str else []
                 except (AttributeError, TypeError):
                     continue
 
@@ -441,7 +442,8 @@ class Worker:
                 # Проверяем тип работы (work_type_ids из таблицы worker_and_subscription)
                 try:
                     work_type_ids_str = str(record[24]) if len(record) > 24 and record[24] is not None else ''
-                    work_type_ids = [id.strip() for id in work_type_ids_str.split('|') if id.strip()] if work_type_ids_str else []
+                    work_type_ids = [id.strip() for id in work_type_ids_str.split('|') if
+                                     id.strip()] if work_type_ids_str else []
                 except (AttributeError, TypeError, IndexError):
                     work_type_ids = []
 
@@ -601,7 +603,7 @@ class Worker:
             self.profile_name = profile_name
         finally:
             await conn.close()
-    
+
     async def update_name_violations_count(self, count: int) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
@@ -1398,8 +1400,6 @@ class WhiteWord:
             await conn.close()
 
 
-
-
 class WorkType:
     def __init__(self, id: int | None, work_type: str, template: str | None, template_photo: str | None):
         self.id = id
@@ -1452,8 +1452,6 @@ class WorkType:
                     records]
         finally:
             await conn.close()
-
-
 
 
 class WorkerAndRefsAssociation:
@@ -1692,16 +1690,16 @@ class Abs:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS abs
                                (
-                                   id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   customer_id      INTEGER NOT NULL,
-                                   work_type_id     INTEGER NOT NULL,
-                                   city_id          INTEGER NOT NULL,
-                                   photo_path       TEXT,
-                                   text_path        TEXT    NOT NULL,
-                                   date_to_delite   TEXT    NOT NULL,
-                                   relevance        INTEGER DEFAULT 1,
-                                   views            INTEGER DEFAULT 0,
-                                   count_photo      INTEGER DEFAULT 0
+                                   id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   customer_id    INTEGER NOT NULL,
+                                   work_type_id   INTEGER NOT NULL,
+                                   city_id        INTEGER NOT NULL,
+                                   photo_path     TEXT,
+                                   text_path      TEXT    NOT NULL,
+                                   date_to_delite TEXT    NOT NULL,
+                                   relevance      INTEGER DEFAULT 1,
+                                   views          INTEGER DEFAULT 0,
+                                   count_photo    INTEGER DEFAULT 0
                                )
                                ''')
             await conn.commit()
@@ -1987,27 +1985,28 @@ class WorkerAndSubscription:
             cursor = await conn.execute('SELECT * FROM worker_and_subscription WHERE worker_id = ?', [worker_id])
             records = await cursor.fetchall()
             await cursor.close()
-            
+
             if not records:
                 return None
-            
+
             # Если есть несколько записей, берем самую новую (с наибольшим id)
             # и удаляем дублирующие записи
             if len(records) > 1:
                 # Сортируем по id (самая новая запись будет последней)
                 records.sort(key=lambda x: x[0])
                 latest_record = records[-1]
-                
+
                 # Удаляем старые дублирующие записи
                 old_ids = [record[0] for record in records[:-1]]
                 if old_ids:
                     placeholders = ','.join(['?' for _ in old_ids])
                     await conn.execute(f'DELETE FROM worker_and_subscription WHERE id IN ({placeholders})', old_ids)
                     await conn.commit()
-                    print(f"[CLEANUP] Removed {len(old_ids)} duplicate worker_and_subscription records for worker {worker_id}")
+                    print(
+                        f"[CLEANUP] Removed {len(old_ids)} duplicate worker_and_subscription records for worker {worker_id}")
             else:
                 latest_record = records[0]
-            
+
             return cls(id=latest_record[0],
                        worker_id=latest_record[1],
                        work_type_ids=latest_record[2].split('|') if latest_record[2] else None)
@@ -2033,7 +2032,8 @@ class WorkerAndSubscription:
 class WorkersAndAbs:
     def __init__(self, worker_id: int, abs_id: int, id: int = None, applyed: bool = None, send_by_worker: int = None,
                  send_by_customer: int = None, customer_messages: str = None, worker_messages: str = None,
-                 turn: bool = True, message_timestamps: str = None, last_read_by_worker: int = None, last_read_by_customer: int = None,
+                 turn: bool = True, message_timestamps: str = None, last_read_by_worker: int = None,
+                 last_read_by_customer: int = None,
                  last_message_by_worker: int = None, last_message_by_customer: int = None):
         self.id = id
         self.worker_id = worker_id
@@ -2053,14 +2053,14 @@ class WorkersAndAbs:
             elif customer_messages:
                 if len(customer_messages) > 1024:
                     step = int(((len(customer_messages) - 1024) / 20))
-            
+
             # Разбиваем строку на список сообщений
             messages_list = worker_messages.split(' | ')
-            
+
             # Если step слишком большой (больше длины списка), берем все сообщения
             if step >= len(messages_list):
                 step = 0
-            
+
             self.worker_messages = messages_list[step::]
         else:
             self.worker_messages = ['Исполнитель не отправил сообщение']
@@ -2073,14 +2073,14 @@ class WorkersAndAbs:
         else:
             # Разбиваем строку на список сообщений
             customer_messages_list = customer_messages.split(' | ')
-            
+
             # Если step слишком большой (больше длины списка), берем все сообщения
             if step >= len(customer_messages_list):
                 step = 0
-            
+
             self.customer_messages = customer_messages_list[step::]
         self.turn = turn
-        
+
         # Парсим временные метки сообщений
         if message_timestamps:
             try:
@@ -2097,20 +2097,20 @@ class WorkersAndAbs:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS workers_and_abs
                                (
-                                   id                        INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   worker_id                 INTEGER NOT NULL,
-                                   abs_id                    INTEGER NOT NULL,
-                                   send_by_worker            INTEGER DEFAULT 0,
-                                   send_by_customer          INTEGER DEFAULT 0,
-                                   applyed                   INTEGER DEFAULT 0,
-                                   worker_messages           TEXT,
-                                   customer_messages         TEXT,
-                                   turn                      INTEGER DEFAULT 1,
-                                   message_timestamps        TEXT,
-                                   last_read_by_worker       INTEGER DEFAULT 0,
-                                   last_read_by_customer     INTEGER DEFAULT 0,
-                                   last_message_by_worker    INTEGER DEFAULT 0,
-                                   last_message_by_customer  INTEGER DEFAULT 0
+                                   id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id                INTEGER NOT NULL,
+                                   abs_id                   INTEGER NOT NULL,
+                                   send_by_worker           INTEGER DEFAULT 0,
+                                   send_by_customer         INTEGER DEFAULT 0,
+                                   applyed                  INTEGER DEFAULT 0,
+                                   worker_messages          TEXT,
+                                   customer_messages        TEXT,
+                                   turn                     INTEGER DEFAULT 1,
+                                   message_timestamps       TEXT,
+                                   last_read_by_worker      INTEGER DEFAULT 0,
+                                   last_read_by_customer    INTEGER DEFAULT 0,
+                                   last_message_by_worker   INTEGER DEFAULT 0,
+                                   last_message_by_customer INTEGER DEFAULT 0
                                )
                                ''')
             await conn.commit()
@@ -2141,7 +2141,7 @@ class WorkersAndAbs:
     async def update(self, worker_id: int = None, abs_id: int = None,
                      applyed: bool = None, send_by_worker: int = None,
                      send_by_customer: int = None, worker_messages: list = None,
-                     customer_messages: list = None, turn: bool = None, 
+                     customer_messages: list = None, turn: bool = None,
                      message_timestamps: list = None, last_read_by_worker: int = None,
                      last_read_by_customer: int = None, last_message_by_worker: int = None,
                      last_message_by_customer: int = None) -> None:
@@ -2183,24 +2183,24 @@ class WorkersAndAbs:
             if turn is not None:
                 updates.append('turn = ?')
                 params.append(turn)
-            
+
             if message_timestamps is not None:
                 timestamps_json = json.dumps(message_timestamps)
                 updates.append('message_timestamps = ?')
                 params.append(timestamps_json)
-            
+
             if last_read_by_worker is not None:
                 updates.append('last_read_by_worker = ?')
                 params.append(last_read_by_worker)
-            
+
             if last_read_by_customer is not None:
                 updates.append('last_read_by_customer = ?')
                 params.append(last_read_by_customer)
-            
+
             if last_message_by_worker is not None:
                 updates.append('last_message_by_worker = ?')
                 params.append(last_message_by_worker)
-            
+
             if last_message_by_customer is not None:
                 updates.append('last_message_by_customer = ?')
                 params.append(last_message_by_customer)
@@ -2470,9 +2470,9 @@ class WorkerAndCustomer:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS worker_and_customer
                                (
-                                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   customer_id  INTEGER NOT NULL,
-                                   worker_id    INTEGER NOT NULL
+                                   id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   customer_id INTEGER NOT NULL,
+                                   worker_id   INTEGER NOT NULL
                                )
                                ''')
             await conn.commit()
@@ -2550,11 +2550,11 @@ class UserAndSupportQueue:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS user_and_support_queue
                                (
-                                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   user_tg_id      INTEGER NOT NULL,
-                                   user_messages   TEXT,
-                                   admin_messages  TEXT,
-                                   turn            INTEGER DEFAULT 1
+                                   id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   user_tg_id     INTEGER NOT NULL,
+                                   user_messages  TEXT,
+                                   admin_messages TEXT,
+                                   turn           INTEGER DEFAULT 1
                                )
                                ''')
             await conn.commit()
@@ -2722,9 +2722,9 @@ class WorkerAndReport:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS worker_and_report
                                (
-                                   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   worker_id  INTEGER NOT NULL,
-                                   abs_id     INTEGER NOT NULL
+                                   id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id INTEGER NOT NULL,
+                                   abs_id    INTEGER NOT NULL
                                )
                                ''')
             await conn.commit()
@@ -2903,12 +2903,12 @@ class ContactTariff:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS contact_tariffs
                                (
-                                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   name            TEXT    NOT NULL,
-                                   contacts_count  INTEGER NOT NULL,
-                                   price           INTEGER NOT NULL,
-                                   unlimited       INTEGER DEFAULT 0,
-                                   unlimited_days  INTEGER
+                                   id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   name           TEXT    NOT NULL,
+                                   contacts_count INTEGER NOT NULL,
+                                   price          INTEGER NOT NULL,
+                                   unlimited      INTEGER DEFAULT 0,
+                                   unlimited_days INTEGER
                                )
                                ''')
             await conn.commit()
@@ -2976,7 +2976,7 @@ class ContactTariff:
         try:
             updates = []
             params = []
-            
+
             if name is not None:
                 updates.append('name = ?')
                 params.append(name)
@@ -2992,13 +2992,13 @@ class ContactTariff:
             if unlimited_days is not None:
                 updates.append('unlimited_days = ?')
                 params.append(unlimited_days)
-            
+
             if updates:
                 params.append(self.id)
                 query = f'UPDATE contact_tariffs SET {", ".join(updates)} WHERE id = ?'
                 await conn.execute(query, params)
                 await conn.commit()
-                
+
                 # Обновляем локальные значения
                 if name is not None:
                     self.name = name
@@ -3028,7 +3028,7 @@ class ContactTariff:
         existing = await cls.get_all()
         if existing:
             return  # Тарифы уже есть
-        
+
         # Создаем тарифы по умолчанию
         default_tariffs = [
             # Обычные тарифы (цена в копейках, контакты в штуках)
@@ -3039,12 +3039,180 @@ class ContactTariff:
             # Безлимитные тарифы (цена в копейках, дни)
             cls(id=None, name="Безлимит 1 месяц", contacts_count=-1, price=199000, unlimited=True, unlimited_days=30),
             cls(id=None, name="Безлимит 3 месяца", contacts_count=-1, price=449000, unlimited=True, unlimited_days=90),
-            cls(id=None, name="Безлимит 6 месяцев", contacts_count=-1, price=699000, unlimited=True, unlimited_days=180),
-            cls(id=None, name="Безлимит 12 месяцев", contacts_count=-1, price=1099000, unlimited=True, unlimited_days=365),
+            cls(id=None, name="Безлимит 6 месяцев", contacts_count=-1, price=699000, unlimited=True,
+                unlimited_days=180),
+            cls(id=None, name="Безлимит 12 месяцев", contacts_count=-1, price=1099000, unlimited=True,
+                unlimited_days=365),
         ]
-        
+
         for tariff in default_tariffs:
             await tariff.save()
+
+
+class ContactTransaction:
+    """Модель для хранения истории покупок и списаний контактов исполнителя."""
+
+    def __init__(
+            self,
+            id: int | None,
+            worker_id: int,
+            action: str,
+            change_amount: int = 0,
+            abs_id: int | None = None,
+            details: dict | str | None = None,
+            created_at: str | None = None
+    ):
+        self.id = id
+        self.worker_id = worker_id
+        self.action = action
+        self.change_amount = change_amount
+        self.abs_id = abs_id
+
+        if isinstance(details, dict) or details is None:
+            self.details = details or {}
+        else:
+            try:
+                self.details = json.loads(details)
+            except (TypeError, json.JSONDecodeError):
+                self.details = {"raw": details}
+
+        self.created_at = created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                               CREATE TABLE IF NOT EXISTS contact_transactions
+                               (
+                                   id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id     INTEGER NOT NULL,
+                                   action        TEXT    NOT NULL,
+                                   change_amount INTEGER NOT NULL DEFAULT 0,
+                                   abs_id        INTEGER,
+                                   details       TEXT,
+                                   created_at    TEXT    NOT NULL
+                               )
+                               ''')
+            await conn.execute('''
+                               CREATE INDEX IF NOT EXISTS idx_contact_transactions_worker
+                                   ON contact_transactions (worker_id, created_at)
+                               ''')
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    async def save(self) -> None:
+        await self.create_table_if_not_exists()
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                '''
+                INSERT INTO contact_transactions (worker_id, action, change_amount, abs_id, details, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    self.worker_id,
+                    self.action,
+                    self.change_amount,
+                    self.abs_id,
+                    json.dumps(self.details, ensure_ascii=False) if self.details else None,
+                    self.created_at
+                )
+            )
+            self.id = cursor.lastrowid
+            await conn.commit()
+            await cursor.close()
+        finally:
+            await conn.close()
+
+    @classmethod
+    def _from_record(cls, record) -> 'ContactTransaction':
+        return cls(
+            id=record[0],
+            worker_id=record[1],
+            action=record[2],
+            change_amount=record[3],
+            abs_id=record[4],
+            details=record[5],
+            created_at=record[6]
+        )
+
+    @classmethod
+    async def get_by_worker(cls, worker_id: int, limit: int = 20) -> list['ContactTransaction']:
+        await cls.create_table_if_not_exists()
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                '''
+                SELECT id, worker_id, action, change_amount, abs_id, details, created_at
+                FROM contact_transactions
+                WHERE worker_id = ?
+                ORDER BY datetime(created_at) DESC
+                LIMIT ?
+                ''',
+                (worker_id, limit)
+            )
+            records = await cursor.fetchall()
+            await cursor.close()
+            return [cls._from_record(record) for record in records] if records else []
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def log_purchase(
+            cls,
+            worker_id: int,
+            contacts_count: int,
+            tariff_name: str | None,
+            price_rub: int | None,
+            tariff_id: int | None = None,
+            unlimited: bool = False,
+            unlimited_until: str | None = None,
+            unlimited_days: int | None = None
+    ) -> 'ContactTransaction':
+        details = {
+            "tariff_name": tariff_name,
+            "price_rub": price_rub,
+            "tariff_id": tariff_id,
+        }
+        if unlimited:
+            details["unlimited_days"] = unlimited_days
+            details["valid_until"] = unlimited_until
+
+        transaction = cls(
+            id=None,
+            worker_id=worker_id,
+            action="unlimited_purchase" if unlimited else "purchase",
+            change_amount=0 if unlimited else contacts_count,
+            abs_id=None,
+            details=details
+        )
+        await transaction.save()
+        return transaction
+
+    @classmethod
+    async def log_usage(
+            cls,
+            worker_id: int,
+            abs_id: int | None,
+            source: str = "purchased",
+            contacts_spent: int = 1
+    ) -> 'ContactTransaction':
+        details = {
+            "source": source,
+            "contacts_spent": contacts_spent,
+        }
+        transaction = cls(
+            id=None,
+            worker_id=worker_id,
+            action="usage",
+            change_amount=0 if source == "unlimited" else -abs(contacts_spent),
+            abs_id=abs_id,
+            details=details
+        )
+        await transaction.save()
+        return transaction
 
 
 class WorkerRating:
@@ -3169,19 +3337,19 @@ class WorkerCitySubscription:
         """Создает таблицу если она не существует"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
-            
+
             # Создаем новую таблицу
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS worker_city_subscriptions
                                (
-                                   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   worker_id           INTEGER NOT NULL,
-                                   city_ids            TEXT    NOT NULL,
-                                   subscription_start  TEXT    NOT NULL,
-                                   subscription_end    TEXT    NOT NULL,
-                                   subscription_months INTEGER NOT NULL,
-                                   price               INTEGER NOT NULL,
-                                   active              INTEGER DEFAULT 1,
+                                   id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id            INTEGER NOT NULL,
+                                   city_ids             TEXT    NOT NULL,
+                                   subscription_start   TEXT    NOT NULL,
+                                   subscription_end     TEXT    NOT NULL,
+                                   subscription_months  INTEGER NOT NULL,
+                                   price                INTEGER NOT NULL,
+                                   active               INTEGER DEFAULT 1,
                                    purchased_city_count INTEGER NOT NULL
                                )
                                ''')
@@ -3317,20 +3485,20 @@ class CitySubscriptionTariff:
         try:
             updates = []
             params = []
-            
+
             if city_count is not None:
                 updates.append('city_count = ?')
                 params.append(city_count)
             if price_per_month is not None:
                 updates.append('price_per_month = ?')
                 params.append(price_per_month)
-            
+
             if updates:
                 params.append(self.id)
                 query = f'UPDATE city_subscription_tariffs SET {", ".join(updates)} WHERE id = ?'
                 await conn.execute(query, params)
                 await conn.commit()
-                
+
                 if city_count is not None:
                     self.city_count = city_count
                 if price_per_month is not None:
@@ -3407,18 +3575,18 @@ class CitySubscriptionTariff:
         existing = await cls.get_all()
         if existing:
             return  # Тарифы уже есть
-        
+
         # Создаем тарифы по умолчанию (цена в копейках)
         default_tariffs = [
-            cls(id=None, city_count=1, price_per_month=9000),   # 90₽
+            cls(id=None, city_count=1, price_per_month=9000),  # 90₽
             cls(id=None, city_count=2, price_per_month=18000),  # 180₽
             cls(id=None, city_count=3, price_per_month=27000),  # 270₽
             cls(id=None, city_count=4, price_per_month=36000),  # 360₽
             cls(id=None, city_count=5, price_per_month=45000),  # 450₽
-            cls(id=None, city_count=10, price_per_month=90000), # 900₽
-            cls(id=None, city_count=20, price_per_month=180000), # 1800₽
+            cls(id=None, city_count=10, price_per_month=90000),  # 900₽
+            cls(id=None, city_count=20, price_per_month=180000),  # 1800₽
         ]
-        
+
         for tariff in default_tariffs:
             await tariff.save()
 
@@ -3438,8 +3606,8 @@ class CitySubscriptionDiscount:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS city_subscription_discounts
                                (
-                                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   months          INTEGER NOT NULL UNIQUE,
+                                   id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   months           INTEGER NOT NULL UNIQUE,
                                    discount_percent INTEGER NOT NULL
                                )
                                ''')
@@ -3466,20 +3634,20 @@ class CitySubscriptionDiscount:
         try:
             updates = []
             params = []
-            
+
             if months is not None:
                 updates.append('months = ?')
                 params.append(months)
             if discount_percent is not None:
                 updates.append('discount_percent = ?')
                 params.append(discount_percent)
-            
+
             if updates:
                 params.append(self.id)
                 query = f'UPDATE city_subscription_discounts SET {", ".join(updates)} WHERE id = ?'
                 await conn.execute(query, params)
                 await conn.commit()
-                
+
                 if months is not None:
                     self.months = months
                 if discount_percent is not None:
@@ -3556,16 +3724,16 @@ class CitySubscriptionDiscount:
         existing = await cls.get_all()
         if existing:
             return  # Скидки уже есть
-        
+
         # Создаем скидки по умолчанию
         default_discounts = [
-            cls(id=None, months=1, discount_percent=0),   # Без скидки
-            cls(id=None, months=2, discount_percent=5),   # 5% скидка
+            cls(id=None, months=1, discount_percent=0),  # Без скидки
+            cls(id=None, months=2, discount_percent=5),  # 5% скидка
             cls(id=None, months=3, discount_percent=10),  # 10% скидка
             cls(id=None, months=6, discount_percent=20),  # 20% скидка
-            cls(id=None, months=12, discount_percent=30), # 30% скидка
+            cls(id=None, months=12, discount_percent=30),  # 30% скидка
         ]
-        
+
         for discount in default_discounts:
             await discount.save()
 
@@ -3995,11 +4163,11 @@ class WorkerRank:
                 new_rank_level = rank_levels.get(current_rank.rank_type, 0)
 
             await current_rank.save()
-            
+
             # Примечание: Счетчик изменений направлений НЕ сбрасывается при изменении ранга
             # Он сбрасывается только через 30 дней после последнего изменения
             # Выбор/добавление направлений НЕ считается изменением (только замена)
-            
+
             return current_rank
         else:
             # Обновляем статистику в существующем ранге
@@ -4041,12 +4209,12 @@ class WorkerDailyResponses:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS worker_daily_responses
                                (
-                                   id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   worker_id        INTEGER NOT NULL,
-                                   date             TEXT    NOT NULL,
-                                   responses_count  INTEGER DEFAULT 0,
-                                   created_at       TEXT    DEFAULT CURRENT_TIMESTAMP,
-                                   updated_at       TEXT
+                                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id       INTEGER NOT NULL,
+                                   date            TEXT    NOT NULL,
+                                   responses_count INTEGER DEFAULT 0,
+                                   created_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
+                                   updated_at      TEXT
                                )
                                ''')
             await conn.commit()
@@ -4311,10 +4479,10 @@ class WorkerResponseCancellation:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS worker_response_cancellations
                                (
-                                   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   worker_id     INTEGER NOT NULL,
-                                   abs_id        INTEGER NOT NULL,
-                                   cancelled_at  TEXT DEFAULT CURRENT_TIMESTAMP
+                                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id    INTEGER NOT NULL,
+                                   abs_id       INTEGER NOT NULL,
+                                   cancelled_at TEXT DEFAULT CURRENT_TIMESTAMP
                                )
                                ''')
             await conn.commit()
@@ -4372,11 +4540,11 @@ class WorkerWorkTypeChanges:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS worker_work_type_changes
                                (
-                                   id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   worker_id        INTEGER NOT NULL UNIQUE,
-                                   changes_count    INTEGER DEFAULT 0,
-                                   last_change_date TEXT,
-                                   reset_date       TEXT,
+                                   id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id         INTEGER NOT NULL UNIQUE,
+                                   changes_count     INTEGER DEFAULT 0,
+                                   last_change_date  TEXT,
+                                   reset_date        TEXT,
                                    pending_selection INTEGER DEFAULT 0,
                                    FOREIGN KEY (worker_id) REFERENCES workers (id)
                                )
@@ -4401,14 +4569,16 @@ class WorkerWorkTypeChanges:
                 # Создание новой записи
                 cursor = await conn.execute(
                     'INSERT INTO worker_work_type_changes (worker_id, changes_count, last_change_date, reset_date, pending_selection) VALUES (?, ?, ?, ?, ?)',
-                    (self.worker_id, self.changes_count, self.last_change_date, self.reset_date, 1 if self.pending_selection else 0)
+                    (self.worker_id, self.changes_count, self.last_change_date, self.reset_date,
+                     1 if self.pending_selection else 0)
                 )
                 self.id = cursor.lastrowid
             else:
                 # Обновление существующей записи
                 await conn.execute(
                     'UPDATE worker_work_type_changes SET changes_count = ?, last_change_date = ?, reset_date = ?, pending_selection = ? WHERE id = ?',
-                    (self.changes_count, self.last_change_date, self.reset_date, 1 if self.pending_selection else 0, self.id)
+                    (self.changes_count, self.last_change_date, self.reset_date, 1 if self.pending_selection else 0,
+                     self.id)
                 )
 
             await conn.commit()
@@ -4470,7 +4640,7 @@ class WorkerWorkTypeChanges:
         """
         # ИЗМЕНЕНО: Убраны лимиты на количество изменений.
         # Исполнители могут менять направления без ограничений.
-        
+
         # Всегда разрешаем изменения направлений
         return (
             True,

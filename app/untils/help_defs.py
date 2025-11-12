@@ -1300,6 +1300,67 @@ async def update_worker_or_customer_chat_status(message, data, state, worker=Non
         sent_status_message = await message.answer("Сообщение успешно отправлено ✅")
         await state.update_data(customer_chat_status_message_id=sent_status_message.message_id)
 
+
+async def send_notification_to_customer(customer, worker, abs_id: int, ad_text: str | None = None):
+    """
+    Отправляет заказчику уведомление о передаче контактов исполнителю.
+
+    :param customer: Объект заказчика (должен содержать tg_id)
+    :param worker: Объект исполнителя (должен содержать id)
+    :param abs_id: ID объявления
+    :param ad_text: Текст объявления (необязательно)
+    """
+    from loaders import bot
+
+    kbc = KeyboardCollection()
+
+    # Формируем текст уведомления
+    notification_text = (
+        f"✅ <b>Контакты переданы исполнителю!</b>\n\n"
+        f"📋 Объявление: #{abs_id}\n"
+        f"👤 Исполнитель: ID#{worker.id}\n\n"
+    )
+    if ad_text:
+        notification_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+    notification_text += "💬 Чат закрыт — теперь общайтесь напрямую."
+
+    # Отправляем сообщение
+    await bot.send_message(
+        chat_id=customer.tg_id,
+        text=notification_text,
+        parse_mode="HTML",
+        reply_markup=kbc.get_customer_keyboard(worker.id, abs_id)
+    )
+
+
+async def send_contacts_to_worker(worker, customer, abs_id: int, ad_text: str | None, contacts_text):
+    """
+    Отправляет исполнителю контакты заказчика и информацию по объявлению.
+
+    :param worker: Объект исполнителя (должен содержать tg_id)
+    :param customer: Объект заказчика (должен содержать id)
+    :param abs_id: ID объявления
+    :param ad_text: Текст объявления (необязательно)
+    :param contacts_text: текст контактов
+    """
+
+    from loaders import bot
+
+    # Формируем текст сообщения с объявлением
+    message_text = f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n"
+    if ad_text:
+        message_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
+    message_text += contacts_text
+
+    kbc = KeyboardCollection()
+
+    await bot.send_message(
+        chat_id=worker.tg_id,
+        text=message_text,
+        parse_mode='HTML',
+        reply_markup=kbc.get_worker_keyboard(abs_id)
+    )
+
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |
 # | |  | |  ___ | |__    | |    ___   ___ | |__

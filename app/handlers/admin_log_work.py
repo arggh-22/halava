@@ -695,7 +695,7 @@ async def send_worker_with_msg(message: Message, state: FSMContext) -> None:
     text = f'Ответ от поддержки: "{msg_to_send}"'
 
     try:
-        await bot.send_message(chat_id=user_tg_id, text=text, reply_markup=kbc.support_btn())
+        await bot.send_message(chat_id=user_tg_id, text=text, reply_markup=kbc.support_reply_buttons())
         
         # Обновляем таблицу поддержки - сбрасываем turn в False
         queue = await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=user_tg_id)

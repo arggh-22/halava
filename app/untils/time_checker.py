@@ -168,8 +168,11 @@ async def handle_expired_advertisement(advertisement, kbc):
                 worker = await Worker.get_worker(id=worker_and_abs.worker_id)
                 if worker:
                     try:
-                        await bot.send_message(chat_id=worker.tg_id,
-                                               text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text_for_workers}')
+                        await bot.send_message(
+                            chat_id=worker.tg_id,
+                            text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text_for_workers}',
+                            reply_markup=kbc.worker_menu()
+                        )
                     except Exception:
                         pass
                 await worker_and_abs.delete()
@@ -184,12 +187,10 @@ async def handle_expired_advertisement(advertisement, kbc):
                 await bot.send_message(
                     chat_id=customer.tg_id,
                     text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
-                         f'{text}\n\n'
+                         f'{text}'
                          f'Выберите исполнителей для оценки:',
                     reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement.id)
                 )
-                # НЕ удаляем объявление сразу - удалим после оценки всех исполнителей
-                return  # Выходим из функции, не удаляя объявление
             except Exception as e:
                 logger.info(e)
 
@@ -197,8 +198,9 @@ async def handle_expired_advertisement(advertisement, kbc):
         try:
             await bot.send_message(
                 chat_id=customer.tg_id,
-                text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
-                     f'{text}'
+                text=f'Срок актуальность объявления #{advertisement.id} истек!'
+                     f'{text}',
+                reply_markup=kbc.menu()
             )
         except Exception as e:
             logger.info(e)

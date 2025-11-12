@@ -17,7 +17,8 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from app.data.database.models import (
     Customer, Worker, City, WorkerAndSubscription, WorkType, Banned, Abs, WorkersAndAbs, Admin,
-    WorkerAndReport, WorkerAndBadResponse, WorkerCitySubscription, WorkerRank, WorkerStatus, ContactExchange
+    WorkerAndReport, WorkerAndBadResponse, WorkerCitySubscription, WorkerRank, WorkerStatus, ContactExchange,
+    ContactTransaction
 )
 from app.keyboards import KeyboardCollection
 from app.states import WorkStates, UserStates, BannedStates
@@ -518,13 +519,6 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
     text += f"Выполненных заказов: {user_worker.order_count}\n"
     text += f"Зарегистрирован: {user_worker.registration_data}"
 
-    # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
-    is_unlimited = (not worker_sub.work_type_ids or
-                    (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
-    # choose_works = is_unlimited
-    #
-    # profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
-
     # has_status уже определен выше при формировании текста статуса
     has_status = False
     if worker_status_obj:
@@ -535,11 +529,6 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
             photo=FSInputFile(user_worker.profile_photo),
             caption=text,
             reply_markup=kbc.menu_worker_keyboard(
-                # confirmed=True,  # Верификация убрана
-                # choose_works=choose_works,
-                # individual_entrepreneur=user_worker.individual_entrepreneur,
-                # create_photo=False,
-                # create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -548,11 +537,6 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
         await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_worker_keyboard(
-                # confirmed=True,  # Верификация убрана
-                # choose_works=choose_works,
-                # individual_entrepreneur=user_worker.individual_entrepreneur,
-                # create_photo=False,
-                # create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -813,19 +797,11 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
     text += f"Выполненных заказов: {user_worker.order_count}\n"
     text += f"Зарегистрирован: {user_worker.registration_data}"
 
-    # # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
-    # is_unlimited = (not worker_sub.work_type_ids or
-    #                 (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
-    # choose_works = is_unlimited
-
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
 
-    # profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
-
-    # has_status уже определен выше при формировании текста статуса
     has_status = False
     if worker_status_obj:
         has_status = worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz
@@ -1191,28 +1167,30 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
 
     try:
         import asyncio
-        
+
         # КРИТИЧЕСКАЯ ПРОВЕРКА ПЕРВОЙ ОЧЕРЕДИ: проверяем, что пользователь НЕ находится в состоянии создания объявления
         # Это важно, так как фильтры состояния могут работать не так строго при параллельных роутерах
         from app.states import CustomerStates
         current_state = await state.get_state()
-        
+
         # Если состояние - создание объявления заказчиком, немедленно выходим
         if current_state == CustomerStates.customer_create_abs_add_photo:
-            logger.warning(f"[PORTFOLIO] КРИТИЧНО: Пропуск обработчика портфолио - пользователь создает объявление! Состояние: {current_state}")
+            logger.warning(
+                f"[PORTFOLIO] КРИТИЧНО: Пропуск обработчика портфолио - пользователь создает объявление! Состояние: {current_state}")
             return
-        
+
         # Проверяем, что состояние соответствует загрузке портфолио
         if current_state != WorkStates.portfolio_upload_photo:
             logger.warning(f"[PORTFOLIO] Пропуск обработчика портфолио - неправильное состояние: {current_state}")
             return
-        
+
         # Проверяем, что пользователь является активным исполнителем
         worker = await Worker.get_worker(tg_id=message.chat.id)
         if not worker or not worker.active:
-            logger.warning(f"[PORTFOLIO] Пропуск обработчика портфолио - пользователь не является активным исполнителем")
+            logger.warning(
+                f"[PORTFOLIO] Пропуск обработчика портфолио - пользователь не является активным исполнителем")
             return
-        
+
         # Получаем текущее портфолио исполнителя для проверки общего лимита
         existing_portfolio_count = len(worker.portfolio_photo) if worker.portfolio_photo else 0
         max_portfolio_photos = 10
@@ -3072,7 +3050,6 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
 
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-    # subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
 
     # ИЗМЕНЕНО: Убраны лимиты на изменения направлений
     # Исполнители могут менять направления без ограничений
@@ -4314,7 +4291,6 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 
 #     worker = await Worker.get_worker(tg_id=callback.from_user.id)
 #     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-
 #     # Получаем запись об изменениях направлений
 #     from app.data.database.models import WorkerWorkTypeChanges
 
@@ -4610,8 +4586,6 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
 #         )
 #     except Exception:
 #         pass
-
-
 # @router.callback_query(F.data == "show_selected_work_types", WorkStates.worker_choose_work_types)
 # async def show_selected_work_types_handler(callback: CallbackQuery, state: FSMContext) -> None:
 #     """Показать выбранные направления"""
@@ -4846,7 +4820,7 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
             month_word = "месяца"
         else:
             month_word = "месяцев"
-        
+
         builder.add(kbc._inline(f"{months} {month_word} {int(price_rub)}₽",
                                 f"city_period_{months}_{int(price_rub)}"))
 
@@ -5762,7 +5736,7 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
         return
 
     # elif action == "cancel":
-    else: # cancel
+    else:  # cancel
         # Отказ от подписки
         text = f"❌ <b>Отказ от подписки</b>\n\n"
         text += f"Подписка будет отключена, вы всегда сможете подключить её снова в удобное для вас время!"
@@ -6011,10 +5985,23 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
     # Пока что просто добавляем контакты (имитация успешной оплаты)
 
     try:
+        price_rub_value = int(tariff.price / 100)
+
         if tariff.unlimited:  # Безлимит
             # Устанавливаем безлимитный доступ на указанное количество дней
             until_date = datetime.now() + timedelta(days=tariff.unlimited_days)
             await worker.update_purchased_contacts(unlimited_contacts_until=until_date.isoformat())
+
+            await ContactTransaction.log_purchase(
+                worker_id=worker.id,
+                contacts_count=0,
+                tariff_name=tariff.name,
+                price_rub=price_rub_value,
+                tariff_id=tariff_id,
+                unlimited=True,
+                unlimited_until=until_date.strftime('%Y-%m-%d'),
+                unlimited_days=tariff.unlimited_days
+            )
 
             months = tariff.unlimited_days // 30 if tariff.unlimited_days else 1
 
@@ -6031,6 +6018,17 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
             # Добавляем обычные контакты
             new_count = worker.purchased_contacts + tariff.contacts_count
             await worker.update_purchased_contacts(purchased_contacts=new_count)
+
+            await ContactTransaction.log_purchase(
+                worker_id=worker.id,
+                contacts_count=tariff.contacts_count,
+                tariff_name=tariff.name,
+                price_rub=price_rub_value,
+                tariff_id=tariff_id,
+                unlimited=False,
+                unlimited_until=None,
+                unlimited_days=None
+            )
 
             t_contacts = tariff.contacts_count
             add_contact_text = f"{t_contacts} {help_defs.get_contact_word(t_contacts)}"
@@ -6649,84 +6647,6 @@ async def continue_subscription_cities(callback: CallbackQuery, state: FSMContex
     await choose_subscription_cities(callback, state)
 
 
-# @router.message(F.text, WorkStates.worker_change_city)
-# async def choose_city_main(message: Message, state: FSMContext) -> None:
-#     logger.debug(f'choose_city_main...')
-#     kbc = KeyboardCollection()
-#
-#     city_input = message.text
-#
-#     state_data = await state.get_data()
-#     # msg_id = int(state_data.get('msg_id'))
-#     cites = state_data.get('cites')
-#
-#     cities = await City.get_all(sort=False)
-#     city_names = [city.city for city in cities]
-#
-#     worker = await Worker.get_worker(tg_id=message.chat.id)
-#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-#     subscription = await SubscriptionType.get_subscription_type(id=worker_sub.subscription_id)
-#
-#     city_find = await checks.levenshtein_distance_check_city(phrase=city_input, words=city_names)
-#     if not city_find:
-#         await message.answer(text=f'Город не найден, попробуйте еще раз или воспользуйтесь кнопками')
-#         return
-#
-#     cities = []
-#
-#     for city_id in city_find:
-#         city = await City.get_city(id=city_id)
-#         cities.append(city)
-#
-#     city_names = [city.city for city in cities]
-#     city_ids = [city.id for city in cities]
-#
-#     if cites is None:
-#         cites = []
-#     else:
-#         cites = [int(x) for x in cites.split(' | ')]
-#         for city_id in cites:
-#             city = await City.get_city(id=city_id)
-#             try:
-#                 city_names.remove(city.city)
-#                 city_ids.remove(city.id)
-#             except ValueError:
-#                 pass
-#
-#     msg = await message.answer(
-#         text=f'Результаты поиска по: {city_input}\n'
-#              f'Выберите город или напишите его текстом\n\n'
-#              f'По вашей подписке доступно количество городов: {subscription.count_cites}, выбрано {len(cites)}',
-#         reply_markup=kbc.choose_obj(id_now=0, ids=city_ids, names=city_names,
-#                                     btn_next=True, btn_back=False, menu_btn=True,
-#                                     btn_next_name='Отменить результаты поиска'))
-#     await state.update_data(msg_id=msg.message_id)
-#     # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-
-
-# Функции обмена контактами удалены
-
-
-# Функция buy_contact_handler полностью удалена
-
-
-# Функция просмотра купленных контактов полностью удалена
-
-
-# Функция меню покупки контактов полностью удалена
-
-
-# Функция отклонения отклика удалена
-
-
-# Функция обработки тарифов контактов полностью удалена
-
-
-# Новые обработчики для системы покупки контактов
-
-# Все функции обмена контактами полностью удалены
-
-
 @router.callback_query(F.data == "worker_rank", WorkStates.worker_menu)
 async def worker_rank(callback: CallbackQuery, state: FSMContext) -> None:
     """Отображение ранга исполнителя"""
@@ -6740,7 +6660,6 @@ async def worker_rank(callback: CallbackQuery, state: FSMContext) -> None:
             return
 
         # Получаем или создаем ранг исполнителя
-        from app.data.database.models import WorkerRank
         rank = await WorkerRank.get_or_create_rank(worker.id)
 
         # Используем метод get_rank_description() для получения полного описания

@@ -125,7 +125,6 @@ async def send_with_worker_photo(chat_id, worker, text: str, reply_markup=None, 
                 photo=FSInputFile(worker.profile_photo),
                 caption=text,
                 reply_markup=reply_markup,
-                # parse_mode=parse_mode
             )
         except Exception:
             # Если фото не загрузилось, отправляем текстом
@@ -133,22 +132,16 @@ async def send_with_worker_photo(chat_id, worker, text: str, reply_markup=None, 
                 chat_id=chat_id,
                 text=text,
                 reply_markup=reply_markup,
-                # parse_mode=parse_mode
             )
     else:
         await bot.send_message(
             chat_id=chat_id,
             text=text,
             reply_markup=reply_markup,
-            # parse_mode=parse_mode
         )
 
 
 # ========== 1. ИНИЦИАЦИЯ ОТКЛИКА ==========
-
-# Тестовый handler удален - он перехватывал все respond_to_ad callback'и
-
-# Тестовый handler удален - он перехватывал все callback'и
 
 # Handler для просмотра отклика заказчиком
 @router.callback_query(lambda c: c.data.startswith('view_response_'))
@@ -273,7 +266,7 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
 
         # Если контакты переданы (куплены), показываем что чат закрыт
         if contacts_purchased:
-            text += "\n\n🔒 <b>Чат закрыт</b> - контакты переданы.\n\n"
+            text += "🔒 <b>Чат закрыт</b> - контакты переданы.\n\n"
             text += "ℹ️ Вы сможете оценить исполнителя после закрытия заказа (вручную или по истечении срока актуальности объявления)."
             kbc = KeyboardCollection()
             builder = InlineKeyboardBuilder()
