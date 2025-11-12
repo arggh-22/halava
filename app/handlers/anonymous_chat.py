@@ -3104,18 +3104,14 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                 else:
                     try:
                         await callback.message.answer(
-                            text=f"✅ <b>Покупка успешна!</b>\n\n"
-                                 f"{'Безлимит активирован!' if tokens == -1 else
-                                 f'Добавлено {tokens} {get_contact_word(tokens)}'}",
+                            text=f"✅ <b>Покупка успешна!</b>\n\n {'Безлимит активирован!' if tokens == -1 else 'Добавлено {tokens} {get_contact_word(tokens)}'}",
                             reply_markup=kbc.menu_btn(),
                             parse_mode='HTML'
                         )
                     except TelegramBadRequest:
                         # Если сообщение недоступно для редактирования, отправляем новое
                         await callback.message.answer(
-                            text=f"✅ <b>Покупка успешна!</b>\n\n"
-                                 f"{'Безлимит активирован!' if tokens == -1 else
-                                 f'Добавлено {tokens} {get_contact_word(tokens)}'}",
+                            text=f"✅ <b>Покупка успешна!</b>\n\n{'Безлимит активирован!' if tokens == -1 else 'Добавлено {tokens} {get_contact_word(tokens)}'}",
                             reply_markup=kbc.menu_btn(),
                             parse_mode='HTML'
                         )
@@ -3123,18 +3119,14 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                 # Обычная покупка токенов
                 try:
                     await callback.message.answer(
-                        text=f"✅ <b>Покупка успешна!</b>\n\n"
-                             f"{'Безлимит активирован!' if tokens == -1 else
-                             f'Добавлено {tokens} {get_contact_word(tokens)}'}",
+                        text=f"✅ <b>Покупка успешна!</b>\n\n{'Безлимит активирован!' if tokens == -1 else 'Добавлено {tokens} {get_contact_word(tokens)}'}",
                         reply_markup=kbc.menu_btn(),
                         parse_mode='HTML'
                     )
                 except TelegramBadRequest:
                     # Если сообщение недоступно для редактирования, отправляем новое
                     await callback.message.answer(
-                        text=f"✅ <b>Покупка успешна!</b>\n\n"
-                             f"{'Безлимит активирован!' if tokens == -1 else
-                             f'Добавлено {tokens} {get_contact_word(tokens)}'}",
+                        text=f"✅ <b>Покупка успешна!</b>\n\n{'Безлимит активирован!' if tokens == -1 else 'Добавлено {tokens} {get_contact_word(tokens)}'}",
                         reply_markup=kbc.menu_btn(),
                         parse_mode='HTML'
                     )
