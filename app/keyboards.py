@@ -6,6 +6,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
+
 class KeyboardCollection:
     def __init__(self, lang: str = "ru") -> None:
         self._language = lang
@@ -46,20 +47,20 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Заказчик", callback_data="customer_menu"))
         builder.add(self._inline(button_text="Исполнитель", callback_data="worker_menu"))
         if btn_menu:
-            builder.add(self._inline(button_text="Меню", callback_data="menu"))
+            builder.add(self._inline(button_text="🏠 Меню", callback_data="menu"))
         builder.adjust(1)
         return builder.as_markup()
 
     def menu(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="Меню", callback_data="menu"))
+        builder.add(self._inline(button_text="🏠 Меню", callback_data="menu"))
         builder.adjust(1)
         return builder.as_markup()
 
     def customer_menu(self, abs_id) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text="К объявлению", callback_data=f"abs_{abs_id}"))
-        builder.add(self._inline(button_text="Меню", callback_data="customer_menu"))
+        builder.add(self._inline(button_text="🏠 Меню", callback_data="customer_menu"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -89,7 +90,7 @@ class KeyboardCollection:
 
     def photo_name_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="Назад", callback_data="menu"))
+        builder.add(self._inline(button_text="🏠 Назад", callback_data="menu"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -113,7 +114,7 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Реф. ссылку всем исполнителям", callback_data='admin_for_workers_ref'))
         builder.add(self._inline(button_text="Реф. ссылку исполнителям в городе",
                                  callback_data="admin_choose_city_for_workers_ref"))
-        builder.add(self._inline(button_text="Назад", callback_data="menu"))
+        builder.add(self._inline(button_text="🏠 Назад", callback_data="menu"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -136,7 +137,7 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Поиск по ID заказчика", callback_data="get_customer"))
         builder.add(self._inline(button_text="Поиск по ID исполнителя", callback_data="get_worker"))
         builder.add(self._inline(button_text="Заблокированные пользователи", callback_data="get_banned"))
-        builder.add(self._inline(button_text="Меню", callback_data="menu"))
+        builder.add(self._inline(button_text="🏠 Меню", callback_data="menu"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -144,7 +145,7 @@ class KeyboardCollection:
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text="Изменить цену", callback_data=f"edit-price-sub_{sub_id}"))
         builder.add(self._inline(button_text="Изменить количество откликов", callback_data=f"edit-orders-sub_{sub_id}"))
-        builder.add(self._inline(button_text="Меню", callback_data="menu"))
+        builder.add(self._inline(button_text="🏠 Меню", callback_data="menu"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -162,7 +163,7 @@ class KeyboardCollection:
             builder.add(self._inline(button_text=button_text, callback_data=f"admin_view_tariff_{tariff.id}"))
 
         builder.add(self._inline(button_text="➕ Добавить тариф", callback_data="admin_add_tariff_type"))
-        builder.add(self._inline(button_text="◀️ Назад в меню", callback_data="menu_admin"))
+        builder.add(self._inline(button_text="🏠 Назад в меню", callback_data="menu_admin"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -196,7 +197,7 @@ class KeyboardCollection:
 
         builder.add(self._inline(button_text="➕ Добавить тариф", callback_data="admin_add_city_tariff"))
         builder.add(self._inline(button_text="💰 Управление скидками", callback_data="manage_city_discounts"))
-        builder.add(self._inline(button_text="◀️ Назад в меню", callback_data="menu_admin"))
+        builder.add(self._inline(button_text="🏠 Назад в меню", callback_data="menu_admin"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -257,7 +258,7 @@ class KeyboardCollection:
             self._inline(button_text="Короткие стоп слова персонала", callback_data="stop_words_short_personal"))
         builder.add(self._inline(button_text="Короткие стоп слова фото", callback_data="stop_words_short_photo"))
         builder.add(self._inline(button_text="Матерные стоп слова", callback_data="stop_words_profanity"))
-        builder.add(self._inline(button_text="Назад", callback_data="menu"))
+        builder.add(self._inline(button_text="🏠 Назад", callback_data="menu"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -266,13 +267,13 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Удалить", callback_data="delite"))
         builder.add(self._inline(button_text="Добавить", callback_data="insert"))
         # builder.add(self._inline(button_text="Посмотреть", callback_data="look"))
-        builder.add(self._inline(button_text="Назад", callback_data="menu_admin_stop_words"))
+        builder.add(self._inline(button_text="🏠 Назад", callback_data="menu_admin_stop_words"))
         builder.adjust(1)
         return builder.as_markup()
 
     def admin_back_btn(self, callback_data) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="Назад", callback_data=callback_data))
+        builder.add(self._inline(button_text="🔙 Назад", callback_data=callback_data))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -287,7 +288,7 @@ class KeyboardCollection:
 
         builder.add(self._inline(button_text="Разблокировать пользователя", callback_data="unblock_user"))
         builder.add(self._inline(button_text="Заблокировать пользователя", callback_data="block_user"))
-        builder.add(self._inline(button_text="Назад", callback_data=callback_data))
+        builder.add(self._inline(button_text="🔙 Назад", callback_data=callback_data))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -297,7 +298,7 @@ class KeyboardCollection:
             self._inline(button_text="Размещенные объявления", callback_data=f'look-abs-customer_{customer_id}'))
         builder.add(self._inline(button_text="Заблокированные объявления",
                                  callback_data=f'look-banned-abs-customer_{customer_id}'))
-        builder.add(self._inline(button_text="Назад", callback_data=callback_data))
+        builder.add(self._inline(button_text="🔙 Назад", callback_data=callback_data))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -355,7 +356,7 @@ class KeyboardCollection:
         """Клавиатура когда достигнут лимит объявлений"""
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text="💳 Оплатить объявление", callback_data="buy_single_ad"))
-        builder.add(self._inline(button_text="◀️ Назад в меню", callback_data="customer_menu"))
+        builder.add(self._inline(button_text="🏠 Назад в меню", callback_data="customer_menu"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -363,13 +364,13 @@ class KeyboardCollection:
         builder = InlineKeyboardBuilder()
         for id, name in zip(subscriptions_ids, subscriptions_names):
             builder.add(self._inline(button_text=name.capitalize(), callback_data=f'subscription_{id}'))
-        builder.add(self._inline(button_text='Назад', callback_data='menu'))
+        builder.add(self._inline(button_text='🏠 Назад', callback_data='menu'))
         builder.adjust(1)
         return builder.as_markup()
 
     def menu_btn(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="В меню", callback_data="menu"))
+        builder.add(self._inline(button_text="🏠 В меню", callback_data="menu"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -386,7 +387,7 @@ class KeyboardCollection:
                                  callback_data=f'subscription-buy_{cur_sub_id}'))
         for id, name in zip(subscriptions_ids, subscriptions_names):
             builder.add(self._inline(button_text=name.capitalize(), callback_data=f'subscription_{id}'))
-        builder.add(self._inline(button_text='Назад', callback_data='menu'))
+        builder.add(self._inline(button_text='🏠 Назад', callback_data='menu'))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -404,14 +405,15 @@ class KeyboardCollection:
                                      callback_data=f'go_{id_now + step}'))
 
         if menu_btn:
-            builder.add(self._inline(button_text=f'В меню',
-                                     callback_data=f'menu'))
+            builder.add(self._inline(button_text='🏠 В меню',
+                                     callback_data='menu'))
         if btn_back and btn_next and menu_btn:
             builder.adjust(1, 1, 1, 1, 1, 2, 1)
         elif btn_back and btn_next:
             builder.adjust(1, 1, 1, 1, 1, 2)
         elif btn_back or btn_next:
             builder.adjust(1)
+
         return builder.as_markup()
 
     def choose_responses(self, id_now: int, ids: list, names: list, abs_list_id: int) -> InlineKeyboardMarkup:
@@ -420,7 +422,7 @@ class KeyboardCollection:
             builder.add(self._inline(button_text=f'{name}',
                                      callback_data=f'customer-response_{id}_{id_now}'))
 
-        builder.add(self._inline(button_text=f'Назад',
+        builder.add(self._inline(button_text=f'◀️ Назад',
                                  callback_data=f'go_{abs_list_id}'))
 
         builder.adjust(1)
@@ -432,7 +434,7 @@ class KeyboardCollection:
             builder.add(self._inline(button_text=f'{name}',
                                      callback_data=f'worker-response_{id}'))
 
-        builder.add(self._inline(button_text=f'В меню',
+        builder.add(self._inline(button_text=f'🏠 В меню',
                                  callback_data=f'menu'))
 
         builder.adjust(1)
@@ -461,13 +463,13 @@ class KeyboardCollection:
             builder.add(self._inline(button_text=f'Просмотреть отклики',
                                      callback_data=f'customer-responses_{abs_id}_{id_now}'))
         if btn_next:
-            builder.add(self._inline(button_text=f'Дальше',
+            builder.add(self._inline(button_text=f'Дальше ▶️',
                                      callback_data=f'go_{id_now + step}'))
         if btn_back:
-            builder.add(self._inline(button_text=f'Назад',
+            builder.add(self._inline(button_text=f'◀️ Назад',
                                      callback_data=f'go_{id_now - step}'))
 
-        builder.add(self._inline(button_text=f'В меню',
+        builder.add(self._inline(button_text=f'🏠 В меню',
                                  callback_data=f'menu'))
         if count_photo > 1:
 
@@ -497,12 +499,12 @@ class KeyboardCollection:
                 builder.add(self._inline(button_text=f'Удалить',
                                          callback_data=f'delete-it_{abs_id}'))
         if btn_next:
-            builder.add(self._inline(button_text=f'Дальше',
+            builder.add(self._inline(button_text=f'Дальше ▶️',
                                      callback_data=f'go_{id_now + step}'))
         if btn_back:
-            builder.add(self._inline(button_text=f'Назад',
+            builder.add(self._inline(button_text=f'◀️ Назад',
                                      callback_data=f'go_{id_now - step}'))
-        builder.add(self._inline(button_text=f'В меню',
+        builder.add(self._inline(button_text=f'🏠 В меню',
                                  callback_data=f'back-to-customer_{customer_id}'))
         if count_photo > 1:
 
@@ -514,7 +516,7 @@ class KeyboardCollection:
 
     def back_to_user(self, customer_id):
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text=f'Назад',
+        builder.add(self._inline(button_text=f'🔙 Назад',
                                  callback_data=f'get-user_{customer_id}'))
         builder.adjust(1)
         return builder.as_markup()
@@ -541,12 +543,12 @@ class KeyboardCollection:
                 builder.add(self._inline(button_text=f'Разблокировать пользователя',
                                          callback_data=f'unblock-user-it_{abs_id}'))
         if btn_next:
-            builder.add(self._inline(button_text=f'Дальше',
+            builder.add(self._inline(button_text=f'Дальше ▶️',
                                      callback_data=f'go_{id_now + step}'))
         if btn_back:
-            builder.add(self._inline(button_text=f'Назад',
+            builder.add(self._inline(button_text=f'◀️ Назад',
                                      callback_data=f'go_{id_now - step}'))
-        builder.add(self._inline(button_text=f'В меню',
+        builder.add(self._inline(button_text=f'🏠 В меню',
                                  callback_data=f'back-to-customer_{customer_id}'))
         if count_photo > 1:
 
@@ -557,7 +559,7 @@ class KeyboardCollection:
         return builder.as_markup()
 
     def choose_type(self, ids: list, names: list, btn_back: bool = False,
-                    name_btn_back: str = 'Назад') -> InlineKeyboardMarkup:
+                    name_btn_back: str = '◀️ Назад') -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         for id, name in zip(ids, names):
             builder.add(self._inline(button_text=f'{name}',
@@ -570,7 +572,7 @@ class KeyboardCollection:
 
     def choose_work_types_improved(self, all_work_types: list, selected_ids: list,
                                    count_work_types: int, page: int = 0, btn_back: bool = False,
-                                   name_btn_back: str = 'Назад', removal_blocked: bool = False) -> InlineKeyboardMarkup:
+                                   name_btn_back: str = '◀️ Назад', removal_blocked: bool = False) -> InlineKeyboardMarkup:
         """Улучшенная клавиатура для выбора направлений работы с пагинацией"""
         builder = InlineKeyboardBuilder()
 
@@ -578,8 +580,8 @@ class KeyboardCollection:
         if selected_ids:
             builder.add(self._inline(button_text=f"✅ Выбрано: {len(selected_ids)}/{count_work_types}",
                                      callback_data="selected_info"))
-            builder.add(self._inline(button_text="📋 Показать выбранные",
-                                     callback_data="show_selected"))
+            # builder.add(self._inline(button_text="📋 Показать выбранные",
+            #                          callback_data="show_selected"))
 
             # Показываем кнопку "Очистить все" только если удаление не заблокировано
             if not removal_blocked:
@@ -626,10 +628,10 @@ class KeyboardCollection:
         if total_pages > 1:
             nav_buttons = []
             if page > 0:
-                nav_buttons.append(self._inline("◀️", f"page_{page - 1}"))
+                nav_buttons.append(self._inline("◀️ Назад", f"page_{page - 1}"))
             nav_buttons.append(self._inline(f"{page + 1}/{total_pages}", "current_page"))
             if page < total_pages - 1:
-                nav_buttons.append(self._inline("▶️", f"page_{page + 1}"))
+                nav_buttons.append(self._inline("Дальше ▶️", f"page_{page + 1}"))
 
             for btn in nav_buttons:
                 builder.add(btn)
@@ -638,6 +640,10 @@ class KeyboardCollection:
         if btn_back:
             builder.add(self._inline(button_text=name_btn_back,
                                      callback_data=f'back'))
+        builder.add(self._inline(
+            button_text="🏠 В меню",
+            callback_data="worker_menu"
+        ))
 
         builder.adjust(1)
         return builder.as_markup()
@@ -768,10 +774,10 @@ class KeyboardCollection:
                                      callback_data=f'delite-photo-portfolio_{photo_num}'))
 
         if new_photo:
-            builder.add(self._inline(button_text=f'Загрузить фото',
+            builder.add(self._inline(button_text=f'📤 Загрузить фото',
                                      callback_data=f'upload_photo'))
 
-        builder.add(self._inline(button_text=f'Назад', callback_data=f'menu'))
+        builder.add(self._inline(button_text=f'🏠 Назад', callback_data=f'menu'))
 
         if photo_len > 1:
             builder.adjust(3, 1, 1)
@@ -790,7 +796,7 @@ class KeyboardCollection:
             builder.add(self._inline(button_text=f'>',
                                      callback_data=f'go-to-portfolio_{photo_num + 1}_{worker_id}_{abs_id}'))
 
-        builder.add(self._inline(button_text=f'Назад', callback_data=f'view_responses_{abs_id}'))
+        builder.add(self._inline(button_text=f'🔙 Назад', callback_data=f'view_responses_{abs_id}'))
 
         if photo_len > 1:
             builder.adjust(3, 1)
@@ -969,7 +975,7 @@ class KeyboardCollection:
 
     def back_btn(self):
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text=f'Назад',
+        builder.add(self._inline(button_text=f'🔙 Назад',
                                  callback_data=f'back'))
         builder.adjust(1)
         return builder.as_markup()
@@ -991,6 +997,13 @@ class KeyboardCollection:
         """Простая кнопка поддержки без истории запросов"""
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text='Поддержка 24/7', callback_data='support'))
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def chat_closed_buttons(self):
+        """Кнопка для скрытия сообщения о закрытом чате"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text='🔽 Скрыть', callback_data='hide_chat_closed'))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1027,7 +1040,7 @@ class KeyboardCollection:
         """Кнопки после показа информации о блокировке"""
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text='Задать вопрос', callback_data='support_ask_question'))
-        builder.add(self._inline(button_text='В меню', callback_data='menu'))
+        builder.add(self._inline(button_text='🏠 В меню', callback_data='menu'))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1075,7 +1088,7 @@ class KeyboardCollection:
     def worker_buy_subscription() -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.button(text=f"Оплатить", pay=True)
-        builder.button(text='Назад', callback_data='worker_type_subscription')
+        builder.button(text='🔙 Назад', callback_data='worker_type_subscription')
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1083,7 +1096,7 @@ class KeyboardCollection:
     def customer_buy_response(abs_id, id_now) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.button(text=f"Оплатить", pay=True)
-        builder.button(text='Назад', callback_data=f'customer-responses_{abs_id}_{id_now}')
+        builder.button(text='🔙 Назад', callback_data=f'customer-responses_{abs_id}_{id_now}')
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1091,7 +1104,7 @@ class KeyboardCollection:
     def customer_buy_order() -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.button(text=f"Оплатить", pay=True)
-        builder.button(text='Назад', callback_data='menu')
+        builder.button(text='🏠 Назад', callback_data='menu')
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1257,7 +1270,7 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="📱 Профиль Telegram", callback_data="contact_telegram_only"))
         builder.add(self._inline(button_text="📞 Добавить номер", callback_data="contact_add_phone"))
         builder.add(self._inline(button_text="📱📞 Профиль Telegram и номер", callback_data="contact_both"))
-        builder.add(self._inline(button_text="◀️ Назад", callback_data="customer_menu"))
+        builder.add(self._inline(button_text="🏠 Назад", callback_data="customer_menu"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1283,7 +1296,7 @@ class KeyboardCollection:
             builder.add(self._inline(button_text="📱 Удалить номер (оставив telegram)",
                                      callback_data="edit_telegram_only"))
 
-        builder.add(self._inline(button_text="◀️ Назад", callback_data="customer_contacts"))
+        builder.add(self._inline(button_text="🔙 Назад", callback_data="customer_contacts"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1291,14 +1304,14 @@ class KeyboardCollection:
         """Меню отображения текущих контактов"""
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text="✏️ Редактировать", callback_data="edit_contacts"))
-        builder.add(self._inline(button_text="◀️ Назад", callback_data="customer_menu"))
+        builder.add(self._inline(button_text="🏠 Назад", callback_data="customer_menu"))
         builder.adjust(1)
         return builder.as_markup()
 
     def customer_contacts_back_menu(self) -> InlineKeyboardMarkup:
         """Кнопка назад в меню контактов"""
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="◀️ Назад", callback_data="customer_contacts"))
+        builder.add(self._inline(button_text="🔙 Назад", callback_data="customer_contacts"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1336,7 +1349,7 @@ class KeyboardCollection:
 
         # Кнопки навигации
         if btn_next:
-            builder.add(self._inline(button_text="▶️ Дальше",
+            builder.add(self._inline(button_text="Дальше ▶️",
                                      callback_data=f"go_worker_{abs_list_id + 1}"))
         if btn_back:
             builder.add(self._inline(button_text="◀️ Назад",
@@ -1556,7 +1569,7 @@ class KeyboardCollection:
             builder.add(self._inline(button_text=text,
                                      callback_data=f"view_my_response_{abs_id}"))
 
-        builder.add(self._inline(button_text="◀️ В меню",
+        builder.add(self._inline(button_text="🏠 В меню",
                                  callback_data="worker_menu"))
         builder.adjust(1)
         return builder.as_markup()
@@ -1682,7 +1695,7 @@ class KeyboardCollection:
 
     def back_to_contact_offer_keyboard(self, worker_id, abs_id) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="◀️ Назад",
+        builder.add(self._inline(button_text="🔙 Назад",
                                  callback_data=f"back_to_contact_offer_{worker_id}_{abs_id}"))
         builder.adjust(1)
 

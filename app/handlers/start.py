@@ -398,7 +398,7 @@ async def menu_universal(callback: CallbackQuery, state: FSMContext) -> None:
         print(f"[DEBUG] User {callback.message.chat.id} is an Admin")
         await state.set_state(AdminStates.menu)
         await callback.message.answer(
-            text='Меню администратора',
+            text='🏠 Меню администратора',
             reply_markup=kbc.menu_admin_keyboard()
         )
     else:
@@ -739,7 +739,7 @@ async def user_ask_support(callback: CallbackQuery, state: FSMContext) -> None:
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=callback.message.chat.id):
         if user_and_support_queue.turn:
             await callback.message.answer(
-                'Вы уже отправили вопрос в поддержку. Ожидайте ответа.',
+                'Вы уже отправили свой вопрос в службу поддержки.\n\n Пожалуйста, ожидайте ответа 🤍',
                 reply_markup=kbc.menu_btn()
             )
             return
@@ -764,7 +764,7 @@ async def user_ask_support(callback: CallbackQuery, state: FSMContext) -> None:
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=callback.message.chat.id):
         if user_and_support_queue.turn:
             await callback.message.answer(
-                'Вы уже отправили вопрос в поддержку. Ожидайте ответа.',
+                'Вы уже отправили свой вопрос в службу поддержки.\n\n Пожалуйста, ожидайте ответа 🤍',
                 reply_markup=kbc.menu_btn()
             )
             return
@@ -793,7 +793,7 @@ async def user_ask_support(message: Message, state: FSMContext) -> None:
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=message.chat.id):
         if user_and_support_queue.turn:
             await message.answer(
-                'Вы уже отправили вопрос в поддержку. Ожидайте ответа.',
+                'Вы уже отправили свой вопрос в службу поддержки.\n\n Пожалуйста, ожидайте ответа 🤍',
                 reply_markup=kbc.menu_btn()
             )
             return
@@ -894,8 +894,10 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
         )
         await new_support_queue.save()
     
-    await message.answer('Ваш вопрос принят, ожидайте пожалуйста ответа.',
-                         reply_markup=kbc.menu_btn())
+    await message.answer(
+        'Ваш вопрос принят, ожидайте пожалуйста ответа.',
+        reply_markup=kbc.chat_closed_buttons()
+    )
     await state.clear()
 
 

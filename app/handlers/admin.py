@@ -1102,8 +1102,10 @@ async def menu_send_msg_admin_keyboard(callback: CallbackQuery, state: FSMContex
     logger.debug('menu_send_msg_admin_keyboard...')
     kbc = KeyboardCollection()
 
-    text = (f'Меню\n\n'
-            f'Выберете интересующую вас группу отправки')
+    text = (
+    f'Меню\n\n'
+    f'Выберете интересующую вас группу отправки'
+    )
 
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=text, reply_markup=kbc.menu_send_msg_admin_keyboard())
@@ -1163,15 +1165,17 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
         _admin_summary_cache["data"] = summary
         _admin_summary_cache["ts"] = now_ts
 
-    text = (f'Меню\n\n'
-            f'Всего пользователей: {summary.get("len_users", 0)}\n'
-            f'Заказчиков: {summary.get("len_customer", 0)}\n'
-            f'Исполнителей: {summary.get("len_worker", 0)}\n'
-            f'Заблокировано: {summary.get("len_banned_users", 0)}\n'
-            f'Размещено объявлений: {summary.get("len_advertisement", 0)}\n'
-            f'Заблокировано объявлений: {summary.get("len_banned_advertisement", 0)}\n'
-            f'Удалено объявлений: {summary.get("deleted_abs", 0)}\n'
-            f'Выполнено объявлений: {summary.get("done_abs", 0)}\n')
+    text = (
+    f'Меню\n\n'
+    f'Всего пользователей: {summary.get("len_users", 0)}\n'
+    f'Заказчиков: {summary.get("len_customer", 0)}\n'
+    f'Исполнителей: {summary.get("len_worker", 0)}\n'
+    f'Заблокировано: {summary.get("len_banned_users", 0)}\n'
+    f'Размещено объявлений: {summary.get("len_advertisement", 0)}\n'
+    f'Заблокировано объявлений: {summary.get("len_banned_advertisement", 0)}\n'
+    f'Удалено объявлений: {summary.get("deleted_abs", 0)}\n'
+    f'Выполнено объявлений: {summary.get("done_abs", 0)}\n'
+    )
 
     await state.set_state(AdminStates.menu)
     await callback.message.answer(text=text, reply_markup=kbc.menu_admin_keyboard())
@@ -2968,7 +2972,7 @@ async def admin_add_tariff_type(callback: CallbackQuery, state: FSMContext) -> N
     builder = InlineKeyboardBuilder()
     builder.add(kbc._inline("📊 Ограниченный (с количеством контактов)", "admin_add_tariff_limited"))
     builder.add(kbc._inline("🔥 Безлимитный (на срок)", "admin_add_tariff_unlimited"))
-    builder.add(kbc._inline("◀️ Назад", "manage_contact_tariffs"))
+    builder.add(kbc._inline("🔙 Назад", "manage_contact_tariffs"))
     builder.adjust(1)
 
     await state.set_state(AdminStates.add_contact_tariff_type)

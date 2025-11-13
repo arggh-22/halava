@@ -936,7 +936,7 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
             return
 
     # Используем общую функцию для отображения меню
-    await callback.message.delete()
+    # await callback.message.delete()
     await show_worker_menu(callback, state, user_worker)
 
 
@@ -3051,9 +3051,6 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
 
-    # ИЗМЕНЕНО: Убраны лимиты на изменения направлений
-    # Исполнители могут менять направления без ограничений
-
     # Получаем ранг исполнителя
     from app.data.database.models import WorkerRank
     rank = await WorkerRank.get_or_create_rank(worker.id)
@@ -3081,9 +3078,6 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     text += f"🏆 <b>Ваш ранг:</b> {rank.current_rank} {rank.get_rank_name()}\n"
     text += f"📊 Выбрано: {selected_count}/{available_count} {limit_text}\n"
 
-    # ИЗМЕНЕНО: Убрана информация о лимитах изменений
-    # Исполнители могут менять направления без ограничений
-
     if selected_count > 0:
         selected_work_types = await get_worker_selected_work_types(worker_sub)
         text += f"✅ Текущие направления:\n"
@@ -3104,6 +3098,7 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
             all_work_types=work_types,
             selected_ids=selected_ids,
             count_work_types=available_count,
+            name_btn_back="",
             page=0,
             btn_back=True
         ),
@@ -3882,7 +3877,7 @@ async def worker_status(callback: CallbackQuery, state: FSMContext) -> None:
         builder.add(kbc._inline("🏢 ООО", "confirm_ooo_status"))
         builder.add(kbc._inline("🏭 СЗ", "confirm_sz_status"))
 
-    builder.add(kbc._inline("◀️ Назад", "worker_menu"))
+    builder.add(kbc._inline("🏠 Назад", "worker_menu"))
     builder.adjust(1)
 
     # Безопасное редактирование
@@ -4229,15 +4224,6 @@ async def back_from_ip_confirmation(callback: CallbackQuery, state: FSMContext) 
     """Возврат из подтверждения ИП"""
     logger.debug(f'back_from_ip_confirmation...')
 
-    # Удаляем сообщение с запросом ОГРНИП
-    state_data = await state.get_data()
-    # msg_id = state_data.get('msg_id')
-    # if msg_id:
-    #     try:
-    #         await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
-    #     except Exception:
-    #         pass
-
     # Возвращаемся в меню статусов
     await state.set_state(WorkStates.worker_menu)
     await worker_status(callback, state)
@@ -4247,15 +4233,6 @@ async def back_from_ip_confirmation(callback: CallbackQuery, state: FSMContext) 
 async def back_from_ooo_confirmation(callback: CallbackQuery, state: FSMContext) -> None:
     """Возврат из подтверждения ООО"""
     logger.debug(f'back_from_ooo_confirmation...')
-
-    # Удаляем сообщение с запросом ОГРН
-    state_data = await state.get_data()
-    # msg_id = state_data.get('msg_id')
-    # if msg_id:
-    #     try:
-    #         await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
-    #     except Exception:
-    #         pass
 
     # Возвращаемся в меню статусов
     await state.set_state(WorkStates.worker_menu)
@@ -4267,425 +4244,9 @@ async def back_from_sz_confirmation(callback: CallbackQuery, state: FSMContext) 
     """Возврат из подтверждения СЗ"""
     logger.debug(f'back_from_sz_confirmation...')
 
-    # Удаляем сообщение с запросом ИНН
-    state_data = await state.get_data()
-    # msg_id = state_data.get('msg_id')
-    # if msg_id:
-    #     try:
-    #         await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
-    #     except Exception:
-    #         pass
-
     # Возвращаемся в меню статусов
     await state.set_state(WorkStates.worker_menu)
     await worker_status(callback, state)
-
-
-# # ========== ОБРАБОТЧИКИ НАПРАВЛЕНИЙ РАБОТЫ ==========
-
-# @router.callback_query(F.data == "choose_work_types", WorkStates.worker_menu)
-# async def choose_work_types_handler(callback: CallbackQuery, state: FSMContext) -> None:
-#     """Обработчик кнопки 'Мои направления'"""
-#     logger.debug(f'choose_work_types_handler...')
-#     kbc = KeyboardCollection()
-
-#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-#     # Получаем запись об изменениях направлений
-#     from app.data.database.models import WorkerWorkTypeChanges
-
-#     # Создаем таблицу если её нет
-#     await WorkerWorkTypeChanges.create_table_if_not_exists()
-
-#     # Получаем или создаем запись для исполнителя
-#     work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
-
-#     # Проверяем, может ли исполнитель изменить направления
-#     can_change, message = work_type_changes.can_change_work_types()
-
-#     if not can_change:
-#         # Показываем сообщение об ограничении
-#         try:
-#             await callback.message.answer(
-#                 text=message + "\n\n💡 Вы сможете изменить направления после истечения периода ожидания.",
-#                 reply_markup=kbc.menu_btn(),
-#                 parse_mode='HTML'
-#             )
-#         except Exception:
-#             try:
-#                 await callback.message.delete()
-#             except Exception:
-#                 pass
-#             await callback.message.answer(
-#                 text=message + "\n\n💡 Вы сможете изменить направления после истечения периода ожидания.",
-#                 reply_markup=kbc.menu_btn(),
-#                 parse_mode='HTML'
-#             )
-#         return
-
-#     # Получаем лимит направлений из ранга
-#     from app.data.database.models import WorkerRank
-#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
-#     rank_work_types_limit = worker_rank.get_work_types_limit()
-
-#     # Определяем лимит направлений
-#     if worker_sub.unlimited_work_types:
-#         count_work_types = 100  # Безлимит
-#         limit_text = "неограниченно"
-#     else:
-#         # Используем лимит из ранга
-#         count_work_types = rank_work_types_limit or 1
-#         limit_text = f"{count_work_types} из 20"
-
-#     # Получаем все направления
-#     all_work_types = await WorkType.get_all()
-
-#     # Получаем выбранные направления
-#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
-
-#     # Сохраняем исходное состояние для проверки изменений при выходе
-#     original_work_types = set(selected_ids) if selected_ids else set()
-
-#     # Формируем текст
-#     text = "🎯 **Мои направления работ**\n\n"
-#     text += f"📊 Доступно направлений: {limit_text}\n"
-
-#     # Показываем информацию о лимите изменений
-#     if work_type_changes.changes_count > 0:
-#         remaining = 3 - work_type_changes.changes_count
-#         if remaining > 0:
-#             text += f"⚙️ Изменений использовано: {work_type_changes.changes_count}/3 (осталось: {remaining})\n"
-#         else:
-#             text += f"⚠️ Изменений использовано: {work_type_changes.changes_count}/3 (лимит исчерпан)\n"
-
-#     if message:  # Если есть сообщение об оставшихся изменениях
-#         text += f"{message}\n"
-
-#     text += f"\n"
-
-#     if selected_ids:
-#         text += f"**Выбрано:** {len(selected_ids)} направлений\n\n"
-#         text += "Нажмите на направление, чтобы удалить его из списка.\n"
-#         text += "Или выберите новое направление из списка доступных."
-#     else:
-#         text += "**У вас пока нет выбранных направлений.**\n\n"
-#         text += "Выберите направления из списка ниже."
-
-#     # Показываем клавиатуру с пагинацией
-#     await state.set_state(WorkStates.worker_choose_work_types)
-#     await state.update_data(page=0, original_work_types=list(original_work_types))
-
-#     try:
-#         await callback.message.answer(
-#             text=text,
-#             reply_markup=kbc.choose_work_types_improved(
-#                 all_work_types=all_work_types,
-#                 selected_ids=selected_ids,
-#                 count_work_types=count_work_types,
-#                 page=0,
-#                 btn_back=True,
-#                 name_btn_back='◀️ Назад в меню'
-#             ),
-#             parse_mode='HTML'
-#         )
-#     except Exception:
-#         try:
-#             await callback.message.delete()
-#         except Exception:
-#             pass
-#         await callback.message.answer(
-#             text=text,
-#             reply_markup=kbc.choose_work_types_improved(
-#                 all_work_types=all_work_types,
-#                 selected_ids=selected_ids,
-#                 count_work_types=count_work_types,
-#                 page=0,
-#                 btn_back=True,
-#                 name_btn_back='◀️ Назад в меню'
-#             ),
-#             parse_mode='HTML'
-#         )
-
-
-# @router.callback_query(lambda c: c.data.startswith('add_work_type_'), WorkStates.worker_choose_work_types)
-# async def add_work_type_handler(callback: CallbackQuery, state: FSMContext) -> None:
-#     """Добавить направление работы"""
-#     logger.debug(f'add_work_type_handler...')
-#     kbc = KeyboardCollection()
-
-#     work_type_id = int(callback.data.split('_')[3])
-
-#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-
-#     # Получаем лимит направлений из ранга
-#     from app.data.database.models import WorkerRank
-#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
-#     rank_work_types_limit = worker_rank.get_work_types_limit()
-
-#     # Определяем лимит направлений
-#     if worker_sub.unlimited_work_types:
-#         count_work_types = 100
-#     else:
-#         count_work_types = rank_work_types_limit or 1
-
-#     # Получаем текущие выбранные направления
-#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
-
-#     # Добавляем новое направление
-#     if str(work_type_id) not in selected_ids:
-#         selected_ids.append(str(work_type_id))
-
-#         # Сохраняем в БД
-#         await worker_sub.update_work_type_ids(work_type_ids=selected_ids)
-
-#     # Обновляем отображение
-#     all_work_types = await WorkType.get_all()
-#     state_data = await state.get_data()
-#     page = state_data.get('page', 0)
-
-#     text = "🎯 **Мои направления работ**\n\n"
-#     text += f"📊 Доступно направлений: {count_work_types if count_work_types < 100 else 'неограниченно'}\n"
-#     text += f"**Выбрано:** {len(selected_ids)} направлений\n\n"
-#     text += "✅ **Направление добавлено!**\n\n"
-#     text += "Нажмите на направление, чтобы удалить его из списка."
-
-#     try:
-#         await callback.message.answer(
-#             text=text,
-#             reply_markup=kbc.choose_work_types_improved(
-#                 all_work_types=all_work_types,
-#                 selected_ids=selected_ids,
-#                 count_work_types=count_work_types,
-#                 page=page,
-#                 btn_back=True,
-#                 name_btn_back='◀️ Назад в меню'
-#             ),
-#             parse_mode='HTML'
-#         )
-#     except Exception:
-#         await callback.answer("✅ Направление добавлено!")
-
-
-# @router.callback_query(lambda c: c.data.startswith('remove_work_type_'), WorkStates.worker_choose_work_types)
-# async def remove_work_type_handler(callback: CallbackQuery, state: FSMContext) -> None:
-#     """Удалить направление работы"""
-#     logger.debug(f'remove_work_type_handler...')
-#     kbc = KeyboardCollection()
-
-#     work_type_id = int(callback.data.split('_')[3])
-
-#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-
-#     # Получаем лимит направлений из ранга
-#     from app.data.database.models import WorkerRank
-#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
-#     rank_work_types_limit = worker_rank.get_work_types_limit()
-
-#     # Определяем лимит направлений
-#     if worker_sub.unlimited_work_types:
-#         count_work_types = 100
-#     else:
-#         count_work_types = rank_work_types_limit or 1
-
-#     # Получаем текущие выбранные направления
-#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
-
-#     # Удаляем направление
-#     if str(work_type_id) in selected_ids:
-#         selected_ids.remove(str(work_type_id))
-
-#         # Сохраняем в БД
-#         await worker_sub.update_work_type_ids(work_type_ids=selected_ids)
-
-#     # Обновляем отображение
-#     all_work_types = await WorkType.get_all()
-#     state_data = await state.get_data()
-#     page = state_data.get('page', 0)
-
-#     text = "🎯 **Мои направления работ**\n\n"
-#     text += f"📊 Доступно направлений: {count_work_types if count_work_types < 100 else 'неограниченно'}\n"
-
-#     if selected_ids:
-#         text += f"**Выбрано:** {len(selected_ids)} направлений\n\n"
-#         text += "❌ **Направление удалено!**\n\n"
-#         text += "Нажмите на направление, чтобы удалить его из списка."
-#     else:
-#         text += "**У вас нет выбранных направлений.**\n\n"
-#         text += "Выберите направления из списка ниже."
-
-#     try:
-#         await callback.message.answer(
-#             text=text,
-#             reply_markup=kbc.choose_work_types_improved(
-#                 all_work_types=all_work_types,
-#                 selected_ids=selected_ids,
-#                 count_work_types=count_work_types,
-#                 page=page,
-#                 btn_back=True,
-#                 name_btn_back='◀️ Назад в меню'
-#             ),
-#             parse_mode='HTML'
-#         )
-#     except Exception:
-#         await callback.answer("❌ Направление удалено!")
-
-
-# @router.callback_query(lambda c: c.data.startswith('work_types_page_'), WorkStates.worker_choose_work_types)
-# async def work_types_pagination_handler(callback: CallbackQuery, state: FSMContext) -> None:
-#     """Пагинация по направлениям"""
-#     logger.debug(f'work_types_pagination_handler...')
-#     kbc = KeyboardCollection()
-
-#     page = int(callback.data.split('_')[3])
-
-#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-
-#     # Получаем лимит направлений из ранга
-#     from app.data.database.models import WorkerRank
-#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
-#     rank_work_types_limit = worker_rank.get_work_types_limit()
-
-#     # Определяем лимит направлений
-#     if worker_sub.unlimited_work_types:
-#         count_work_types = 100
-#     else:
-#         count_work_types = rank_work_types_limit or 1
-
-#     # Получаем все направления и выбранные
-#     all_work_types = await WorkType.get_all()
-#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
-
-#     # Сохраняем текущую страницу
-#     await state.update_data(page=page)
-
-#     text = "🎯 **Мои направления работ**\n\n"
-#     text += f"📊 Доступно направлений: {count_work_types if count_work_types < 100 else 'неограниченно'}\n"
-
-#     if selected_ids:
-#         text += f"**Выбрано:** {len(selected_ids)} направлений\n\n"
-#         text += "Нажмите на направление, чтобы удалить его из списка."
-#     else:
-#         text += "**У вас нет выбранных направлений.**\n\n"
-#         text += "Выберите направления из списка ниже."
-
-#     try:
-#         await callback.message.answer(
-#             text=text,
-#             reply_markup=kbc.choose_work_types_improved(
-#                 all_work_types=all_work_types,
-#                 selected_ids=selected_ids,
-#                 count_work_types=count_work_types,
-#                 page=page,
-#                 btn_back=True,
-#                 name_btn_back='◀️ Назад в меню'
-#             ),
-#             parse_mode='HTML'
-#         )
-#     except Exception:
-#         pass
-# @router.callback_query(F.data == "show_selected_work_types", WorkStates.worker_choose_work_types)
-# async def show_selected_work_types_handler(callback: CallbackQuery, state: FSMContext) -> None:
-#     """Показать выбранные направления"""
-#     logger.debug(f'show_selected_work_types_handler...')
-#     kbc = KeyboardCollection()
-
-#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-
-#     # Получаем лимит направлений из ранга
-#     from app.data.database.models import WorkerRank
-#     worker_rank = await WorkerRank.get_or_create_rank(worker.id)
-#     rank_work_types_limit = worker_rank.get_work_types_limit()
-
-#     # Определяем лимит направлений
-#     if worker_sub.unlimited_work_types:
-#         count_work_types = 100
-#     else:
-#         count_work_types = rank_work_types_limit or 1
-
-#     # Получаем выбранные направления
-#     selected_ids = worker_sub.work_type_ids if worker_sub.work_type_ids else []
-
-#     if not selected_ids:
-#         await callback.answer("У вас нет выбранных направлений", show_alert=True)
-#         return
-
-#     # Получаем объекты выбранных направлений
-#     selected_work_types = []
-#     for work_type_id in selected_ids:
-#         work_type = await WorkType.get_work_type(id=int(work_type_id))
-#         if work_type:
-#             selected_work_types.append(work_type)
-
-#     text = "📋 **Выбранные направления работ**\n\n"
-#     text += f"**Всего выбрано:** {len(selected_work_types)}/{count_work_types if count_work_types < 100 else '∞'}\n\n"
-#     text += "Нажмите на направление, чтобы удалить его:"
-
-#     try:
-#         await callback.message.answer(
-#             text=text,
-#             reply_markup=kbc.show_selected_work_types(
-#                 selected_work_types=selected_work_types,
-#                 count_work_types=count_work_types
-#             ),
-#             parse_mode='HTML'
-#         )
-#     except Exception:
-#         pass
-
-
-# @router.callback_query(F.data == "back", WorkStates.worker_choose_work_types)
-# async def back_from_work_types(callback: CallbackQuery, state: FSMContext) -> None:
-#     """Возврат из выбора направлений в меню"""
-#     logger.debug(f'back_from_work_types...')
-
-#     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-#     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-
-#     # Получаем исходное состояние направлений
-#     state_data = await state.get_data()
-#     original_work_types = set(state_data.get('original_work_types', []))
-
-#     # Получаем текущее состояние
-#     current_work_types = set(worker_sub.work_type_ids if worker_sub.work_type_ids else [])
-
-#     # Проверяем, были ли изменения
-#     if original_work_types != current_work_types:
-#         # Были изменения - регистрируем
-#         from app.data.database.models import WorkerWorkTypeChanges
-#         work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
-
-#         logger.info(f'[WORK_TYPES] Worker {worker.id} changing work types. Original: {original_work_types}, Current: {current_work_types}')
-
-#         await work_type_changes.register_change()
-
-#         logger.info(f'[WORK_TYPES] Worker {worker.id} registered change. Total changes: {work_type_changes.changes_count}/3')
-
-#         # Если достигли лимита - покажем уведомление
-#         if work_type_changes.changes_count >= 3:
-#             from datetime import datetime
-#             if work_type_changes.reset_date:
-#                 reset_date = datetime.strptime(work_type_changes.reset_date, '%Y-%m-%d %H:%M:%S')
-#                 days_left = (reset_date - datetime.now()).days + 1
-#                 await callback.answer(
-#                     f"⚠️ Вы использовали все 3 изменения направлений.\nСледующее изменение будет доступно через {days_left} дней.",
-#                     show_alert=True
-#                 )
-#         else:
-#             remaining = 3 - work_type_changes.changes_count
-#             await callback.answer(
-#                 f"✅ Изменения сохранены!\nОсталось изменений: {remaining}/3",
-#                 show_alert=False
-#             )
-#     else:
-#         logger.info(f'[WORK_TYPES] Worker {worker.id} exited without changes')
-
-#     # Возвращаемся в меню
-#     await state.set_state(WorkStates.worker_menu)
-#     await show_worker_menu(callback, state, worker)
 
 
 @router.callback_query(F.data == "add_city", WorkStates.worker_menu)
@@ -4783,12 +4344,9 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
     # Получаем базовую цену за месяц для указанного количества городов
     tariff = await CitySubscriptionTariff.get_by_city_count(city_count)
     if not tariff:
-        # Если тарифа нет, используем дефолтную цену 90₽
-        base_price_rub = 90
         base_price_kopecks = 9000
     else:
         base_price_kopecks = tariff.price_per_month
-        base_price_rub = base_price_kopecks / 100
 
     # Получаем все доступные скидки из БД
     discounts = await CitySubscriptionDiscount.get_all()
@@ -5244,7 +4802,6 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
 
     # Получаем названия основных городов (оптимизировано)
     cities_dict = {city.id: city.city for city in all_cities}
-    main_city_names = [cities_dict.get(city_id, f"Город {city_id}") for city_id in worker.city_id]
 
     # Определяем доступные невыбранные города
     unselected_available = [city for city in available_cities if city.id not in selected_cities]
@@ -5264,7 +4821,6 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
         text += f"💡 <b>Напишите название города</b> для поиска или выберите из списка ниже:\n"
         if selected_cities:
             text += f"💡 Нажмите на выбранный город (✅), чтобы убрать его из выбора.\n"
-        text += f"Выберите еще {city_count - len(selected_cities)} город"
 
     builder = InlineKeyboardBuilder()
 
@@ -5301,10 +4857,10 @@ async def choose_subscription_cities(callback: CallbackQuery, state: FSMContext)
         total_pages = (len(unselected_available) + cities_per_page - 1) // cities_per_page
         if total_pages > 1:
             if page > 0:
-                nav_buttons.append(kbc._inline("◀️", f"subscription_city_page_{page - 1}"))
+                nav_buttons.append(kbc._inline("◀️ Назад", f"subscription_city_page_{page - 1}"))
             nav_buttons.append(kbc._inline(f"{page + 1}/{total_pages}", "subscription_city_noop"))
             if page < total_pages - 1:
-                nav_buttons.append(kbc._inline("▶️", f"subscription_city_page_{page + 1}"))
+                nav_buttons.append(kbc._inline("Дальше ▶️", f"subscription_city_page_{page + 1}"))
 
         if nav_buttons:
             builder.row(*nav_buttons)
@@ -5494,9 +5050,6 @@ async def subscription_cities_final_confirm(callback: CallbackQuery, state: FSMC
                     text += f"• {name}\n"
                 text += f"\n"
 
-            text += f"🏙️ Все города в подписке:\n"
-            for name in all_city_names:
-                text += f"• {name}\n"
             text += f"\n💡 Теперь вы будете получать заказы из всех этих городов!"
 
         await callback.message.answer(
@@ -5718,7 +5271,7 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
             builder.add(kbc._inline(f"{months} {month_word} {price_rub}₽",
                                     f"city_period_{months}_{price_rub}"))
 
-        builder.add(kbc._inline("◀️ Назад", "add_city"))
+        builder.add(kbc._inline("🔙 Назад", "add_city"))
         builder.adjust(1)
 
     elif action == "change":
@@ -5861,7 +5414,7 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
         except ValueError:
             text += f"⏰ Безлимит истек\n\n"
 
-    text += f"\n💡 Контакты нужны для получения телефонов заказчиков"
+    text += f"💡 Контакты нужны для получения телефонов заказчиков"
 
     # Используем клавиатуру с тарифами из БД
     keyboard = await kbc.contact_purchase_tariffs()
@@ -6072,7 +5625,7 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
     if has_purchased_cities:
         # Если есть купленные города - показываем опции
         text += "Выберите действие:\n\n"
-        text += "📋 <b>Мои города</b> - просмотр и управление купленными городами\n"
+        text += "📋 <b>Мои города</b> - просмотр и управление купленными городами\n\n"
         text += "🔄 <b>Сменить основной город</b> - изменить основной город из доступных"
 
         # Создаем клавиатуру с опциями
@@ -6081,7 +5634,7 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
 
         builder.add(kbc._inline("📋 Мои города", "worker_my_cities"))
         builder.add(kbc._inline("🔄 Сменить основной город", "worker_change_main_city"))
-        builder.add(kbc._inline("◀️ Назад", "worker_menu"))
+        builder.add(kbc._inline("🏠 Назад", "worker_menu"))
         builder.adjust(1)
 
         # Безопасное редактирование
@@ -6114,7 +5667,7 @@ async def worker_change_city_menu(callback: CallbackQuery, state: FSMContext) ->
 
         builder.add(kbc._inline("🔄 Сменить основной город", "worker_change_main_city"))
         builder.add(kbc._inline("📍 Выбрать город", "worker_choose_city"))
-        builder.add(kbc._inline("◀️ Назад", "worker_menu"))
+        builder.add(kbc._inline("🏠 Назад", "worker_menu"))
         builder.adjust(1)
 
         # Безопасное редактирование
@@ -6156,8 +5709,11 @@ async def worker_change_main_city(callback: CallbackQuery, state: FSMContext) ->
 
     btn_next = True if len(city_names) > 5 else False
 
-    city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(names=city_names, ids=city_ids,
-                                                                 id_now=id_now)
+    city_names, city_ids = help_defs.get_obj_name_and_id_for_btn(
+        names=city_names,
+        ids=city_ids,
+        id_now=id_now
+    )
 
     current_main_city = cities_dict.get(worker.city_id[0], f"Город {worker.city_id[0]}")
 
@@ -6168,8 +5724,14 @@ async def worker_change_main_city(callback: CallbackQuery, state: FSMContext) ->
 
     msg = await callback.message.answer(
         text=text,
-        reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
-                                    btn_next=btn_next, btn_back=True, ),
+        reply_markup=kbc.choose_obj(
+            id_now=id_now,
+            ids=city_ids,
+            names=city_names,
+            menu_btn=True,
+            btn_next=btn_next,
+            btn_back=True
+        ),
         parse_mode='HTML'
     )
     await state.update_data(msg_id=msg.message_id)
@@ -6246,8 +5808,14 @@ async def change_main_city_next(callback: CallbackQuery, state: FSMContext) -> N
                  f"📍 <b>Текущий основной город:</b> {current_main_city}\n\n"
                  f"Выберите город или напишите его текстом\n\n"
                  f'Показано {id_now + len(city_names)} из {count_cities} городов',
-            reply_markup=kbc.choose_obj(id_now=id_now, ids=city_ids, names=city_names,
-                                        btn_next=btn_next, btn_back=btn_back, ),
+            reply_markup=kbc.choose_obj(
+                id_now=id_now,
+                ids=city_ids,
+                names=city_names,
+                menu_btn=True,
+                btn_next=btn_next,
+                btn_back=btn_back
+            ),
             parse_mode='HTML'
         )
         await state.update_data(msg_id=msg.message_id)
@@ -6263,7 +5831,7 @@ async def change_main_city_search(message: Message, state: FSMContext) -> None:
 
     worker = await Worker.get_worker(tg_id=message.from_user.id)
     city_input = message.text
-    state_data = await state.get_data()
+    # state_data = await state.get_data()
     # msg_id = int(state_data.get('msg_id'))
 
     # Получаем ВСЕ города для поиска
@@ -6563,7 +6131,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
             if remaining > 0:
                 text += f"• ⚠️ Осталось выбрать: {remaining} городов\n"
             else:
-                text += f"• ✅ Все города выбраны\n"
+                text += f"\n• ✅ Все города выбраны\n"
             text += "\n"
     else:
         text += "📭 <b>У вас нет активных подписок на дополнительные города</b>\n\n"
@@ -6592,7 +6160,7 @@ async def worker_my_cities(callback: CallbackQuery, state: FSMContext) -> None:
                 f"continue_subscription_cities_{subscription.id}"
             ))
 
-    builder.add(kbc._inline("◀️ Назад", "worker_change_city_menu"))
+    builder.add(kbc._inline("🔙 Назад", "worker_change_city_menu"))
     builder.adjust(1)
 
     await callback.message.answer(
@@ -6670,7 +6238,7 @@ async def worker_rank(callback: CallbackQuery, state: FSMContext) -> None:
 
         # Кнопка назад
         builder = InlineKeyboardBuilder()
-        builder.add(kbc._inline("◀️ Назад", "worker_menu"))
+        builder.add(kbc._inline("🏠 Назад", "worker_menu"))
         builder.adjust(1)
 
         # Пробуем отредактировать текст, если не получится - удаляем и отправляем новое

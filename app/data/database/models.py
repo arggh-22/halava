@@ -158,11 +158,22 @@ class Customer:
             return "Контакты не настроены"
 
         if self.contact_type == "telegram_only":
-            return f"📱 [Профиль Telegram](tg://user?id={self.tg_id}) (@{self.tg_name})"
+            return (
+            f"📱 <b>Telegram:</b> "
+            f"<a href='tg://user?id={self.tg_id}'>@{self.tg_name}</a>\n"
+        )
         elif self.contact_type == "phone_only":
-            return f"📞 [Номер телефона](tel:{self.phone_number}) - {self.phone_number}"
+            return (
+            f"📞 <b>Номер телефона:</b> "
+            f"<a href='tel:{self.phone_number}'>{self.phone_number}</a>"
+        )
         elif self.contact_type == "both":
-            return f"📱 [Профиль Telegram](tg://user?id={self.tg_id}) (@{self.tg_name})\n📞 [Номер телефона](tel:{self.phone_number}) - {self.phone_number}"
+            return (
+            f"📱 <b>Telegram:</b> "
+            f"<a href='tg://user?id={self.tg_id}'>@{self.tg_name}</a>\n"
+            f"📞 <b>Номер телефона:</b> "
+            f"<a href='tel:{self.phone_number}'>{self.phone_number}</a>"
+        )
         else:
             return "Контакты не настроены"
 

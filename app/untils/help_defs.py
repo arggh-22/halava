@@ -1232,17 +1232,19 @@ def get_month_word(months):
     return month_word
 
 
-def get_contact_word(contacts):
-    # Формируем правильное склонение для месяца
+def get_contact_word(contacts: int) -> str:
+    # Берём последние две цифры (на случай чисел типа 11–14)
+    last_two = contacts % 100
+    last_one = contacts % 10
 
-    if contacts == 1:
-        contact_word = "контакт"
-    elif contacts in [2, 3, 4]:
-        contact_word = "контакта"
+    if 11 <= last_two <= 14:
+        return "контактов"
+    elif last_one == 1:
+        return "контакт"
+    elif 2 <= last_one <= 4:
+        return "контакта"
     else:
-        contact_word = "контактов"
-
-    return contact_word
+        return "контактов"
 
 
 async def send_customer_menu(event, customer, state=None, message=None):

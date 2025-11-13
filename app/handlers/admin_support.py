@@ -14,6 +14,19 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+@router.callback_query(lambda c: c.data == 'hide_chat_closed')
+async def hide_chat_closed(callback: CallbackQuery) -> None:
+    """Скрыть сообщение о закрытом чате поддержки"""
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        # Если сообщение уже удалено или недоступно, просто отвечаем
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Error hiding chat closed message: {e}")
+        await callback.answer()
+
+
 @router.callback_query(lambda c: c.data.startswith('admin_delete_dialog_'))
 async def admin_delete_dialog(callback: CallbackQuery, state: FSMContext) -> None:
     """Удаление диалога с пользователем"""
@@ -32,7 +45,7 @@ async def admin_delete_dialog(callback: CallbackQuery, state: FSMContext) -> Non
         await bot.send_message(
             chat_id=user_tg_id, 
             text="💬 Чат с поддержкой закрыт. Если у вас возникнут вопросы, вы можете обратиться в поддержку снова.",
-            reply_markup=kbc.support_btn_simple()
+            reply_markup=kbc.chat_closed_buttons()
         )
     except TelegramBadRequest as e:
         logger.error(f"Failed to send message to user {user_tg_id}: {e}")
