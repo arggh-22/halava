@@ -40,16 +40,21 @@ class DeletePreviousMiddleware(BaseMiddleware):
             # Проверяем, не заблокирован ли пользователь навсегда
             if event.data not in allowed_callbacks:
                 try:
-                    from app.data.database.models import Banned
-                    banned = await Banned.get_banned(tg_id=event.from_user.id)
+                    from app.data.database.models import Banned, Admin
+                    # Проверяем, является ли пользователь админом - админы могут использовать бота даже если заблокированы
+                    is_admin = await Admin.get_by_tg_id(tg_id=event.from_user.id)
                     
-                    if banned and banned.forever and banned.ban_now:
-                        # Пользователь заблокирован навсегда
-                        await event.answer(
-                            "🚫 Ваш аккаунт заблокирован за повторные нарушения правил платформы!",
-                            show_alert=True
-                        )
-                        return  # Блокируем выполнение обработчика
+                    # Проверяем блокировку только если пользователь не админ
+                    if not is_admin:
+                        banned = await Banned.get_banned(tg_id=event.from_user.id)
+                        
+                        if banned and banned.forever and banned.ban_now:
+                            # Пользователь заблокирован навсегда
+                            await event.answer(
+                                "🚫 Ваш аккаунт заблокирован за повторные нарушения правил платформы!",
+                                show_alert=True
+                            )
+                            return  # Блокируем выполнение обработчика
                 except Exception as e:
                     logger.error(f"Ошибка при проверке блокировки: {e}")
         

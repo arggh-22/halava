@@ -82,13 +82,7 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
     # Получаем все данные пользователя одним запросом
     user_data = await get_user_data_optimized(message.chat.id)
 
-    # Проверяем блокировку
-    if user_data['banned_id']:
-        await message_utils.send_message_with_cleanup(message, '⛔️ Упс, вы заблокированы')
-        await state.set_state(BannedStates.banned)
-        return
-
-    # Проверяем админа
+    # Проверяем админа ПЕРЕД проверкой блокировки - админы могут использовать бота даже если заблокированы
     if user_data['admin_id']:
         user_admin = await Admin.get_by_tg_id(tg_id=message.chat.id)
         await state.set_state(UserStates.menu)
@@ -96,6 +90,12 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
             text=f'Добро пожаловать, {user_admin.tg_name}',
             reply_markup=kbc.menu_keyboard(admin=True),
         )
+        return
+
+    # Проверяем блокировку только если пользователь не админ
+    if user_data['banned_id']:
+        await message_utils.send_message_with_cleanup(message, '⛔️ Упс, вы заблокированы')
+        await state.set_state(BannedStates.banned)
         return
 
     # Проверяем исполнителя
@@ -432,19 +432,26 @@ async def user_change_role(message: Message, state: FSMContext) -> None:
         await message.answer('Пользоваться ботом можно только из ЛС')
         return
 
-    if user_baned := await Banned.get_banned(tg_id=message.chat.id):
-        if user_baned.ban_now or user_baned.forever:
-            await message.answer(text='⛔️ Упс, вы заблокированы', reply_markup=kbc.support_btn())
-            await state.set_state(BannedStates.banned)
-            return
+    # Проверяем, является ли пользователь админом ПЕРЕД проверкой блокировки
+    # Админы могут использовать /role даже если заблокированы
+    is_admin = await Admin.get_by_tg_id(tg_id=message.chat.id)
+    
+    # Проверяем блокировку только если пользователь не админ
+    if not is_admin:
+        if user_baned := await Banned.get_banned(tg_id=message.chat.id):
+            if user_baned.ban_now or user_baned.forever:
+                await message.answer(text='⛔️ Упс, вы заблокированы', reply_markup=kbc.support_btn())
+                await state.set_state(BannedStates.banned)
+                return
+    
     if await Worker.get_worker(tg_id=message.chat.id) or await Customer.get_customer(
-            tg_id=message.chat.id) or await Admin.get_by_tg_id(tg_id=message.chat.id):
+            tg_id=message.chat.id) or is_admin:
         # msg = await message.answer(f'Удаляю клавиатуры',
         #                            reply_markup=ReplyKeyboardRemove())
         # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
         await state.set_state(UserStates.menu)
-        if await Admin.get_by_tg_id(tg_id=message.chat.id):
+        if is_admin:
             admin_btn = True
         else:
             admin_btn = False
