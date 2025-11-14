@@ -23,8 +23,8 @@ from app.data.database.models import (
     Worker, Customer, Abs, WorkersAndAbs, ContactExchange, ContactTransaction
 )
 from loaders import bot
-from app.untils.contact_filter import check_message_for_contacts
-from app.untils.checks import fool_check
+from app.untils.contact_filter import check_message_for_contacts, check_message_history_for_contacts
+from app.untils.checks import fool_check, phone_finder
 from app.untils.help_defs import (
     is_content_forbidden, get_contact_word, update_worker_or_customer_chat_status, send_notification_to_customer,
     read_text_file, send_contacts_to_worker
@@ -1727,6 +1727,15 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
             )
             return
 
+        # Проверяем на телефонные номера
+        if phone_finder(message.text):
+            await message.answer(
+                "🚫 <b>Сообщение заблокировано!</b>\n\n"
+                "❌ Обнаружен номер телефона. Используйте кнопку «Запросить контакт» для получения контактов заказчика.",
+                parse_mode='HTML'
+            )
+            return
+
         # Проверяем на запрещенный контент (ссылки, упоминания, номера прописью)
         if is_content_forbidden(message.text):
             await message.answer(
@@ -1766,6 +1775,28 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             await message.answer("❌ Ошибка: отклик не найден")
+            return
+
+        # Проверяем историю переписки исполнителя на попытки передачи контактов
+        worker_message_history = []
+        if response.worker_messages:
+            worker_message_history = [
+                msg for msg in response.worker_messages
+                if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
+            ]
+        
+        history_valid, history_error = check_message_history_for_contacts(
+            message_history=worker_message_history,
+            current_message=message.text,
+            user_type="worker"
+        )
+        
+        if not history_valid:
+            await message.answer(
+                f"🚫 <b>Сообщение заблокировано!</b>\n\n{history_error}\n\n"
+                "Пожалуйста, переформулируйте сообщение.",
+                parse_mode='HTML'
+            )
             return
 
         # Проверяем, не закрыт ли чат (только если контакты куплены)
@@ -1848,6 +1879,15 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
             )
             return
 
+        # Проверяем на телефонные номера
+        if phone_finder(message.text):
+            await message.answer(
+                "🚫 <b>Сообщение заблокировано!</b>\n\n"
+                "❌ Обнаружен номер телефона. Используйте кнопку «Предложить контакты» для передачи контактов исполнителю.",
+                parse_mode='HTML'
+            )
+            return
+
         # Проверяем на запрещенный контент (ссылки, упоминания, номера прописью)
         if is_content_forbidden(message.text):
             await message.answer(
@@ -1887,6 +1927,28 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
         response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
         if not response:
             await message.answer("❌ Ошибка: отклик не найден")
+            return
+
+        # Проверяем историю переписки заказчика на попытки передачи контактов
+        customer_message_history = []
+        if response.customer_messages:
+            customer_message_history = [
+                msg for msg in response.customer_messages
+                if msg and msg.strip()
+            ]
+        
+        history_valid, history_error = check_message_history_for_contacts(
+            message_history=customer_message_history,
+            current_message=message.text,
+            user_type="customer"
+        )
+        
+        if not history_valid:
+            await message.answer(
+                f"🚫 <b>Сообщение заблокировано!</b>\n\n{history_error}\n\n"
+                "Пожалуйста, переформулируйте сообщение.",
+                parse_mode='HTML'
+            )
             return
 
         # Проверяем, не закрыт ли чат (только если контакты куплены)
@@ -2586,6 +2648,17 @@ async def worker_chat_message(message: Message, state: FSMContext):
             )
             return
 
+        # Проверяем на телефонные номера
+        if phone_finder(message.text):
+            kbc = KeyboardCollection()
+            await message.answer(
+                text="🚫 <b>Сообщение заблокировано!</b>\n\n"
+                     "❌ Обнаружен номер телефона. Используйте кнопку «Предложить контакты» для передачи контактов исполнителю.",
+                reply_markup=kbc.menu(),
+                parse_mode='HTML'
+            )
+            return
+
         # Проверяем на запрещенный контент (ссылки, упоминания, номера прописью)
         if is_content_forbidden(message.text):
             kbc = KeyboardCollection()
@@ -2623,6 +2696,41 @@ async def worker_chat_message(message: Message, state: FSMContext):
         worker = await Worker.get_worker(tg_id=message.from_user.id)
         advertisement = await Abs.get_one(id=abs_id)
         customer = await Customer.get_customer(id=advertisement.customer_id)
+
+        # Получаем запись WorkersAndAbs для проверки истории
+        response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
+        if not response:
+            await message.answer("❌ Ошибка: отклик не найден")
+            return
+
+        # Проверяем историю переписки исполнителя на попытки передачи контактов
+        worker_message_history = []
+        if response.worker_messages:
+            if isinstance(response.worker_messages, str):
+                worker_message_history = [
+                    msg for msg in response.worker_messages.split(" | ")
+                    if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
+                ]
+            else:
+                worker_message_history = [
+                    msg for msg in response.worker_messages
+                    if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
+                ]
+        
+        history_valid, history_error = check_message_history_for_contacts(
+            message_history=worker_message_history,
+            current_message=message.text,
+            user_type="worker"
+        )
+        
+        if not history_valid:
+            kbc = KeyboardCollection()
+            await message.answer(
+                text=f"🚫 <b>Сообщение заблокировано!</b>\n\n{history_error}",
+                reply_markup=kbc.menu(),
+                parse_mode='HTML'
+            )
+            return
 
         # Сохраняем сообщение в историю
         worker_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_id)

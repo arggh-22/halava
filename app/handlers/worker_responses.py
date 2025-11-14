@@ -18,8 +18,10 @@ from app.states import WorkStates, CustomerStates
 from app.keyboards import KeyboardCollection
 from app.data.database.models import Worker, Customer, Abs, WorkersAndAbs, ContactExchange, City
 from loaders import bot
-from app.untils.contact_filter import check_message_for_contacts
+from app.untils.contact_filter import check_message_for_contacts, check_message_history_for_contacts
 from app.untils.message_utils import safe_edit_message
+from app.untils.checks import fool_check, phone_finder
+from app.untils.help_defs import is_content_forbidden
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -900,6 +902,42 @@ async def process_response_text(message: Message, state: FSMContext):
             )
             return
 
+        # Проверяем сообщение на телефонные номера
+        if phone_finder(message.text):
+            kbc = KeyboardCollection()
+            await message.answer(
+                text=f"🚫 <b>Сообщение заблокировано!</b>\n\n"
+                     "❌ Обнаружен номер телефона. Используйте кнопку 'Запросить контакт'.\n\n"
+                     "Попробуйте еще раз или откликнитесь без текста.",
+                reply_markup=kbc.menu(),
+                parse_mode='HTML'
+            )
+            return
+
+        # Проверяем на запрещенный контент (ссылки, упоминания, номера прописью)
+        if is_content_forbidden(message.text):
+            kbc = KeyboardCollection()
+            await message.answer(
+                text=f"🚫 <b>Сообщение заблокировано!</b>\n\n"
+                     "Запрещённый контент или контактные данные. Исправьте и отправьте снова.\n\n"
+                     "Попробуйте еще раз или откликнитесь без текста.",
+                reply_markup=kbc.menu(),
+                parse_mode='HTML'
+            )
+            return
+
+        # Проверяем сообщение на запрещенные слова и мат
+        if ban_reason := await fool_check(message.text, is_message=True):
+            kbc = KeyboardCollection()
+            await message.answer(
+                text=f"🚫 <b>Сообщение заблокировано!</b>\n\n"
+                     f"Причина: {ban_reason}\n\n"
+                     "Попробуйте еще раз или откликнитесь без текста.",
+                reply_markup=kbc.menu(),
+                parse_mode='HTML'
+            )
+            return
+
         # Проверка длины сообщения
         if len(message.text) > 500:
             await message.answer(
@@ -923,6 +961,33 @@ async def process_response_text(message: Message, state: FSMContext):
         if not advertisement:
             await message.answer("❌ Объявление не найдено")
             await state.clear()
+            return
+
+        # Проверяем историю переписки исполнителя на попытки передачи контактов
+        response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
+        worker_message_history = []
+        if response and response.worker_messages:
+            # Получаем список сообщений исполнителя (исключаем служебные)
+            worker_message_history = [
+                msg for msg in response.worker_messages
+                if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
+            ]
+        
+        # Проверяем историю переписки
+        history_valid, history_error = check_message_history_for_contacts(
+            message_history=worker_message_history,
+            current_message=message.text,
+            user_type="worker"
+        )
+        
+        if not history_valid:
+            kbc = KeyboardCollection()
+            await message.answer(
+                text=f"🚫 <b>Сообщение заблокировано!</b>\n\n{history_error}\n\n"
+                     "Попробуйте еще раз или откликнитесь без текста.",
+                reply_markup=kbc.menu(),
+                parse_mode='HTML'
+            )
             return
 
         # Проверяем активность исполнителя
