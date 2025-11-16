@@ -1827,7 +1827,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         customer = await Customer.get_customer(tg_id=callback.message.chat.id)
 
         text = (f'{work}\n\n'
-                f'Задача: {task}\n'
+                f'Задача: {task}\n\n'
                 f'Время: {time}\n')
 
         text = help_defs.escape_markdown(text=text)
@@ -1853,7 +1853,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         text = (f'Заблокирован пользователь @{customer.tg_name}\n'
                 f'ID: #{customer.tg_id}\n\n'
                 f'{work}\n\n'
-                f'Задача: {task}\n'
+                f'Задача: {task}\n\n'
                 f'Время: {time}\n'
                 f''
                 f'Причина: Повторяющиеся слова')
@@ -1901,7 +1901,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         return
 
     text = (f'{work}\n\n'
-            f'Задача: {task}\n'
+            f'Задача: {task}\n\n'
             f'Время: {time}\n'
             f'\n'
             f'Дата публикации: {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
@@ -1964,7 +1964,7 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
 
     # Подготавливаем текст для рассылки
     text_for_workers = (f'{work}\n\n'
-                        f'Задача: {task}\n'
+                        f'Задача: {task}\n\n'
                         f'Время: {time}\n'
                         f'\n'
                         f'Дата публикации: {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
@@ -2068,7 +2068,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         customer = await Customer.get_customer(tg_id=callback.message.chat.id)
 
         text = (f'{work}\n\n'
-                f'Задача: {task}\n'
+                f'Задача: {task}\n\n'
                 f'Время: {time}\n')
 
         text = help_defs.escape_markdown(text=text)
@@ -2094,7 +2094,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         text = (f'Заблокирован пользователь @{customer.tg_name}\n'
                 f'Общий ID пользователя: #{customer.tg_id}\n\n'
                 f'{work}\n\n'
-                f'Задача: {task}\n'
+                f'Задача: {task}\n\n'
                 f'Время: {time}\n'
                 f''
                 f'Причина: Текст на фото')
@@ -2148,7 +2148,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         customer = await Customer.get_customer(tg_id=callback.message.chat.id)
 
         text = (f'{work}\n\n'
-                f'Задача: {task}\n'
+                f'Задача: {task}\n\n'
                 f'Время: {time}\n')
 
         text = help_defs.escape_markdown(text=text)
@@ -2176,7 +2176,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         text = (f'Заблокирован пользователь @{customer.tg_name}\n'
                 f'ID: #{customer.tg_id}\n\n'
                 f'{work}\n\n'
-                f'Задача: {task}\n'
+                f'Задача: {task}\n\n'
                 f'Время: {time}\n'
                 f''
                 f'Причина блокировки: {ban_reason}')
@@ -2255,7 +2255,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         customer = await Customer.get_customer(tg_id=callback.message.chat.id)
 
         text = (f'{work}\n\n'
-                f'Задача: {task}\n'
+                f'Задача: {task}\n\n'
                 f'Время: {time}\n')
 
         text = help_defs.escape_markdown(text=text)
@@ -2281,7 +2281,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         text = (f'Заблокирован пользователь @{customer.tg_name}\n'
                 f'ID: #{customer.tg_id}\n\n'
                 f'{work}\n\n'
-                f'Задача: {task}\n'
+                f'Задача: {task}\n\n'
                 f'Время: {time}\n'
                 f''
                 f'Причина: Повторяющиеся слова')
@@ -2330,7 +2330,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     work = work_type.work_type.capitalize()
 
     text = (f'{work}\n\n'
-            f'Задача: {task}\n'
+            f'Задача: {task}\n\n'
             f'Время: {time}\n'
             f'\n'
             f'Дата публикации {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
@@ -2405,7 +2405,7 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
 
     # Подготавливаем текст для рассылки
     text_for_workers = (f'{work}\n\n'
-                        f'Задача: {task}\n'
+                        f'Задача: {task}\n\n'
                         f'Время: {time}\n'
                         f'\n'
                         f'Дата публикации {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')

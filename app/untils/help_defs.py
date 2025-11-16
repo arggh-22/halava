@@ -9,6 +9,7 @@ from aiogram.exceptions import TelegramBadRequest
 from bs4 import BeautifulSoup
 from datetime import datetime, date
 from PIL import Image, ImageEnhance
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.data.database.models import Abs, City
 from app.keyboards import KeyboardCollection
@@ -1270,6 +1271,7 @@ async def send_customer_menu(event, customer, state=None, message=None):
 
 async def update_worker_or_customer_chat_status(message, data, state, worker=None):
     from loaders import bot
+    kbc = KeyboardCollection()
 
     if worker:
         # Перед отправкой нового статуса пытаемся удалить предыдущий, чтобы не копить уведомления
@@ -1284,7 +1286,17 @@ async def update_worker_or_customer_chat_status(message, data, state, worker=Non
             except Exception as delete_error:
                 logger.error(f"[WORKER_CHAT] Unexpected error deleting status message: {delete_error}")
 
-        sent_status_message = await message.answer("Сообщение успешно отправлено ✅")
+        # Кнопка "Продолжить" открывает карточку отклика с историей и кнопками
+        abs_id = data.get('current_chat_abs_id')
+        reply_markup = None
+        if abs_id:
+            builder = InlineKeyboardBuilder()
+            # Открываем экран моего отклика (включает историю и действия)
+            builder.add(kbc._inline(button_text="Продолжить", callback_data=f"view_my_response_{abs_id}"))
+            builder.adjust(1)
+            reply_markup = builder.as_markup()
+
+        sent_status_message = await message.answer("Сообщение успешно отправлено ✅", reply_markup=reply_markup)
         await state.update_data(worker_chat_status_message_id=sent_status_message.message_id)
     else:
         # Перед отправкой нового статуса пытаемся удалить предыдущий, чтобы не копить уведомления
@@ -1299,7 +1311,18 @@ async def update_worker_or_customer_chat_status(message, data, state, worker=Non
             except Exception as delete_error:
                 logger.error(f"[CUSTOMER_CHAT] Unexpected error deleting status message: {delete_error}")
 
-        sent_status_message = await message.answer("Сообщение успешно отправлено ✅")
+        # Кнопка "Продолжить" возвращает заказчика к истории отклика (просмотр отклика)
+        abs_id = data.get('current_chat_abs_id')
+        worker_id = data.get('current_chat_worker_id')
+        reply_markup = None
+        if abs_id and worker_id:
+            builder = InlineKeyboardBuilder()
+            # Показываем карточку отклика, где выводится история переписки
+            builder.add(kbc._inline(button_text="Продолжить", callback_data=f"view_response_{worker_id}_{abs_id}"))
+            builder.adjust(1)
+            reply_markup = builder.as_markup()
+
+        sent_status_message = await message.answer("Сообщение успешно отправлено ✅", reply_markup=reply_markup)
         await state.update_data(customer_chat_status_message_id=sent_status_message.message_id)
 
 

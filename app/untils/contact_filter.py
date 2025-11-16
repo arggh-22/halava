@@ -197,13 +197,13 @@ class ContactFilter:
         for pattern in cls.PHONE_PATTERNS:
             if re.search(pattern, text, re.IGNORECASE):
                 logger.warning(f"Phone number detected in message: {text[:50]}")
-                return False, "❌ Обнаружен номер телефона. Используйте кнопку 'Запросить контакт'."
+                return False, "❌ Обнаружен номер телефона. Используйте кнопку «Запросить контакт»."
         
         # Проверка на email
         for pattern in cls.EMAIL_PATTERNS:
             if re.search(pattern, text, re.IGNORECASE):
                 logger.warning(f"Email detected in message: {text[:50]}")
-                return False, "❌ Обнаружен email. Используйте кнопку 'Запросить контакт'."
+                return False, "❌ Обнаружен email. Используйте кнопку «Запросить контакт»."
         
         # Проверка на ссылки
         for pattern in cls.LINK_PATTERNS:
@@ -215,19 +215,19 @@ class ContactFilter:
         for pattern in cls.MESSENGER_PATTERNS:
             if re.search(pattern, text, re.IGNORECASE):
                 logger.warning(f"Messenger detected in message: {text[:50]}")
-                return False, "❌ Обнаружено упоминание мессенджера. Используйте кнопку 'Запросить контакт'."
+                return False, "❌ Обнаружено упоминание мессенджера. Используйте кнопку «Запросить контакт»."
         
         # Проверка на "разбитые" контакты
         for pattern in cls.BROKEN_CONTACT_PATTERNS:
             if re.search(pattern, text, re.IGNORECASE):
                 logger.warning(f"Broken contact detected in message: {text[:50]}")
-                return False, "❌ Обнаружена попытка передачи контакта. Используйте кнопку 'Запросить контакт'."
+                return False, "❌ Обнаружена попытка передачи контакта. Используйте кнопку «Запросить контакт»."
         
         # Проверка на запрещенные слова
         for word in cls.FORBIDDEN_WORDS:
             if word in text_lower:
                 logger.warning(f"Forbidden word '{word}' detected in message: {text[:50]}")
-                return False, f"❌ Обнаружено запрещенное слово '{word}'. Используйте кнопку 'Запросить контакт'."
+                return False, f"❌ Обнаружено запрещенное слово '{word}'. Используйте кнопку «Запросить контакт»."
         
         # Проверка на латиницу (более 2 латинских букв подряд)
         if re.search(cls.LATIN_PATTERN, text):
@@ -269,7 +269,7 @@ class ContactFilter:
             # Если есть 3+ группы чисел/числительных подряд или 4+ всего - подозрительно
             if max_consecutive >= 3 or number_groups >= 4:
                 logger.warning(f"Suspicious combination of digits and number words detected: {text[:50]} (groups: {number_groups}, consecutive: {max_consecutive})")
-                return False, "❌ Обнаружена попытка передачи контакта. Используйте кнопку 'Запросить контакт'."
+                return False, "❌ Обнаружена попытка передачи контакта. Используйте кнопку «Запросить контакт»."
 
         # Проверка на номера, написанные словами (комбинации цифр и числительных)
         # Ищем комбинации: цифры + числительные + цифры (минимум 3 группы подряд)
@@ -278,7 +278,7 @@ class ContactFilter:
         mixed_number_pattern = rf'(?:[0-9]{{1,4}}|{number_words_pattern})[\s]+(?:[0-9]{{1,4}}|{number_words_pattern})[\s]+(?:[0-9]{{1,4}}|{number_words_pattern})'
         if re.search(mixed_number_pattern, text_lower, re.IGNORECASE):
             logger.warning(f"Phone number written in words detected: {text[:50]}")
-            return False, "❌ Обнаружен номер телефона, написанный словами. Используйте кнопку 'Запросить контакт'."
+            return False, "❌ Обнаружен номер телефона, написанный словами. Используйте кнопку «Запросить контакт»."
         
         return True, ""
 
@@ -448,7 +448,7 @@ def check_message_history_for_contacts(
         # Строгая проверка на паттерн номера
         if could_be_phone_number(last_digits):
             logger.warning(f"Phone number pattern detected in history: {last_digits[:5]}...")
-            return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку 'Запросить контакт'."
+            return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку «Запросить контакт»."
         
         # Дополнительная проверка: если накопилось 11 цифр - проверяем все возможные паттерны
         if len(all_digits) >= 11:
@@ -457,15 +457,15 @@ def check_message_history_for_contacts(
             # Паттерн: 8 + 9 + 0... (890...) - самый распространенный
             if last_11[0] == '8' and len(last_11) > 1 and last_11[1] == '9':
                 logger.warning(f"Phone number pattern detected (890...): {last_11[:5]}...")
-                return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку 'Запросить контакт'."
+                return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку «Запросить контакт»."
             # Паттерн: 7 + 9 + ... (79...)
             elif last_11[0] == '7' and len(last_11) > 1 and last_11[1] == '9':
                 logger.warning(f"Phone number pattern detected (79...): {last_11[:5]}...")
-                return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку 'Запросить контакт'."
+                return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку «Запросить контакт»."
             # Паттерн: начинается с 9 (9...) - номер без первой цифры
             elif last_11[0] == '9' and len(last_11) > 1 and last_11[1].isdigit():
                 logger.warning(f"Phone number pattern detected (9...): {last_11[:5]}...")
-                return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку 'Запросить контакт'."
+                return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку «Запросить контакт»."
         
         # Проверяем также паттерны для 10 цифр (если не 11)
         elif len(all_digits) == 10:
@@ -473,7 +473,7 @@ def check_message_history_for_contacts(
             # Если начинается с 9 - это номер без первой цифры
             if last_10[0] == '9' and len(last_10) > 1 and last_10[1].isdigit():
                 logger.warning(f"Phone number pattern detected (10 digits): {last_10[:5]}...")
-                return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку 'Запросить контакт'."
+                return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку «Запросить контакт»."
         
         # Дополнительная проверка: если накопилось 11+ цифр, проверяем все возможные комбинации
         if len(all_digits) >= 11:
@@ -482,7 +482,7 @@ def check_message_history_for_contacts(
                 test_digits = all_digits[i:i+11]
                 if could_be_phone_number(test_digits):
                     logger.warning(f"Phone number pattern detected in sequence: {test_digits[:5]}...")
-                    return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку 'Запросить контакт'."
+                    return False, "❌ Обнаружена попытка передачи номера телефона через несколько сообщений. Используйте кнопку «Запросить контакт»."
         
         # Проверяем, если накопилось 8+ цифр без контекста
         # Но только если это в 2+ сообщениях и нет текста между ними
@@ -512,7 +512,7 @@ def check_message_history_for_contacts(
                         # Дополнительная проверка: если это может быть номер - блокируем строже
                         # Если не похоже на номер, но все равно много цифр подряд - тоже блокируем
                         logger.warning(f"Too many digits accumulated without context: {len(all_digits)} digits in {len(messages_with_digits)} consecutive messages")
-                        return False, "❌ Обнаружена попытка передачи контакта. Слишком много цифр без контекста. Используйте кнопку 'Запросить контакт'."
+                        return False, "❌ Обнаружена попытка передачи контакта. Слишком много цифр без контекста. Используйте кнопку «Запросить контакт»."
     
     # Проверка 3: Комбинация цифр и числительных в истории
     # Проверяем только сообщения без разрешенного контекста
@@ -537,7 +537,7 @@ def check_message_history_for_contacts(
         # Снижаем порог до 5 групп для более строгой проверки
         if total_number_groups >= 5:
             logger.warning(f"Combination of digits and number words detected: {total_number_groups} groups")
-            return False, "❌ Обнаружена попытка передачи контакта через комбинацию цифр и слов. Используйте кнопку 'Запросить контакт'."
+            return False, "❌ Обнаружена попытка передачи контакта через комбинацию цифр и слов. Используйте кнопку «Запросить контакт»."
     
     return True, ""
 

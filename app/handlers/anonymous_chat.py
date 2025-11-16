@@ -590,7 +590,7 @@ async def format_contact_transactions_history(worker_id: int, limit: int = 20) -
                 tariff_text = f" (тариф: {tariff_name})" if tariff_name else ""
                 price_text = f" за {price_rub}₽" if price_rub is not None else ""
                 contacts_text = f"{amount} {get_contact_word(amount)}" if amount else "Покупка контактов"
-                lines.append(f"🟢 {date_str} — Куплено {contacts_text}{tariff_text}{price_text}")
+                lines.append(f"✅ {date_str} — Куплено {contacts_text}{tariff_text}{price_text}")
             elif tx.action == "unlimited_purchase":
                 tariff_name = details.get("tariff_name")
                 valid_until = details.get("valid_until")
@@ -605,14 +605,14 @@ async def format_contact_transactions_history(worker_id: int, limit: int = 20) -
                 else:
                     until_text = ""
                 name_text = f"{tariff_name}" if tariff_name else "Безлимит"
-                lines.append(f"🟢 {date_str} — Оформлен безлимит {name_text}{until_text}{price_text}")
+                lines.append(f"✅ {date_str} — Оформлен безлимит {name_text}{until_text}{price_text}")
             elif tx.action == "usage":
                 abs_id = tx.abs_id or details.get("abs_id")
                 source = details.get("source", "purchased")
                 spent = details.get("contacts_spent") or abs(tx.change_amount) or 1
                 abs_text = f"объявлению #{abs_id}" if abs_id else "объявлению (ID не указан)"
                 if source == "unlimited":
-                    lines.append(f"⚪ {date_str} — Контакт передан по {abs_text} (безлимит)")
+                    lines.append(f"🔽 {date_str} — Контакт передан по {abs_text} (безлимит)")
                 else:
                     contact_word = get_contact_word(spent)
                     lines.append(f"🔻 {date_str} — Списано {spent} {contact_word} для {abs_text}")
@@ -1293,7 +1293,7 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
             f"🔔 <b>Заказчик предлагает передать контакты!</b>\n\n"
             f"📋 Объявление: #{abs_id}\n"
             f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
-            f"📝 <b>Текст объявления:</b>\n{ad_text}"
+            f"{ad_text}"
             f"Хотите получить контакты заказчика?"
         )
 
@@ -1597,7 +1597,7 @@ async def back_to_contact_offer(callback: CallbackQuery, state: FSMContext):
             f"🔔 <b>Заказчик предлагает передать контакты!</b>\n\n"
             f"📋 Объявление: #{abs_id}\n"
             f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
-            f"📝 <b>Текст объявления:</b>\n{ad_text}"
+            f"{ad_text}"
             f"Хотите получить контакты заказчика?"
         )
 

@@ -907,7 +907,7 @@ async def process_response_text(message: Message, state: FSMContext):
             kbc = KeyboardCollection()
             await message.answer(
                 text=f"🚫 <b>Сообщение заблокировано!</b>\n\n"
-                     "❌ Обнаружен номер телефона. Используйте кнопку 'Запросить контакт'.\n\n"
+                     "❌ Обнаружен номер телефона. Используйте кнопку «Запросить контакт».\n\n"
                      "Попробуйте еще раз или откликнитесь без текста.",
                 reply_markup=kbc.menu(),
                 parse_mode='HTML'

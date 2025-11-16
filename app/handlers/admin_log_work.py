@@ -134,8 +134,7 @@ async def unblock_advertisement(callback: CallbackQuery) -> None:
     work = work_type.work_type.capitalize()
     
     text_for_workers = (f'{work}\n\n'
-                       f'Задача: {text}\n'
-                       f'\n'
+                       f'Задача: {text}\n\n'
                        f'Дата публикации {datetime.now().strftime("%d.%m.%Y")} в {datetime.now().strftime("%H:%M")}')
 
     text_for_workers = help_defs.escape_markdown(text=text_for_workers)

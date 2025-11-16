@@ -24,7 +24,7 @@ async def ban_task(message, work_type_id, task, time, ban_reason, msg):
     customer = await Customer.get_customer(tg_id=message.chat.id)
 
     text = (f'{work}\n\n'
-            f'Задача: {task}\n'
+            f'Задача: {task}\n\n'
             f'Время: {time}\n')
 
     text = help_defs.escape_markdown(text)
@@ -51,7 +51,7 @@ async def ban_task(message, work_type_id, task, time, ban_reason, msg):
     text = (f'Заблокирован пользователь @{customer.tg_name}\n'
             f'Общий ID пользователя: #{customer.tg_id}\n\n'
             f'{work}\n\n'
-            f'Задача: {task}\n'
+            f'Задача: {task}\n\n'
             f'Время: {time}\n'
             f'\n'
             f'{ban_reason}')
