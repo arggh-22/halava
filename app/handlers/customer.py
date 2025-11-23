@@ -2734,6 +2734,37 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
             f'[DEBUG] Message already sent to worker {worker.tg_id} for advertisement {advertisement_id}, skipping')
         return
 
+    # Проверяем активность исполнителя - если не может откликнуться, не отправляем объявление
+    from app.data.database.models import WorkerDailyResponses
+    from datetime import date
+
+    # Проверяем, что у исполнителя есть поле activity_level
+    if not hasattr(worker, 'activity_level') or worker.activity_level is None:
+        worker.activity_level = 100  # Значение по умолчанию
+
+    today = date.today().isoformat()
+    responses_today = await WorkerDailyResponses.get_responses_count(worker.id, today)
+
+    # Проверяем возможность отклика с fallback
+    if not hasattr(worker, 'can_make_response'):
+        # Fallback логика
+        if worker.activity_level >= 74:
+            can_respond = True
+        elif worker.activity_level >= 48:
+            can_respond = responses_today < 3
+        elif worker.activity_level >= 9:
+            can_respond = responses_today < 1
+        else:
+            can_respond = False
+    else:
+        can_respond = worker.can_make_response(responses_today)
+
+    # Если исполнитель не может откликнуться (красная зона или превышен лимит), не отправляем объявление
+    if not can_respond:
+        logger.info(
+            f'[DEBUG] Worker {worker.tg_id} cannot respond (activity_level={worker.activity_level}, responses_today={responses_today}), skipping advertisement {advertisement_id}')
+        return
+
     try:
         kbc = KeyboardCollection()
 

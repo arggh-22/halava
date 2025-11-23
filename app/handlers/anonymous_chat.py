@@ -1019,6 +1019,11 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
 
         customer = await Customer.get_customer(id=advertisement.customer_id)
 
+        # Регистрируем отказ от покупки контактов
+        from app.data.database.models import WorkerContactPurchaseDeclines
+        decline_record = await WorkerContactPurchaseDeclines.get_or_create(worker.id)
+        decline_count, was_blocked = await decline_record.add_decline()
+
         # Уведомляем заказчика об отказе
         ad_text = read_text_file(advertisement.text_path) if advertisement.text_path else ""
         if ad_text:
@@ -1048,8 +1053,27 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
         if contact_exchange:
             await contact_exchange.delete()
 
-        # Обновляем сообщение исполнителя
-        await callback.answer("❌ Вы отказались от покупки контактов", show_alert=True)
+        # Обработка уведомлений и блокировок
+        if decline_count == 4:
+            # На 4-й отказ - предупреждение
+            await callback.answer(
+                "⚠️ Вы снова отменили получение контакта заказчика.\n\n"
+                "При повторе аккаунт будет временно заблокирован!",
+                show_alert=True
+            )
+        elif decline_count >= 5 and was_blocked:
+            # На 5-й отказ - блокировка
+            kbc = KeyboardCollection()
+            await callback.message.answer(
+                text="⛔️ Ваш аккаунт временно заблокирован на 24 часа за частые отмены получения контактов заказчиков.\n\n"
+                     "Повторные отмены мешают работе платформы и снижают доверие заказчиков. Через 24 часа блокировка автоматически снимется — пожалуйста, в дальнейшем принимайте только те контакты, которые готовы обработать.",
+                reply_markup=kbc.menu_btn(),
+                parse_mode='HTML'
+            )
+            return
+        else:
+            # Обычный отказ
+            await callback.answer("❌ Вы отказались от покупки контактов", show_alert=True)
 
         # Возвращаем исполнителя к отклику
         new_callback = callback.model_copy(update={'data': f"view_my_response_{abs_id}"})
@@ -2285,13 +2309,7 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
             text += "Для получения контактов необходимо их купить."
         elif waiting_confirmation:
             # Ожидаем подтверждения от заказчика
-            text += (
-                "⏳ <b>Статус:</b> Ожидание подтверждения заказчика\n\n"
-                "Вы запросили контакт заказчика.\n"
-                "Вы запросили контакт заказчика.\n"
-                "Заказчик должен подтвердить передачу контакта.\n"
-                "После подтверждения вам будет предложено приобрести контакт."
-            )
+            text += "⏳ <b>Статус:</b> Ожидание подтверждения заказчика\n\n"
         else:
             # Можно запросить контакты
             text += "💬 <b>Чат активен</b>\n\n Вы можете написать сообщение заказчику или запросить контакт."
@@ -2825,6 +2843,26 @@ async def worker_chat_message(message: Message, state: FSMContext):
 
 @router.callback_query(lambda c: c.data.startswith('request_contact_'))
 async def request_contact(callback: CallbackQuery, state: FSMContext):
+    """Обработчик запроса контакта исполнителем"""
+    # Проверяем блокировку за отказы от покупки контактов
+    worker = await Worker.get_worker(tg_id=callback.from_user.id)
+    if worker:
+        from app.data.database.models import WorkerContactPurchaseDeclines
+        decline_record = await WorkerContactPurchaseDeclines.get_by_worker(worker.id)
+        if decline_record and decline_record.is_currently_blocked():
+            await callback.answer(
+                "⛔️ Вы заблокированы за частые отмены получения контактов заказчиков.\n\n"
+                "Причина: отказ получение контакта заказчика\n\n"
+                "Блокировка будет снята автоматически через 24 часа.",
+                show_alert=True
+            )
+            return
+    
+    # Продолжаем выполнение оригинальной функции
+    await request_contact_original(callback, state)
+
+
+async def request_contact_original(callback: CallbackQuery, state: FSMContext):
     """Исполнитель запрашивает контакт заказчика"""
     try:
         abs_id = int(callback.data.split('_')[2])
@@ -3155,55 +3193,8 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
 
                     await send_contacts_to_worker(worker, customer, target_abs_id, ad_text, contacts_text)
 
-                    # # Формируем текст сообщения с объявлением
-                    # message_text = f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{target_abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n"
-                    # if ad_text:
-                    #     message_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
-                    # message_text += contacts_text
-                    #
-                    # worker_keyboard = InlineKeyboardBuilder()
-                    # worker_keyboard.add(kbc._inline(
-                    #     button_text="⏪ Перейти к отклику",
-                    #     callback_data=f"view_my_response_{target_abs_id}"
-                    # ))
-                    # worker_keyboard.add(kbc._inline(
-                    #     button_text="🏠 В меню",
-                    #     callback_data="worker_menu"
-                    # ))
-                    # worker_keyboard.adjust(1)
-                    #
-                    # await bot.send_message(
-                    #     chat_id=worker.tg_id,
-                    #     text=message_text,
-                    #     parse_mode='HTML',
-                    #     reply_markup=worker_keyboard.as_markup()
-                    # )
-
                     # Формируем текст сообщения с объявлением
                     await send_notification_to_customer(customer, worker, target_abs_id, ad_text)
-                    # notification_text = f"✅ <b>Контакты переданы исполнителю!</b>\n\n📋 Объявление: #{target_abs_id}\n👤 Исполнитель: {f'ID#{worker.id}'}\n\n"
-                    # if ad_text:
-                    #     notification_text += f"📝 <b>Текст объявления:</b>\n{ad_text}\n\n"
-                    # notification_text += "💬 Чат закрыт - теперь общайтесь напрямую."
-                    #
-                    # customer_keyboard = InlineKeyboardBuilder()
-                    # customer_keyboard.add(kbc._inline(
-                    #     button_text="⏪ Перейти к отклику",
-                    #     callback_data=f"view_response_{worker.id}_{target_abs_id}"
-                    # ))
-                    # customer_keyboard.add(kbc._inline(
-                    #     button_text="🏠 В меню",
-                    #     callback_data="customer_menu"
-                    # ))
-                    # customer_keyboard.adjust(1)
-                    #
-                    # kbc = KeyboardCollection()
-                    # await bot.send_message(
-                    #     chat_id=customer.tg_id,
-                    #     text=notification_text,
-                    #     parse_mode='HTML',
-                    #     reply_markup=customer_keyboard.as_markup()
-                    # )
 
                     # Закрываем чат
                     response = await WorkersAndAbs.get_by_worker_and_abs(target_worker_id, target_abs_id)
@@ -3432,9 +3423,6 @@ async def navigate_photo_worker_response(callback: CallbackQuery, state: FSMCont
     elif waiting_confirmation:
         # Ожидаем подтверждения от заказчика
         text += "⏳ <b>Статус:</b> Ожидание подтверждения заказчика\n\n"
-        text += "Вы запросили контакт заказчика.\n"
-        text += "Заказчик должен подтвердить передачу контакта.\n"
-        text += "После подтверждения вам будет предложено приобрести контакт."
     else:
         # Можно запросить контакты
         text += "💬 <b>Чат активен</b>\n\n"

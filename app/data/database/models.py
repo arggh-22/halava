@@ -4306,6 +4306,24 @@ class WorkerDailyResponses:
         record = await cls.get_by_worker_and_date(worker_id, date)
         return record.responses_count if record else 0
 
+    @classmethod
+    async def cleanup_old_records(cls, days_to_keep: int = 7) -> int:
+        """Удаляет старые записи об откликах (старше указанного количества дней)"""
+        from datetime import date, timedelta
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cutoff_date = (date.today() - timedelta(days=days_to_keep)).isoformat()
+            cursor = await conn.execute(
+                'DELETE FROM worker_daily_responses WHERE date < ?',
+                (cutoff_date,)
+            )
+            deleted_count = cursor.rowcount
+            await conn.commit()
+            await cursor.close()
+            return deleted_count
+        finally:
+            await conn.close()
+
 
 class WorkerStatus:
     """Модель для хранения статусов исполнителей (ИП, ООО, СЗ)"""
@@ -4681,3 +4699,184 @@ class WorkerWorkTypeChanges:
             self.reset_date = reset_date.strftime('%Y-%m-%d %H:%M:%S')
 
         await self.save()
+
+
+class WorkerContactPurchaseDeclines:
+    """Модель для отслеживания отказов исполнителей от покупки контактов"""
+    
+    def __init__(self, id: int | None, worker_id: int, decline_count: int, 
+                 is_blocked: bool, blocked_until: str | None, last_decline_date: str | None):
+        self.id = id
+        self.worker_id = worker_id
+        self.decline_count = decline_count
+        self.is_blocked = is_blocked
+        self.blocked_until = blocked_until
+        self.last_decline_date = last_decline_date
+
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        """Создает таблицу для отслеживания отказов от покупки контактов"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS worker_contact_purchase_declines
+                (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    worker_id INTEGER NOT NULL UNIQUE,
+                    decline_count INTEGER DEFAULT 0,
+                    is_blocked INTEGER DEFAULT 0,
+                    blocked_until TEXT,
+                    last_decline_date TEXT
+                )
+            ''')
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    async def save(self) -> None:
+        """Сохраняет или обновляет запись"""
+        await self.create_table_if_not_exists()
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            if self.id:
+                # Обновление существующей записи
+                await conn.execute('''
+                    UPDATE worker_contact_purchase_declines
+                    SET decline_count = ?, is_blocked = ?, blocked_until = ?, last_decline_date = ?
+                    WHERE id = ?
+                ''', (self.decline_count, 1 if self.is_blocked else 0, self.blocked_until, 
+                      self.last_decline_date, self.id))
+            else:
+                # Создание новой записи
+                cursor = await conn.execute('''
+                    INSERT INTO worker_contact_purchase_declines 
+                    (worker_id, decline_count, is_blocked, blocked_until, last_decline_date)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (self.worker_id, self.decline_count, 1 if self.is_blocked else 0, 
+                      self.blocked_until, self.last_decline_date))
+                self.id = cursor.lastrowid
+                await cursor.close()
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_by_worker(cls, worker_id: int) -> Optional['WorkerContactPurchaseDeclines']:
+        """Получает запись по ID исполнителя"""
+        await cls.create_table_if_not_exists()
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('''
+                SELECT * FROM worker_contact_purchase_declines WHERE worker_id = ?
+            ''', (worker_id,))
+            record = await cursor.fetchone()
+            await cursor.close()
+            
+            if record:
+                return cls(
+                    id=record[0],
+                    worker_id=record[1],
+                    decline_count=record[2],
+                    is_blocked=bool(record[3]),
+                    blocked_until=record[4],
+                    last_decline_date=record[5]
+                )
+            return None
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def get_or_create(cls, worker_id: int) -> 'WorkerContactPurchaseDeclines':
+        """Получает существующую запись или создает новую"""
+        existing = await cls.get_by_worker(worker_id)
+        if existing:
+            return existing
+        
+        # Создаем новую запись
+        new_record = cls(
+            id=None,
+            worker_id=worker_id,
+            decline_count=0,
+            is_blocked=False,
+            blocked_until=None,
+            last_decline_date=None
+        )
+        await new_record.save()
+        return await cls.get_by_worker(worker_id)
+
+    async def add_decline(self) -> tuple[int, bool]:
+        """
+        Добавляет отказ от покупки контактов
+        Возвращает (текущее_количество_отказов, был_ли_заблокирован)
+        """
+        from datetime import datetime, timedelta
+        
+        self.decline_count += 1
+        self.last_decline_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        was_blocked = False
+        
+        # На 4-й отказ - предупреждение (не блокируем)
+        if self.decline_count == 4:
+            # Только предупреждение, блокировка не устанавливается
+            pass
+        
+        # На 5-й отказ - блокировка на 24 часа
+        elif self.decline_count >= 5:
+            if not self.is_blocked:
+                was_blocked = True
+            self.is_blocked = True
+            blocked_until = datetime.now() + timedelta(hours=24)
+            self.blocked_until = blocked_until.strftime('%Y-%m-%d %H:%M:%S')
+        
+        await self.save()
+        return self.decline_count, was_blocked
+
+    def is_currently_blocked(self) -> bool:
+        """Проверяет, заблокирован ли исполнитель сейчас"""
+        if not self.is_blocked:
+            return False
+        
+        if not self.blocked_until:
+            return False
+        
+        from datetime import datetime
+        try:
+            blocked_until = datetime.strptime(self.blocked_until, '%Y-%m-%d %H:%M:%S')
+            return datetime.now() < blocked_until
+        except Exception:
+            return False
+
+    async def unblock(self) -> None:
+        """Разблокирует исполнителя"""
+        self.is_blocked = False
+        self.blocked_until = None
+        self.decline_count = 0
+        await self.save()
+
+    @classmethod
+    async def get_all_blocked(cls) -> list['WorkerContactPurchaseDeclines']:
+        """Получает всех заблокированных исполнителей"""
+        await cls.create_table_if_not_exists()
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('''
+                SELECT * FROM worker_contact_purchase_declines 
+                WHERE is_blocked = 1 AND blocked_until IS NOT NULL
+            ''')
+            records = await cursor.fetchall()
+            await cursor.close()
+            
+            result = []
+            for record in records:
+                result.append(cls(
+                    id=record[0],
+                    worker_id=record[1],
+                    decline_count=record[2],
+                    is_blocked=bool(record[3]),
+                    blocked_until=record[4],
+                    last_decline_date=record[5]
+                ))
+            return result
+        finally:
+            await conn.close()

@@ -14,6 +14,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
+from app.handlers.worker import menu_worker
 from app.states import WorkStates, CustomerStates
 from app.keyboards import KeyboardCollection
 from app.data.database.models import Worker, Customer, Abs, WorkersAndAbs, ContactExchange, City
@@ -642,6 +643,18 @@ async def initiate_response(callback: CallbackQuery, state: FSMContext):
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
 
+        # Проверяем блокировку за отказы от покупки контактов
+        from app.data.database.models import WorkerContactPurchaseDeclines
+        decline_record = await WorkerContactPurchaseDeclines.get_by_worker(worker.id)
+        if decline_record and decline_record.is_currently_blocked():
+            await callback.answer(
+                "⛔️ Вы заблокированы за частые отмены получения контактов заказчиков.\n\n"
+                "Причина: отказ получение контакта заказчика\n\n"
+                "Блокировка будет снята автоматически через 24 часа.",
+                show_alert=True
+            )
+            return
+
         # Проверяем, не откликался ли уже
         existing_response = await WorkersAndAbs.get_by_abs(abs_id=abs_id)
         if existing_response:
@@ -649,6 +662,36 @@ async def initiate_response(callback: CallbackQuery, state: FSMContext):
                 if response.worker_id == worker.id:
                     await callback.answer("❌ Вы уже откликнулись на это объявление", show_alert=True)
                     return
+
+        # Проверяем активность исполнителя
+        from app.data.database.models import WorkerDailyResponses
+        from datetime import date
+
+        # Проверяем, что у исполнителя есть поле activity_level
+        if not hasattr(worker, 'activity_level') or worker.activity_level is None:
+            worker.activity_level = 100  # Значение по умолчанию
+
+        today = date.today().isoformat()
+        responses_today = await WorkerDailyResponses.get_responses_count(worker.id, today)
+
+        can_respond = worker.can_make_response(responses_today)
+
+        if not can_respond:
+            limit = worker.get_responses_limit_per_day()
+
+            if worker.activity_level >= 9:
+                zone_message = f"⚠️ Ваша активность снизилась. Сейчас вы можете откликнуться только на 3 заказа в день."
+            else:
+                zone_message = "Блокировка откликов: Ваш уровень активности слишком низкий. Чтобы продолжить работу, восстановите активность!"
+
+            if limit == 0:
+                error_text = f"{zone_message}"
+            else:
+                error_text = f"{zone_message}\n\nИспользовано: {responses_today}/{limit}\nЛимит обновится завтра."
+
+            await callback.answer(error_text, show_alert=True)
+            await menu_worker(callback, state)
+            return
 
         await callback.answer(CHAT_RULES_TEXT, show_alert=True)
 
@@ -717,74 +760,12 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
             await callback.answer("❌ Объявление не найдено", show_alert=True)
             return
 
-        # Проверяем активность исполнителя
-        from app.data.database.models import WorkerDailyResponses
-        from datetime import date
-
-        # Проверяем, что у исполнителя есть поле activity_level
-        if not hasattr(worker, 'activity_level') or worker.activity_level is None:
-            worker.activity_level = 100  # Значение по умолчанию
-
-        today = date.today().isoformat()
-        responses_today = await WorkerDailyResponses.get_responses_count(worker.id, today)
-
-        # Проверяем возможность отклика с fallback
-        if not hasattr(worker, 'can_make_response'):
-            # Fallback логика
-            if worker.activity_level >= 74:
-                can_respond = True
-            elif worker.activity_level >= 48:
-                can_respond = responses_today < 3
-            elif worker.activity_level >= 9:
-                can_respond = responses_today < 1
-            else:
-                can_respond = False
-        else:
-            can_respond = worker.can_make_response(responses_today)
-
-        if not can_respond:
-            # Получаем информацию об активности с fallback
-            if not hasattr(worker, 'get_responses_limit_per_day'):
-                if worker.activity_level >= 74:
-                    limit = -1
-                elif worker.activity_level >= 48:
-                    limit = 3
-                elif worker.activity_level >= 9:
-                    limit = 1
-                else:
-                    limit = 0
-            else:
-                limit = worker.get_responses_limit_per_day()
-
-            if not hasattr(worker, 'get_activity_zone'):
-                if worker.activity_level >= 74:
-                    zone_emoji, zone_message = "🟢", "Все в порядке, доступ полный"
-                elif worker.activity_level >= 48:
-                    zone_emoji, zone_message = "🟡", "Ваша активность снижается, ограничения: можно откликнуться только на 3 заказа в день"
-                elif worker.activity_level >= 9:
-                    zone_emoji, zone_message = "🟠", "Ограничения: можно откликнуться только на 1 заказ в день"
-                else:
-                    zone_emoji, zone_message = "🔴", "Блокировка откликов: Ваш уровень активности слишком низкий. Чтобы продолжить работу, восстановите активность!"
-            else:
-                zone_emoji, zone_message = worker.get_activity_zone()
-
-            kbc = KeyboardCollection()
-            if limit == 0:
-                error_text = f"{zone_emoji} {zone_message}"
-            else:
-                error_text = f"{zone_emoji} {zone_message}\n\nИспользовано откликов сегодня: {responses_today}/{limit}"
-
-            await state.set_state(WorkStates.worker_menu)
-            await safe_edit_message(
-                callback=callback,
-                text=error_text,
-                reply_markup=kbc.menu()
-            )
-            return
-
         customer = await Customer.get_customer(id=advertisement.customer_id)
 
         # Увеличиваем счетчик откликов за день
+        from app.data.database.models import WorkerDailyResponses
+        from datetime import date
+        today = date.today().isoformat()
         await WorkerDailyResponses.increment_responses_count(worker.id, today)
 
         # Создаем отклик в БД
@@ -990,73 +971,12 @@ async def process_response_text(message: Message, state: FSMContext):
             )
             return
 
-        # Проверяем активность исполнителя
-        from app.data.database.models import WorkerDailyResponses
-        from datetime import date
-
-        # Проверяем, что у исполнителя есть поле activity_level
-        if not hasattr(worker, 'activity_level') or worker.activity_level is None:
-            worker.activity_level = 100  # Значение по умолчанию
-
-        today = date.today().isoformat()
-        responses_today = await WorkerDailyResponses.get_responses_count(worker.id, today)
-
-        # Проверяем возможность отклика с fallback
-        if not hasattr(worker, 'can_make_response'):
-            # Fallback логика
-            if worker.activity_level >= 74:
-                can_respond = True
-            elif worker.activity_level >= 48:
-                can_respond = responses_today < 3
-            elif worker.activity_level >= 9:
-                can_respond = responses_today < 1
-            else:
-                can_respond = False
-        else:
-            can_respond = worker.can_make_response(responses_today)
-
-        if not can_respond:
-            # Получаем информацию об активности с fallback
-            if not hasattr(worker, 'get_responses_limit_per_day'):
-                if worker.activity_level >= 74:
-                    limit = -1
-                elif worker.activity_level >= 48:
-                    limit = 3
-                elif worker.activity_level >= 9:
-                    limit = 1
-                else:
-                    limit = 0
-            else:
-                limit = worker.get_responses_limit_per_day()
-
-            if not hasattr(worker, 'get_activity_zone'):
-                if worker.activity_level >= 74:
-                    zone_emoji, zone_message = "🟢", "Все в порядке, доступ полный"
-                elif worker.activity_level >= 48:
-                    zone_emoji, zone_message = "🟡", "Ваша активность снижается, ограничения: можно откликнуться только на 3 заказа в день"
-                elif worker.activity_level >= 9:
-                    zone_emoji, zone_message = "🟠", "Ограничения: можно откликнуться только на 1 заказ в день"
-                else:
-                    zone_emoji, zone_message = "🔴", "Блокировка откликов: Ваш уровень активности слишком низкий. Чтобы продолжить работу, восстановите активность!"
-            else:
-                zone_emoji, zone_message = worker.get_activity_zone()
-
-            kbc = KeyboardCollection()
-            if limit == 0:
-                error_text = f"{zone_emoji} {zone_message}"
-            else:
-                error_text = f"{zone_emoji} {zone_message}\n\nИспользовано откликов сегодня: {responses_today}/{limit}"
-
-            await state.set_state(WorkStates.worker_menu)
-            await message.answer(
-                text=error_text,
-                reply_markup=kbc.menu()
-            )
-            return
-
         customer = await Customer.get_customer(id=advertisement.customer_id)
 
         # Увеличиваем счетчик откликов за день
+        from app.data.database.models import WorkerDailyResponses
+        from datetime import date
+        today = date.today().isoformat()
         await WorkerDailyResponses.increment_responses_count(worker.id, today)
 
         # Создаем отклик в БД
@@ -1170,8 +1090,6 @@ async def decline_ad(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "back_to_ads")
 async def back_to_ads(callback: CallbackQuery, state: FSMContext):
     """Возврат в главное меню исполнителя"""
-    # Импортируем функцию menu_worker
-    from app.handlers.worker import menu_worker
     # Вызываем функцию меню исполнителя напрямую
     await menu_worker(callback, state)
 
@@ -1242,7 +1160,6 @@ async def report_ad(callback: CallbackQuery, state: FSMContext):
         await callback.answer("✅ Ваша жалоба успешно отправлена!", show_alert=True)
 
         # Возвращаемся в раздел объявлений
-        from app.handlers.worker import menu_worker
         await menu_worker(callback, state)
 
     except Exception as e:

@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta
 
 from app.data.database.models import Customer, Worker, Banned, WorkerAndSubscription, Abs, WorkersAndAbs, \
-    BannedAbs, City, WorkerAndRefsAssociation
+    BannedAbs, City, WorkerAndRefsAssociation, WorkerContactPurchaseDeclines, WorkerDailyResponses
 from app.keyboards import KeyboardCollection
 from app.untils import help_defs
 from loaders import bot
@@ -39,6 +39,44 @@ async def check_time_banned():
                                            text='Вы были разблокированы, чтобы продолжить работу вызовите команду /menu')
                 except Exception:
                     pass
+
+
+async def check_contact_purchase_declines_unblock():
+    """Проверяет и разблокирует исполнителей, у которых прошло 24 часа блокировки за отказы от покупки контактов"""
+    logger.info('check_contact_purchase_declines_unblock')
+    try:
+        blocked_workers = await WorkerContactPurchaseDeclines.get_all_blocked()
+        now = datetime.now()
+        kbc = KeyboardCollection()
+        
+        for decline_record in blocked_workers:
+            if not decline_record.blocked_until:
+                continue
+            
+            try:
+                blocked_until = datetime.strptime(decline_record.blocked_until, '%Y-%m-%d %H:%M:%S')
+                
+                # Если прошло 24 часа - разблокируем
+                if now >= blocked_until:
+                    await decline_record.unblock()
+                    
+                    # Отправляем уведомление о разблокировке
+                    worker = await Worker.get_worker(id=decline_record.worker_id)
+                    if worker:
+                        try:
+                            await bot.send_message(
+                                chat_id=worker.tg_id,
+                                text="Ваш аккаунт разблокирован ✅\n\n"
+                                     "Пожалуйста, избегайте частых отмен получения контактов!",
+                                reply_markup=kbc.menu_btn(),
+                                parse_mode='HTML'
+                            )
+                        except Exception as e:
+                            logger.error(f"Error sending unblock notification to worker {worker.tg_id}: {e}")
+            except Exception as e:
+                logger.error(f"Error processing decline record {decline_record.id}: {e}")
+    except Exception as e:
+        logger.error(f"Error in check_contact_purchase_declines_unblock: {e}")
 
 
 async def check_time_workers_stars():
@@ -421,6 +459,16 @@ async def check_worker_statuses():
         
     except Exception as e:
         logger.error(f'check_worker_statuses: Error - {e}')
+
+
+async def cleanup_old_daily_responses():
+    """Очищает старые записи об откликах исполнителей (старше 7 дней)"""
+    logger.info('cleanup_old_daily_responses: Starting cleanup')
+    try:
+        deleted_count = await WorkerDailyResponses.cleanup_old_records(days_to_keep=7)
+        logger.info(f'cleanup_old_daily_responses: Deleted {deleted_count} old records')
+    except Exception as e:
+        logger.error(f'cleanup_old_daily_responses: Error - {e}')
 
 
 async def update_worker_ranks():
