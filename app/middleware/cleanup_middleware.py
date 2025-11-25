@@ -137,6 +137,14 @@ class DeletePreviousMiddleware(BaseMiddleware):
             logger.debug(f"Skipping cleanup for chat_id: {chat_id}")
             return await handler(event, data)
         
+        # Проверяем, является ли это командой /start - для неё не удаляем сообщение пользователя
+        is_start_command = False
+        if isinstance(event, Message) and event.text:
+            # Проверяем, начинается ли текст с /start
+            if event.text.strip().startswith('/start'):
+                is_start_command = True
+                logger.debug(f"Skipping cleanup for /start command in chat {chat_id}")
+        
         # Удаляем предыдущие сообщения бота и пользователя (если не пропускаем очистку)
         if not skip_cleanup_for_event:
             await self._cleanup_previous_messages(bot, chat_id)
@@ -147,7 +155,8 @@ class DeletePreviousMiddleware(BaseMiddleware):
                 logger.debug(f"Preserved bot message ID {message_id} for chat {chat_id} (skip cleanup)")
         
         # Сохраняем ID текущего сообщения пользователя для следующей очистки
-        if message_id:
+        # НЕ сохраняем для команды /start, чтобы она не удалялась
+        if message_id and not is_start_command:
             self.last_user_messages[chat_id] = message_id
             logger.debug(f"Saved user message ID {message_id} for chat {chat_id}")
         
