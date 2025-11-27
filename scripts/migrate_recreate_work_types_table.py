@@ -14,9 +14,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Путь к reference БД (откуда берем записи)
-REFERENCE_DB = 'app/data/database/database.db'
+REFERENCE_DB = 'database.db'
 # Путь к целевой БД (куда вставляем записи)
-TARGET_DB = 'database.db'
+TARGET_DB = 'app/data/database/database.db'
 
 
 async def migrate():
