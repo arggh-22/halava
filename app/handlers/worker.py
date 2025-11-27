@@ -2993,7 +2993,7 @@ async def navigate_photo_worker(callback: CallbackQuery, state: FSMContext) -> N
 
 async def get_worker_selected_work_types(worker_sub) -> List[WorkType]:
     """Получить список выбранных направлений работы исполнителя"""
-    if worker_sub.work_type_ids:
+    if worker_sub and worker_sub.work_type_ids:
         selected_ids = [int(id) for id in worker_sub.work_type_ids if id]
         work_types = await get_cached_work_types()
         return [wt for wt in work_types if wt.id in selected_ids]
@@ -3002,7 +3002,7 @@ async def get_worker_selected_work_types(worker_sub) -> List[WorkType]:
 
 async def get_worker_selected_ids(worker_sub) -> list:
     """Получить список ID выбранных направлений"""
-    if worker_sub.work_type_ids:
+    if worker_sub and worker_sub.work_type_ids:
         return [id for id in worker_sub.work_type_ids if id]
     return []
 
@@ -3062,7 +3062,7 @@ async def get_filtered_advertisements_for_worker(worker, worker_sub):
             continue
         # Проверяем, подходит ли объявление по типу работы
         # Если нет направлений и нет безлимитного доступа - пропускаем
-        if not worker_sub.work_type_ids:
+        if not worker_sub or not worker_sub.work_type_ids:
             continue
 
         if worker_sub.work_type_ids and str(advertisement.work_type_id) in worker_sub.work_type_ids:
@@ -3079,6 +3079,12 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
 
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+
+    # Если записи нет, создаем новую с нулевыми значениями
+    if worker_sub is None:
+        worker_sub = WorkerAndSubscription(worker_id=worker.id, work_type_ids=None)
+        await worker_sub.save()
+        logger.info(f'[WORK_TYPES] Created new WorkerAndSubscription for worker {worker.id}')
 
     # Получаем ранг исполнителя
     rank = await WorkerRank.get_or_create_rank(worker.id)
@@ -3629,6 +3635,12 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
 
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
+
+    # Если записи нет, создаем новую с нулевыми значениями
+    if worker_sub is None:
+        worker_sub = WorkerAndSubscription(worker_id=worker.id, work_type_ids=None)
+        await worker_sub.save()
+        logger.info(f'[WORK_TYPES] Created new WorkerAndSubscription for worker {worker.id} in choose_work_types_end')
 
     # Сохраняем выбранные направления в БД
     await worker_sub.update(work_type_ids=work_type_id_list)
