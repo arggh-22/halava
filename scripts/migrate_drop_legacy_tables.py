@@ -8,6 +8,7 @@
  - workers_and_abs
  - user_and_support_queue
  - work_sub_types / worker_sub_types
+ - worker_and_subscription
 """
 import asyncio
 import logging
@@ -30,6 +31,7 @@ LEGACY_TABLE_NAMES: list[str] = [
     "work_sub_types",
     "user_and_support_queue",
     "worker_sub_types",
+    "worker_and_subscription",
 ]
 
 
