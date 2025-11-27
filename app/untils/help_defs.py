@@ -11,7 +11,7 @@ from datetime import datetime, date
 from PIL import Image, ImageEnhance
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.data.database.models import Abs, City
+from app.data.database.models import Abs, City, WorkerStatus
 from app.keyboards import KeyboardCollection
 from app.states import CustomerStates
 
@@ -631,251 +631,6 @@ def is_content_forbidden(text: str) -> bool:
     return False
 
 
-# Функция check_dialog_active удалена - использовалась только для откликов
-
-
-# async def process_contact_exchange(worker_id: int, customer_id: int, abs_id: int, action: str) -> dict:
-#     """
-#     Унифицированная функция для обработки обмена контактами.
-#
-#     Args:
-#         worker_id: ID исполнителя
-#         customer_id: ID заказчика
-#         abs_id: ID объявления
-#         action: "send_contacts" или "buy_contacts"
-#
-#     Returns:
-#         dict: Результат операции с статусом и сообщениями
-#     """
-#     try:
-#         from app.data.database.models import ContactExchange, Worker, Customer, Abs
-#         from loaders import bot
-#         from app.keyboards import KeyboardCollection
-#
-#         # Получаем текущий статус
-#         status = await ContactExchange.get_status(worker_id, abs_id)
-#
-#         # Проверяем возможность выполнения действия
-#         if action == "send_contacts":
-#             if status['contacts_sent']:
-#                 return {
-#                     'success': False,
-#                     'message': 'Контакты уже были отправлены',
-#                     'status': status
-#                 }
-#         elif action == "buy_contacts":
-#             if status['contacts_purchased']:
-#                 return {
-#                     'success': False,
-#                     'message': 'Контакты уже были куплены',
-#                     'status': status
-#                 }
-#
-#         # Получаем данные
-#         worker = await Worker.get_worker(id=worker_id)
-#         customer = await Customer.get_customer(id=customer_id)
-#         advertisement = await Abs.get_one(id=abs_id)
-#
-#         if not worker or not customer or not advertisement:
-#             return {
-#                 'success': False,
-#                 'message': 'Данные не найдены',
-#                 'status': status
-#             }
-#
-#         kbc = KeyboardCollection()
-#
-#         if action == "send_contacts":
-#             # Заказчик отправляет контакты
-#             try:
-#                 await ContactExchange.create_or_update(
-#                     worker_id=worker_id,
-#                     customer_id=customer_id,
-#                     abs_id=abs_id,
-#                     contacts_sent=True,
-#                     contacts_purchased=False
-#                 )
-#
-#                 # Проверяем, есть ли у исполнителя купленные контакты
-#                 has_contacts = await check_worker_has_unlimited_contacts(worker_id)
-#
-#                 if has_contacts:
-#                     # У исполнителя есть контакты - сразу показываем контакты
-#                     await show_worker_purchased_contacts(worker_id, customer_id, abs_id)
-#
-#                     # Вычитаем контакт из лимита (если не безлимитный)
-#                     if not worker.unlimited_contacts_until:
-#                         if worker.purchased_contacts > 0:
-#                             new_contacts = worker.purchased_contacts - 1
-#                             await worker.update_purchased_contacts(purchased_contacts=new_contacts)
-#
-#                     # Обновляем статус как завершенный
-#                     await ContactExchange.create_or_update(
-#                         worker_id=worker_id,
-#                         customer_id=customer_id,
-#                         abs_id=abs_id,
-#                         contacts_sent=True,
-#                         contacts_purchased=True
-#                     )
-#
-#                     # Уведомляем заказчика
-#                     customer_message = (
-#                         "🔒 **Чат закрыт**\n\n"
-#                         "✅ Контакты были успешно переданы исполнителю\n"
-#                         "💬 Диалог завершен\n\n"
-#                         f"📋 Объявление #{abs_id}\n"
-#                         f"👤 Исполнитель ID: {worker_id}"
-#                     )
-#
-#                     await bot.send_message(
-#                         chat_id=customer.tg_id,
-#                         text=customer_message,
-#                         reply_markup=kbc.chat_closed_buttons('customer', abs_id),
-#                         parse_mode='Markdown'
-#                     )
-#
-#                     return {
-#                         'success': True,
-#                         'message': 'Контакты переданы исполнителю',
-#                         'status': 'completed',
-#                         'contacts_shown': True
-#                     }
-#                 else:
-#                     # У исполнителя нет контактов - показываем уведомление о покупке
-#                     worker_message = (
-#                         "📞 **Заказчик отправил свои контакты**\n\n"
-#                         f"📋 Объявление #{abs_id}\n"
-#                         f"💰 Размер: {advertisement.price} ₽\n\n"
-#                         "💡 Для получения контактов заказчика необходимо приобрести доступ"
-#                     )
-#
-#                     await bot.send_message(
-#                         chat_id=worker.tg_id,
-#                         text=worker_message,
-#                         reply_markup=kbc.buy_contact_worker_btn(customer_id, abs_id)
-#                     )
-#
-#                     # Уведомляем заказчика
-#                     customer_message = (
-#                         "🔒 **Чат закрыт**\n\n"
-#                         "✅ Контакты были отправлены исполнителю\n"
-#                         "💬 Диалог завершен\n\n"
-#                         f"📋 Объявление #{abs_id}\n"
-#                         f"👤 Исполнитель ID: {worker_id}\n\n"
-#                         "⏳ Ожидается покупка контактов исполнителем"
-#                     )
-#
-#                     await bot.send_message(
-#                         chat_id=customer.tg_id,
-#                         text=customer_message,
-#                         reply_markup=kbc.chat_closed_buttons('customer', abs_id),
-#                         parse_mode='Markdown'
-#                     )
-#
-#                     return {
-#                         'success': True,
-#                         'message': 'Контакты отправлены, ожидается покупка',
-#                         'status': 'pending_purchase',
-#                         'contacts_shown': False
-#                     }
-#
-#             except ValueError as e:
-#                 return {
-#                     'success': False,
-#                     'message': str(e),
-#                     'status': status
-#                 }
-#
-#         elif action == "buy_contacts":
-#             # Исполнитель покупает контакты
-#             try:
-#                 # Проверяем, есть ли у исполнителя купленные контакты
-#                 has_contacts = await check_worker_has_unlimited_contacts(worker_id)
-#
-#                 if not has_contacts:
-#                     return {
-#                         'success': False,
-#                         'message': 'У вас нет купленных контактов для получения',
-#                         'status': status
-#                     }
-#
-#                 # Проверяем, были ли контакты отправлены заказчиком
-#                 if not status['contacts_sent']:
-#                     return {
-#                         'success': False,
-#                         'message': 'Заказчик еще не отправил контакты',
-#                         'status': status
-#                     }
-#
-#                 # Обновляем статус как завершенный
-#                 await ContactExchange.create_or_update(
-#                     worker_id=worker_id,
-#                     customer_id=customer_id,
-#                     abs_id=abs_id,
-#                     contacts_sent=True,
-#                     contacts_purchased=True
-#                 )
-#
-#                 # Вычитаем контакт из лимита (если не безлимитный)
-#                 if not worker.unlimited_contacts_until:
-#                     if worker.purchased_contacts > 0:
-#                         new_contacts = worker.purchased_contacts - 1
-#                         await worker.update_purchased_contacts(purchased_contacts=new_contacts)
-#
-#                 # Показываем контакты исполнителю
-#                 await show_worker_purchased_contacts(worker_id, customer_id, abs_id)
-#
-#                 # Уведомляем заказчика
-#                 customer_message = (
-#                     "🔒 **Чат закрыт**\n\n"
-#                     "💰 Исполнитель получил ваши контакты\n"
-#                     "💬 Диалог завершен\n\n"
-#                     f"📋 Объявление #{abs_id}\n"
-#                     f"👤 Исполнитель ID: {worker_id}"
-#                 )
-#
-#                 await bot.send_message(
-#                     chat_id=customer.tg_id,
-#                     text=customer_message,
-#                     reply_markup=kbc.chat_closed_buttons('customer', abs_id),
-#                     parse_mode='Markdown'
-#                 )
-#
-#                 return {
-#                     'success': True,
-#                     'message': 'Контакты успешно получены',
-#                     'status': 'completed',
-#                     'contacts_shown': True
-#                 }
-#
-#             except ValueError as e:
-#                 return {
-#                     'success': False,
-#                     'message': str(e),
-#                     'status': status
-#                 }
-#
-#         return {
-#             'success': False,
-#             'message': 'Неизвестное действие',
-#             'status': status
-#         }
-#
-#     except Exception as e:
-#         logger.error(f"Error in process_contact_exchange: {e}")
-#         return {
-#             'success': False,
-#             'message': f'Ошибка: {str(e)}',
-#             'status': {'contacts_sent': False, 'contacts_purchased': False, 'status': 'error'}
-#         }
-
-
-# Функция add_contact_exchange_to_history удалена - использовалась только для откликов
-
-
-# Функция close_chat_after_contact_exchange удалена - использовалась только для откликов
-
-
 async def check_contact_already_sent(worker_id: int, abs_id: int) -> bool:
     """
     Проверяет, были ли уже отправлены контакты заказчика исполнителю.
@@ -902,109 +657,6 @@ async def check_contact_already_sent(worker_id: int, abs_id: int) -> bool:
     except Exception as e:
         logger.error(f"Ошибка при проверке отправки контактов: {e}")
         return False
-
-
-# async def send_targeted_notifications_to_workers(advertisement_id: int, customer_id: int) -> None:
-#     """
-#     Отправляет уведомления исполнителям по городу и направлению объявления.
-#
-#     Args:
-#         advertisement_id: ID объявления
-#         customer_id: ID заказчика
-#     """
-#     try:
-#         from app.data.database.models import Abs, Worker, City, WorkType
-#
-#         # Получаем объявление
-#         advertisement = await Abs.get_one(id=advertisement_id)
-#         if not advertisement:
-#             logger.error(f"Advertisement not found: {advertisement_id}")
-#             return
-#
-#         # Получаем город заказчика
-#         from app.data.database.models import Customer
-#         customer = await Customer.get_customer(id=customer_id)
-#         if not customer:
-#             logger.error(f"Customer not found: {customer_id}")
-#             return
-#
-#         city = await City.get_city(id=customer.city_id)
-#         if not city:
-#             logger.error(f"City not found: {customer.city_id}")
-#             return
-#
-#         # Получаем направление работы
-#         work_type = await WorkType.get_work_type(id=advertisement.work_type_id)
-#         if not work_type:
-#             logger.error(f"Work type not found: {advertisement.work_type_id}")
-#             return
-#
-#         # Используем правильную функцию для получения исполнителей с учетом подписок
-#         matching_workers = await Worker.get_active_workers_for_advertisement(
-#             city_id=customer.city_id,
-#             work_type_id=advertisement.work_type_id
-#         )
-#
-#         if not matching_workers:
-#             logger.info(f"No matching workers found for city {city.city} and work type {work_type.work_type}")
-#             return
-#
-#         logger.info(f"Found {len(matching_workers)} matching workers for city {city.city} and work type {work_type.work_type}")
-#
-#         # Отправляем уведомления с батчингом
-#         from loaders import bot
-#         notification_text = (
-#             f"🔔 Новое объявление в вашем городе!\n\n"
-#             f"📍 Город: {city.city}\n"
-#             f"💼 Направление: {work_type.work_type}\n"
-#             f"📋 Описание: {read_text_file(advertisement.text_path)}\n\n"
-#             f"💰 Размер: {advertisement.price} ₽\n"
-#             f"📅 Срок: {advertisement.date_end}\n\n"
-#             f"Нажмите /menu чтобы откликнуться!"
-#         )
-#
-#         # Отправляем по 3 сообщения в батче с паузой (оптимизировано для Telegram: макс 30 сообщений/сек)
-#         batch_size = 3
-#         sent_count = 0
-#
-#         # Создаем локальный семафор для этой функции (можно использовать глобальный, если он доступен)
-#         try:
-#             from app.handlers.customer import get_global_semaphore
-#             global_semaphore = get_global_semaphore()
-#             use_global_semaphore = True
-#         except ImportError:
-#             use_global_semaphore = False
-#             local_semaphore = asyncio.Semaphore(10)  # Локальный семафор, если глобальный недоступен
-#
-#         for i in range(0, len(matching_workers), batch_size):
-#             batch = matching_workers[i:i + batch_size]
-#             logger.info(f'Processing batch {i//batch_size + 1}: {len(batch)} workers')
-#
-#             # Создаем задачи для параллельной отправки
-#             async def send_to_worker(w):
-#                 semaphore = global_semaphore if use_global_semaphore else local_semaphore
-#                 async with semaphore:
-#                     try:
-#                         await bot.send_message(chat_id=w.tg_id, text=notification_text)
-#                         return True
-#                     except Exception as e:
-#                         logger.error(f"Error sending notification to worker {w.tg_id}: {e}")
-#                         return False
-#
-#             tasks = [send_to_worker(worker) for worker in batch]
-#
-#             # Выполняем батч параллельно
-#             results = await asyncio.gather(*tasks, return_exceptions=True)
-#             sent_count += sum(1 for r in results if r is True)
-#
-#             # Пауза между батчами для соблюдения rate limits (увеличено до 1 сек для безопасности)
-#             if i + batch_size < len(matching_workers):
-#                 await asyncio.sleep(1.0)  # 1 секунда пауза между батчами
-#
-#         logger.info(f"Sent notifications to {sent_count} workers")
-#
-#     except Exception as e:
-#         logger.error(f"Error sending targeted notifications: {e}")
 
 
 async def process_contact_purchase(worker_id: int, tariff_type: str, tariff_value: int, tariff_price: int) -> bool:
@@ -1054,54 +706,51 @@ async def process_contact_purchase(worker_id: int, tariff_type: str, tariff_valu
         return False
 
 
-# async def show_worker_purchased_contacts(worker_id: int, customer_id: int, abs_id: int) -> None:
-#     """
-#     Показывает исполнителю купленные контакты заказчика.
-#
-#     Args:
-#         worker_id: ID исполнителя
-#         customer_id: ID заказчика
-#         abs_id: ID объявления
-#     """
-#     try:
-#         from app.data.database.models import Worker, Customer, Abs
-#         from loaders import bot
-#         from app.keyboards import KeyboardCollection
-#
-#         worker = await Worker.get_worker(id=worker_id)
-#         customer = await Customer.get_customer(id=customer_id)
-#         advertisement = await Abs.get_one(id=abs_id)
-#
-#         if not worker or not customer or not advertisement:
-#             logger.error(f"Не найдены данные для показа контактов: worker_id={worker_id}, customer_id={customer_id}, abs_id={abs_id}")
-#             return
-#
-#         # Формируем сообщение с контактами
-#         customer_contacts = f"Telegram: @{customer.tg_name}\nID: {customer.tg_id}"
-#
-#         contacts_message = (
-#             "🎉 **Контакты получены!**\n\n"
-#             f"📞 **Контакты заказчика:**\n{customer_contacts}\n\n"
-#             f"📋 **Объявление #{abs_id}**\n"
-#             f"💰 **Размер:** {advertisement.price} ₽\n"
-#             f"📅 **Срок:** {advertisement.date_end}\n\n"
-#             "✅ Теперь вы можете связаться с заказчиком напрямую!"
-#         )
-#
-#         kbc = KeyboardCollection()
-#
-#         # Отправляем сообщение исполнителю
-#         await bot.send_message(
-#             chat_id=worker.tg_id,
-#             text=contacts_message,
-#             reply_markup=kbc.chat_closed_buttons('worker', abs_id),
-#             parse_mode='Markdown'
-#         )
-#
-#         logger.info(f"Contacts shown to worker {worker_id} for advertisement {abs_id}")
-#
-#     except Exception as e:
-#         logger.error(f"Error showing contacts to worker: {e}")
+def is_unlimited_active(worker) -> tuple[bool, str | None]:
+    """
+    Проверяет, активен ли безлимитный доступ у исполнителя.
+    
+    Args:
+        worker: Объект Worker
+        
+    Returns:
+        tuple[bool, str | None]: (is_active, unlimited_until)
+            - is_active: True если безлимит активен, False если нет или истек
+            - unlimited_until: строка с датой окончания или None
+    """
+    if not worker or not worker.unlimited_contacts_until:
+        return False, None
+    
+    from datetime import datetime
+    
+    try:
+        # Пробуем разные форматы даты
+        date_str = str(worker.unlimited_contacts_until).strip()
+        end_date = None
+        
+        # Пробуем fromisoformat (основной метод)
+        try:
+            end_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            # Если не получилось, пробуем strptime с разными форматами
+            formats = ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"]
+            for fmt in formats:
+                try:
+                    end_date = datetime.strptime(date_str, fmt)
+                    break
+                except ValueError:
+                    continue
+        
+        if end_date:
+            # Проверяем, что дата не истекла (>= для включения текущего дня)
+            is_active = end_date >= datetime.now()
+            return is_active, worker.unlimited_contacts_until
+        else:
+            return False, worker.unlimited_contacts_until
+            
+    except Exception as e:
+        logger.error(f"Error parsing unlimited_contacts_until: {e}, value: {worker.unlimited_contacts_until}")
+        return False, worker.unlimited_contacts_until
 
 
 async def check_worker_has_unlimited_contacts(worker_id: int) -> bool:
@@ -1122,16 +771,10 @@ async def check_worker_has_unlimited_contacts(worker_id: int) -> bool:
         if not worker:
             return False
 
-        # Проверяем безлимитный доступ по дате окончания
-        if worker.unlimited_contacts_until:
-            from datetime import datetime
-            try:
-                end_date = datetime.strptime(worker.unlimited_contacts_until, "%Y-%m-%d")
-                if end_date > datetime.now():
-                    return True
-            except ValueError:
-                # Неверный формат даты
-                pass
+        # Проверяем безлимитный доступ
+        is_active, _ = is_unlimited_active(worker)
+        if is_active:
+            return True
 
         # Проверяем количество купленных контактов
         if worker.purchased_contacts and worker.purchased_contacts > 0:
@@ -1220,6 +863,72 @@ def remove_portfolio_photo(d, removed_key):
     return new_dict, removed_file_path
 
 
+def calculate_worker_rating(stars: int, count_ratings: int) -> float:
+    """
+    Рассчитывает рейтинг исполнителя с учетом стартового фонда 25 звезд.
+    
+    Стартовый фонд: 25 звезд (эквивалент 5 оценок по 5 звезд)
+    Если нет оценок (count_ratings = 0), возвращает 5.0
+    Если есть оценки, считает: (stars + 25) / (count_ratings + 5)
+    
+    Args:
+        stars: Количество звезд в БД (реальные оценки)
+        count_ratings: Количество оценок в БД (реальные оценки)
+    
+    Returns:
+        float: Рассчитанный рейтинг с учетом стартового фонда
+    """
+    if count_ratings == 0:
+        return 5.0
+    
+    # Стартовый фонд: 25 звезд (5 оценок по 5 звезд)
+    STARTING_STARS = 25
+    STARTING_RATINGS = 5
+    
+    total_stars = stars + STARTING_STARS
+    total_ratings = count_ratings + STARTING_RATINGS
+    
+    return total_stars / total_ratings
+
+
+def format_rating(rating: float) -> str:
+    """
+    Форматирует рейтинг для отображения.
+    Если рейтинг круглый (например 4.0), возвращает "4"
+    Если не круглый (например 4.3), возвращает "4.3" (один знак после запятой)
+    
+    Args:
+        rating: Рейтинг как float
+    
+    Returns:
+        str: Отформатированный рейтинг
+    """
+    # Округляем до одного знака после запятой
+    rounded = round(rating, 1)
+    
+    # Если круглое число (например 4.0), убираем .0
+    if rounded == int(rounded):
+        return str(int(rounded))
+    else:
+        return f"{rounded:.1f}"
+
+
+def get_worker_rating_display(stars: int, count_ratings: int) -> tuple[str, int]:
+    """
+    Получает отображаемый рейтинг и количество оценок для исполнителя.
+    
+    Args:
+        stars: Количество звезд в БД
+        count_ratings: Количество оценок в БД
+    
+    Returns:
+        tuple[str, int]: (отформатированный рейтинг, реальное количество оценок)
+    """
+    rating = calculate_worker_rating(stars, count_ratings)
+    formatted_rating = format_rating(rating)
+    return formatted_rating, count_ratings
+
+
 def get_month_word(months):
     # Формируем правильное склонение для месяца
 
@@ -1246,6 +955,35 @@ def get_contact_word(contacts: int) -> str:
         return "контакта"
     else:
         return "контактов"
+
+
+def get_rating_word(ratings: int) -> str:
+    """
+    Возвращает правильное склонение слова "оценка" в зависимости от числа.
+    
+    Правила:
+    - 1, 21, 31, 41... → "оценка"
+    - 2, 3, 4, 22, 23, 24, 32, 33, 34... → "оценки"
+    - 5-20, 25-30... → "оценок"
+    
+    Args:
+        ratings: Количество оценок
+    
+    Returns:
+        str: Правильно склоненное слово "оценка"
+    """
+    # Берём последние две цифры (на случай чисел типа 11–14)
+    last_two = ratings % 100
+    last_one = ratings % 10
+
+    if 11 <= last_two <= 14:
+        return "оценок"
+    elif last_one == 1:
+        return "оценка"
+    elif 2 <= last_one <= 4:
+        return "оценки"
+    else:
+        return "оценок"
 
 
 async def send_customer_menu(event, customer, state=None, message=None):
@@ -1385,6 +1123,28 @@ async def send_contacts_to_worker(worker, customer, abs_id: int, ad_text: str | 
         parse_mode='HTML',
         reply_markup=kbc.get_worker_keyboard(abs_id)
     )
+
+
+# Функция для получения строки статусов исполнителя
+async def get_worker_status_string(worker_id: int) -> str:
+    """Возвращает строку с подтвержденными статусами исполнителя"""
+    worker_status = await WorkerStatus.get_by_worker(worker_id)
+
+    if not worker_status:
+        return "⚠️ Статус не подтвержден"
+
+    statuses = []
+    if worker_status.has_ip:
+        statuses.append("ИП ✅")
+    if worker_status.has_ooo:
+        statuses.append("ООО ✅")
+    if worker_status.has_sz:
+        statuses.append("Самозанятость ✅")
+
+    if not statuses:
+        return "⚠️ Статус не подтвержден"
+
+    return " | ".join(statuses)
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

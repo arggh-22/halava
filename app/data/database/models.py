@@ -1,7 +1,7 @@
 import json
 import logging
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from random import randint
 from typing import Optional
 import aiosqlite
@@ -683,17 +683,6 @@ class Worker:
         finally:
             await conn.close()
 
-    async def update_confirmed(self, confirmed: bool) -> None:
-        conn = await aiosqlite.connect(database='app/data/database/database.db')
-        try:
-            query = 'UPDATE workers SET confirmed = ? WHERE id = ?'
-            params = (confirmed, self.id)
-            cursor = await conn.execute(query, params)
-            await conn.commit()
-            await cursor.close()
-        finally:
-            await conn.close()
-
     async def update_individual_entrepreneur(self, individual_entrepreneur: bool) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
@@ -777,6 +766,47 @@ class Worker:
         new_level = max(0, min(100, self.activity_level + change))
         await self.update_activity_level(new_level)
         return new_level
+
+    @classmethod
+    async def get_workers_with_unlimited_subscriptions(cls) -> list[tuple[int, int, str]]:
+        """
+        Получает всех воркеров с безлимитными подписками
+        
+        Returns:
+            list[tuple[int, int, str]]: Список кортежей (id, tg_id, unlimited_contacts_until)
+        """
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                'SELECT id, tg_id, unlimited_contacts_until FROM workers WHERE unlimited_contacts_until IS NOT NULL'
+            )
+            records = await cursor.fetchall()
+            await cursor.close()
+            return records
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def clear_expired_unlimited_subscriptions(cls, worker_ids: list[int]) -> None:
+        """
+        Очищает истекшие безлимитные подписки для указанных воркеров
+        
+        Args:
+            worker_ids: Список ID воркеров, у которых нужно очистить подписки
+        """
+        if not worker_ids:
+            return
+        
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            placeholders = ','.join(['?' for _ in worker_ids])
+            await conn.execute(
+                f'UPDATE workers SET unlimited_contacts_until = NULL WHERE id IN ({placeholders})',
+                worker_ids
+            )
+            await conn.commit()
+        finally:
+            await conn.close()
 
     def get_activity_zone(self) -> tuple[str, str]:
         """Возвращает зону активности и соответствующее сообщение"""
@@ -3413,10 +3443,10 @@ class WorkerCitySubscription:
 
     @classmethod
     async def get_expiring_tomorrow(cls) -> list['WorkerCitySubscription']:
-        from datetime import datetime, timedelta
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+            print(tomorrow)
             cursor = await conn.execute(
                 'SELECT * FROM worker_city_subscriptions WHERE subscription_end = ? AND active = 1',
                 [tomorrow])
@@ -3449,6 +3479,25 @@ class WorkerCitySubscription:
                 [self.id])
             await conn.commit()
             await cursor.close()
+        finally:
+            await conn.close()
+
+    @classmethod
+    async def deactivate_expired_subscriptions(cls) -> int:
+        """
+        Деактивирует все просроченные подписки (subscription_end < сегодня) с active = 1
+        Возвращает количество деактивированных подписок
+        """
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            cursor = await conn.execute(
+                'UPDATE worker_city_subscriptions SET active = 0 WHERE subscription_end < ? AND active = 1',
+                [today])
+            await conn.commit()
+            deactivated_count = cursor.rowcount
+            await cursor.close()
+            return deactivated_count
         finally:
             await conn.close()
 

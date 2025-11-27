@@ -217,11 +217,18 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
 
     customer = await Customer.get_customer(tg_id=tg_id)
     if customer is None:
-        text = '''Упс, вы еще не зарегистрированы как заказчик'''
-        await callback.message.answer(text=text, reply_markup=kbc.registration_customer())
+        # Сразу переходим к регистрации без промежуточного сообщения
         if worker := await Worker.get_worker(tg_id=callback.message.chat.id):
             await state.set_state(UserStates.registration_end)
             await state.update_data(city_id=str(worker.city_id[0]), username=str(worker.tg_name))
+            # Сразу вызываем регистрацию
+            await registration_customer_from_start(callback, state)
+            return
+        else:
+            # Если нет данных исполнителя, переходим к обычной регистрации
+            await state.set_state(UserStates.registration_end)
+            await state.update_data(username=str(callback.from_user.username or callback.from_user.first_name or "Пользователь"))
+            await registration_customer_from_start(callback, state)
             return
 
     if user_worker := await Worker.get_worker(tg_id=tg_id):
@@ -248,18 +255,25 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
     customer = await Customer.get_customer(tg_id=tg_id)
 
     if customer is None:
-        text = 'Упс, вы еще не зарегистрированы как заказчик'
-        await callback.message.answer(text=text, reply_markup=kbc.registration_customer())
+        # Сразу переходим к регистрации без промежуточного сообщения
         if worker := await Worker.get_worker(tg_id=callback.message.chat.id):
             logger.debug('go as worker')
             await state.set_state(UserStates.registration_end)
             await state.update_data(city_id=str(worker.city_id[0]), username=str(worker.tg_name))
+            # Сразу вызываем регистрацию
+            await registration_customer_from_start(callback, state)
             return
         if admin := await Admin.get_by_tg_id(tg_id=callback.message.chat.id):
             logger.debug('go as admin')
-            await state.set_state(UserStates.registration_enter_city)
+            await state.set_state(UserStates.registration_end)
             await state.update_data(username=str(admin.tg_name))
+            # Сразу вызываем регистрацию
+            await registration_customer_from_start(callback, state)
             return
+        # Если нет данных, переходим к обычной регистрации
+        await state.set_state(UserStates.registration_end)
+        await state.update_data(username=str(callback.from_user.username or callback.from_user.first_name or "Пользователь"))
+        await registration_customer_from_start(callback, state)
         return
 
     if user_worker := await Worker.get_worker(tg_id=tg_id):
@@ -365,65 +379,46 @@ async def send_invoice_buy_subscription(callback: CallbackQuery, state: FSMConte
 
     await state.set_state(CustomerStates.customer_buy_subscription)
 
-    # ВРЕМЕННОЕ РЕШЕНИЕ ДЛЯ РАЗРАБОТКИ - обходим платежную систему
-    # В продакшене замените на реальную платежную систему
+    # РЕАЛЬНАЯ ПЛАТЕЖНАЯ СИСТЕМА
     try:
-        # Симулируем успешную покупку
-        await customer.update_abs_count(abs_count=customer.abs_count + 1)
-
-        await callback.message.answer(
-            text=f"✅ <b>Разработка: Покупка успешна!</b>\n\n"
-                 f"💰 Стоимость: {admin.order_price}₽ (симуляция)\n"
-                 f"📊 Количество: 1 объявление\n"
-                 f"📈 Доступно размещений: {customer.abs_count}\n\n"
-                 f"⚠️ *Это временное решение для разработки*",
-            reply_markup=kbc.menu_customer_keyboard(),
-            parse_mode='HTML'
+        await callback.message.answer_invoice(
+            title=f"Дополнительное размещение",
+            description=text,
+            provider_token=config.PAYMENTS,
+            currency="RUB",
+            prices=prices,
+            start_parameter="one-month-subscription",
+            payload="invoice-payload",
+            reply_markup=kbc.customer_buy_order(),
+            need_email=True,
+            send_email_to_provider=True
         )
+        await state.update_data(customer_id=str(customer.id),
+                                order_price=admin.order_price)
+    except TelegramBadRequest as e:
+        logger.error(f"Payment provider error: {e}")
+        # Обрабатываем ошибку недоступности платежного метода
+        if "PAYMENT_PROVIDER_INVALID" in str(e):
+            error_text = "❌ Платежный метод недоступен\n\n"
+            error_text += "🚫 К сожалению, в вашей стране недоступны платежные методы Telegram.\n\n"
+            error_text += "📞 Для получения помощи обратитесь в поддержку"
+
+            await callback.answer(
+                text=error_text,
+                show_alert=True,
+            )
+        else:
+            # Другие ошибки платежа
+            error_text = "❌ Ваш платеж не был выполнен!"
+
+            await callback.answer(
+                text=error_text,
+                show_alert=True
+            )
+
+        # Возвращаемся в меню заказчика
         await state.set_state(CustomerStates.customer_menu)
         return
-
-    except Exception as e:
-        logger.error(f"Ошибка при симуляции покупки: {e}")
-        await callback.message.answer(
-            text="❌ Ошибка при обработке покупки",
-            reply_markup=kbc.menu_customer_keyboard()
-        )
-        await state.set_state(CustomerStates.customer_menu)
-        return
-
-    # ОРИГИНАЛЬНЫЙ КОД ДЛЯ ПРОДАКШЕНА (закомментирован)
-    # try:
-    #     await callback.message.answer_invoice(
-    #         title=f"Дополнительное размещение",
-    #         description=text,
-    #         provider_token=config.PAYMENTS,
-    #         currency="RUB",  # Валюта в верхнем регистре
-    #         prices=prices,
-    #         start_parameter="one-month-subscription",
-    #         payload="invoice-payload",
-    #         reply_markup=kbc.customer_buy_order(),
-    #         need_email=True,
-    #         send_email_to_provider=True
-    #     )
-    #     await state.update_data(customer_id=str(customer.id),
-    #                            order_price=admin.order_price)
-    # except TelegramBadRequest as e:
-    #     logger.error(f"Payment provider error: {e}")
-    #     # Обрабатываем ошибку недоступности платежного метода
-    #     if "PAYMENT_PROVIDER_INVALID" in str(e):
-    #         error_text = "❌ Платежный метод недоступен\n\n"
-    #         error_text += "🚫 К сожалению, в вашей стране недоступны платежные методы Telegram.\n\n"
-    #         error_text += "💡 Возможные решения:\n"
-    #         error_text += "• Используйте VPN для смены региона\n"
-    #         error_text += "• Обратитесь к администратору для альтернативной оплаты\n"
-    #         error_text += "• Попробуйте позже\n\n"
-    #         error_text += "📞 Для получения помощи обратитесь в поддержку"
-    #         
-    #         await callback.message.answer(
-    #             text=error_text,
-    #             reply_markup=kbc.menu_customer_keyboard()
-    #         )
     #     else:
     #         # Другие ошибки платежа
     #         error_text = "❌ Ошибка при создании платежа\n\n"
@@ -621,14 +616,12 @@ async def my_abs(callback: CallbackQuery, state: FSMContext) -> None:
     # Для кнопки "Закрыть и оценить" нужно проверить активные отклики (applyed = True)
     # Делаем отдельный запрос для этого
     workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=abs_now['id'])
-    workers_applyed = False
     if workers_and_abs:
         for worker_and_abs in workers_and_abs:
             if worker_and_abs.applyed:
-                workers_applyed = True
                 break
 
-    btn_close_name = 'Закрыть и оценить'
+    btn_close_name = '📌 Закрыть и оценить'
 
     if abs_now['photo_path']:
         try:
@@ -1221,10 +1214,11 @@ async def confirm_close_advertisement(callback: CallbackQuery, state: FSMContext
 
     # Если есть исполнители для оценки - показываем их
     if workers_for_assessment:
-        names = [
-            f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
-            for worker in workers_for_assessment
-        ]
+        names = []
+        for worker in workers_for_assessment:
+            rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
+            worker_name = worker.profile_name if worker.profile_name else f"ID {worker.id}"
+            names.append(f'{worker_name} ⭐ {rating_display} ({count_ratings} {help_defs.get_rating_word(count_ratings)})')
         ids = [worker.id for worker in workers_for_assessment]
 
         try:
@@ -1373,10 +1367,13 @@ async def close_by_end_time(callback: CallbackQuery, state: FSMContext) -> None:
         )
 
         if workers_for_assessments:
-            names = [
-                f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} '
-                for worker in
-                workers_for_assessments]
+            names = []
+            for worker in workers_for_assessments:
+                rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
+                worker_name = worker.profile_name if worker.profile_name else f"ID {worker.id}"
+                names.append(
+                    f'{worker_name} ⭐ {rating_display} ({count_ratings} {help_defs.get_rating_word(count_ratings)})'
+                )
             ids = [worker.id for worker in workers_for_assessments]
             await state.clear()
             await advertisement_now.delete(delite_photo=True)
@@ -1423,7 +1420,7 @@ async def choose_worker_for_rating(callback: CallbackQuery) -> None:
 
     # Формируем информацию об исполнителе
     worker_name = worker.profile_name if worker.profile_name else "Исполнитель"
-    worker_rating = round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars
+    worker_rating, _ = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
     worker_orders = worker.count_ratings if worker.count_ratings else 0
 
     text = (
@@ -1524,10 +1521,13 @@ async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> No
 
         if remaining_workers:
             # Есть еще исполнители для оценки - показываем их
-            names = [
-                f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
-                for worker in remaining_workers
-            ]
+            names = []
+            for worker in remaining_workers:
+                rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
+                worker_name = worker.profile_name if worker.profile_name else f"ID {worker.id}"
+                names.append(
+                    f'{worker_name} ⭐ {rating_display} ({count_ratings} {help_defs.get_rating_word(count_ratings)})'
+                )
             ids = [worker.id for worker in remaining_workers]
 
             try:
@@ -2668,7 +2668,7 @@ async def change_city_end(callback: CallbackQuery, state: FSMContext) -> None:
     customer = await Customer.get_customer(tg_id=callback.message.chat.id)
     await customer.update_city(city_id=city_id)
 
-    await callback.answer('Вы успешно сменили город ✅', show_alert=True)
+    await callback.answer('Город успешно изменен ✅', show_alert=True)
     await help_defs.send_customer_menu(callback, customer, state)
 
 
@@ -3107,10 +3107,13 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.answer(f"Спасибо! Вы оценили исполнителя на {rating} звезд", show_alert=True)
 
             # Есть еще исполнители для оценки - показываем их
-            names = [
-                f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
-                for worker in remaining_workers
-            ]
+            names = []
+            for worker in remaining_workers:
+                rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
+                worker_name = worker.profile_name if worker.profile_name else f"ID {worker.id}"
+                names.append(
+                    f'{worker_name} ⭐ {rating_display} ({count_ratings} {help_defs.get_rating_word(count_ratings)})'
+                )
             ids = [worker.id for worker in remaining_workers]
 
             kbc = KeyboardCollection()
@@ -3163,20 +3166,11 @@ async def view_responses_handler(callback: CallbackQuery, state: FSMContext):
 
                 responses_data.append({
                     'worker_id': response.worker_id,
-                    'worker_public_id': f'ID#{worker.id}',
                     'worker_name': worker.profile_name,  # Только profile_name, не tg_name
                     'worker_stars': worker.stars,
                     'worker_ratings': worker.count_ratings,
-                    'worker_verified': worker.confirmed,
-                    'worker_ie': worker.individual_entrepreneur,
-                    'worker_orders': worker.order_count,
-                    'worker_message': response.worker_messages[
-                        0] if response.worker_messages else "Исполнитель не отправил сообщение",
-                    'contact_requested': contact_exchange is not None,
-                    'contact_confirmed': contact_exchange and contact_exchange.contacts_sent,
-                    'contact_purchased': contact_exchange and contact_exchange.contacts_purchased,
-                    'active': response.applyed,
-                    'status_indicator': status_indicator
+                    'status_indicator': status_indicator,
+                    'active': response.applyed  # Добавляем поле active для fallback в keyboards.py
                 })
 
         # Получаем объявление для контекста
@@ -3259,7 +3253,6 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
             return
 
         abs_id = int(parts[1])  # {abs_id}
-        id_now = int(parts[2])  # {id_now}
 
         # Получаем отклики на объявление
         responses = await WorkersAndAbs.get_by_abs(abs_id)
@@ -3290,20 +3283,11 @@ async def customer_view_responses(callback: CallbackQuery, state: FSMContext):
 
                 responses_data.append({
                     'worker_id': response.worker_id,
-                    'worker_public_id': f'ID#{worker.id}',
                     'worker_name': worker.profile_name,  # Только profile_name, не tg_name
                     'worker_stars': worker.stars,
                     'worker_ratings': worker.count_ratings,
-                    'worker_verified': worker.confirmed,
-                    'worker_ie': worker.individual_entrepreneur,
-                    'worker_orders': worker.order_count,
-                    'worker_message': response.worker_messages[
-                        0] if response.worker_messages else "Исполнитель не отправил сообщение",
-                    'contact_requested': contact_exchange is not None,
-                    'contact_confirmed': contact_exchange and contact_exchange.contacts_sent,
-                    'contact_purchased': contact_exchange and contact_exchange.contacts_purchased,
-                    'active': response.applyed,
-                    'status_indicator': status_indicator
+                    'status_indicator': status_indicator,
+                    'active': response.applyed  # Добавляем поле active для fallback в keyboards.py
                 })
 
         # Получаем объявление для контекста
@@ -4299,10 +4283,13 @@ async def confirm_close_and_rate_advertisement_expiry_handler(callback: Callback
 
     # Если есть исполнители для оценки - показываем их
     if workers_for_assessment:
-        names = [
-            f'{worker.profile_name if worker.profile_name else "Исполнитель"} ID {worker.id} ⭐️ {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}'
-            for worker in workers_for_assessment
-        ]
+        names = []
+        for worker in workers_for_assessment:
+            rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
+            worker_name = worker.profile_name if worker.profile_name else f"ID {worker.id}"
+            names.append(
+                f'{worker_name} ⭐ {rating_display} ({count_ratings} {help_defs.get_rating_word(count_ratings)})'
+            )
         ids = [worker.id for worker in workers_for_assessment]
 
         try:

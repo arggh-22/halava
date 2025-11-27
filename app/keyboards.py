@@ -1,3 +1,4 @@
+import os
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -5,6 +6,8 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+
+from app.data.database.models import ContactTariff
 
 
 class KeyboardCollection:
@@ -151,7 +154,6 @@ class KeyboardCollection:
 
     async def admin_contact_tariffs_list(self) -> InlineKeyboardMarkup:
         """Список тарифов контактов для админа"""
-        from app.data.database.models import ContactTariff
 
         builder = InlineKeyboardBuilder()
         tariffs = await ContactTariff.get_all()
@@ -302,9 +304,7 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    # def menu_worker_keyboard(self, confirmed, choose_works, individual_entrepreneur,
     def menu_worker_keyboard(self, has_status=False) -> InlineKeyboardMarkup:
-        # create_photo, create_name, has_status=False) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
 
         # Основные функции
@@ -805,10 +805,26 @@ class KeyboardCollection:
 
         return builder.as_markup()
 
-    def delite_it_photo(self, worker_id):
+    def delite_it_photo(self, worker_id, photo_filename=None):
+        """
+        Создает клавиатуру для удаления/блокировки фото профиля
+        photo_filename - имя файла фото (например, 1037864885_20251124000117.jpg) для проверки актуальности
+        """
+        # Если photo_filename не передан, но есть полный путь, извлекаем имя файла
+        if photo_filename and os.path.sep in photo_filename:
+            photo_filename = os.path.basename(photo_filename)
+        
+        # Формируем callback_data с именем фото для проверки
+        if photo_filename:
+            block_callback = f'admin_block_photo_{worker_id}_{photo_filename}'
+            delete_callback = f'admin_delete_photo_{worker_id}_{photo_filename}'
+        else:
+            block_callback = f'admin_block_photo_{worker_id}'
+            delete_callback = f'admin_delete_photo_{worker_id}'
+        
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text='Заблокировать и удалить', callback_data=f'admin_block_photo_{worker_id}'))
-        builder.add(self._inline(button_text='Удалить', callback_data=f'admin_delete_photo_{worker_id}'))
+        builder.add(self._inline(button_text='Заблокировать и удалить', callback_data=block_callback))
+        builder.add(self._inline(button_text='Удалить', callback_data=delete_callback))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -866,7 +882,7 @@ class KeyboardCollection:
         for id, name in zip(ids, names):
             builder.add(self._inline(button_text=f'{name}',
                                      callback_data=f'choose-worker-for-rating_{id}_{abs_id}'))
-        builder.add(self._inline(button_text=f'Завершить оценку',
+        builder.add(self._inline(button_text=f'Завершить без оценки',
                                  callback_data=f'skip-star-for-worker'))
         builder.adjust(1)
         return builder.as_markup()
@@ -1143,21 +1159,18 @@ class KeyboardCollection:
 
     async def contact_purchase_tariffs(self):
         """Тарифы на покупку контактов (загружает из БД)"""
-        from app.data.database.models import ContactTariff
-
         builder = InlineKeyboardBuilder()
         tariffs = await ContactTariff.get_all()
 
         for tariff in tariffs:
             price_rub = tariff.price / 100  # Конвертируем копейки в рубли
             if tariff.unlimited:
-                button_text = f"{int(price_rub)} ₽ — {tariff.name}"
+                button_text = f"🔥 {int(price_rub)} ₽ — {tariff.name}"
             else:
                 button_text = f"{int(price_rub)} ₽ — {tariff.name}"
             builder.add(self._inline(button_text=button_text, callback_data=f"contact-tariff_{tariff.id}"))
 
         builder.add(self._inline(button_text="📜 История списаний", callback_data="contacts_history_general"))
-        # builder.add(self._inline(button_text="Назад", callback_data="worker_purchased_contacts"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1197,18 +1210,8 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
-    # def chat_closed_buttons(self, abs_id: int):
-    #     """Кнопки для закрытого чата"""
-    #     builder = InlineKeyboardBuilder()
-    #     builder.add(self._inline(button_text="⬅️ Назад к откликам",
-    #                              callback_data=f"back-to-responses_{abs_id}"))
-    #     builder.adjust(1)
-    #     return builder.as_markup()
-
     async def new_contact_tariffs(self):
         """Новые клавиатуры для тарифов контактов (загружает из БД)"""
-        from app.data.database.models import ContactTariff
-
         builder = InlineKeyboardBuilder()
         tariffs = await ContactTariff.get_all()
 
@@ -1249,18 +1252,6 @@ class KeyboardCollection:
                                      callback_data=f"rate-worker_{worker_id}_{abs_id}_{i}"))
         builder.adjust(5)
         return builder.as_markup()
-
-    # def chat_closed_buttons(self, role: str, abs_id: int):
-    #     """Кнопки для закрытого чата"""
-    #     builder = InlineKeyboardBuilder()
-    #     if role == 'customer':
-    #         builder.add(self._inline(button_text="⬅️ Назад к откликам",
-    #                                  callback_data=f"back-to-responses_{abs_id}"))
-    #     else:
-    #         builder.add(self._inline(button_text="⬅️ Назад к объявлениям",
-    #                                  callback_data="worker_menu"))
-    #     builder.adjust(1)
-    #     return builder.as_markup()
 
     # ========== КЛАВИАТУРЫ ДЛЯ КОНТАКТОВ ЗАКАЗЧИКА ==========
 
@@ -1363,16 +1354,6 @@ class KeyboardCollection:
         else:
             builder.adjust(1)
         return builder.as_markup()
-
-    # def chat_rules_confirmation(self) -> InlineKeyboardMarkup:
-    #     """Кнопка подтверждения правил чата"""
-    #     builder = InlineKeyboardBuilder()
-    #     builder.add(self._inline(button_text="✅ Ознакомлен, Продолжить",
-    #                              callback_data="confirm_chat_rules"))
-    #     builder.add(self._inline(button_text="❌ Отмена",
-    #                              callback_data="cancel_response"))
-    #     builder.adjust(1)
-    #     return builder.as_markup()
 
     def worker_menu(self):
         builder = InlineKeyboardBuilder()
@@ -1519,26 +1500,16 @@ class KeyboardCollection:
         Args:
             abs_id: ID объявления. Если указан, кнопка возврата вернет к чату по этому объявлению.
         """
-        from app.data.database.models import ContactTariff
-
         builder = InlineKeyboardBuilder()
         tariffs = await ContactTariff.get_all()
 
         for tariff in tariffs:
             price_rub = tariff.price / 100  # Конвертируем копейки в рубли
             if tariff.unlimited:
-                button_text = f"🔥 {tariff.name} — {int(price_rub)}₽"
+                button_text = f"🔥 {int(price_rub)} ₽ — {tariff.name}"
             else:
-                # Вычисляем скидку для обычных тарифов (если есть)
-                discount_text = ""
-                if tariff.contacts_count > 1:
-                    base_price_per_contact = 190  # Базовая цена за 1 контакт
-                    total_base_price = base_price_per_contact * tariff.contacts_count
-                    actual_price = price_rub
-                    if actual_price < total_base_price:
-                        discount_percent = int(((total_base_price - actual_price) / total_base_price) * 100)
-                        discount_text = f" (-{discount_percent}%)"
-                button_text = f"{tariff.contacts_count} жетон{'а' if tariff.contacts_count == 2 else 'ов'} — {int(price_rub)}₽{discount_text}"
+                button_text = f"{int(price_rub)} ₽ — {tariff.name}"
+
             builder.add(self._inline(button_text=button_text, callback_data=f"buy_tokens_{tariff.id}"))
 
         history_callback = f"contacts_history_abs_{abs_id}" if abs_id is not None else "contacts_history_general"
@@ -1564,7 +1535,7 @@ class KeyboardCollection:
         for response in responses_data:
             abs_id = response['abs_id']
             # Используем индикатор из данных или fallback на старую логику
-            status_emoji = response.get('status_indicator', "💬" if response['active'] else "✅")
+            status_emoji = response.get('status_indicator', "💬" if response.get('active', False) else "✅")
             text = f"{status_emoji} Объявление #{abs_id}"
             builder.add(self._inline(button_text=text,
                                      callback_data=f"view_my_response_{abs_id}"))
@@ -1580,7 +1551,7 @@ class KeyboardCollection:
 
         for response in responses_data:
             # Используем индикатор из данных или fallback на старую логику
-            status_emoji = response.get('status_indicator', "💬" if response['active'] else "✅")
+            status_emoji = response.get('status_indicator', "💬" if response.get('active', False) else "✅")
 
             # Формируем текст кнопки с именем и рейтингом
             worker_name = response.get('worker_name')
@@ -1588,20 +1559,18 @@ class KeyboardCollection:
             worker_ratings = response.get('worker_ratings', 0)
             worker_id = response.get('worker_id')
 
-            # Вычисляем рейтинг
-            if worker_ratings > 0:
-                rating = round(worker_stars / worker_ratings, 1)
-            else:
-                rating = worker_stars if worker_stars > 0 else 0
-
-            # Формируем имя: если есть profile_name, используем его, иначе ID
+            # Вычисляем рейтинг с учетом стартового фонда
+            from app.untils.help_defs import get_worker_rating_display, get_rating_word
+            rating_display, count_ratings = get_worker_rating_display(worker_stars, worker_ratings)
+            
+            # Формируем имя - показываем имя если есть, иначе ID
             if worker_name and worker_name.strip():
                 name_text = worker_name
             else:
-                name_text = response.get('worker_public_id', f'ID#{worker_id}')
+                name_text = f"ID {worker_id}"
 
-            # Формируем текст кнопки: имя рейтинг ⭐️ (количество оценок)
-            text = f"{status_emoji} {name_text} {rating} ⭐️ ({worker_ratings} оценок)"
+            # Формируем текст кнопки: имя рейтинг ⭐ (количество оценок)
+            text = f"{status_emoji} {name_text} {rating_display} ⭐ ({count_ratings} {get_rating_word(count_ratings)})"
 
             builder.add(self._inline(button_text=text,
                                      callback_data=f"view_response_{response['worker_id']}_{abs_id}"))
@@ -1609,6 +1578,14 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="◀️ К объявлениям",
                                  callback_data="my_abs"))
         builder.adjust(1)
+        return builder.as_markup()
+
+    def contact_purchase_notify(self):
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline("💳 Купить безлимит", "worker_purchased_contacts"))
+        builder.add(self._inline("❌ Пропустить", "skip_unlimited_expiry"))
+        builder.adjust(1)
+
         return builder.as_markup()
 
     def contact_purchase_confirmation(self, worker_id: int, abs_id: int, price: int) -> InlineKeyboardMarkup:

@@ -20,7 +20,16 @@ async def admin_block_photo_violation(callback: CallbackQuery, state: FSMContext
     """Блокировка за нарушение правил при загрузке фото"""
     logger.debug(f'admin_block_photo_violation...')
     
-    worker_id = int(callback.data.split('_')[3])
+    # Парсим callback_data: admin_block_photo_{worker_id} или admin_block_photo_{worker_id}_{photo_filename}
+    parts = callback.data.split('_')
+    worker_id = int(parts[3])
+    
+    # Проверяем, есть ли имя фото в callback_data
+    photo_filename_from_callback = None
+    if len(parts) > 4:
+        # Объединяем все части после worker_id (на случай если имя файла содержит подчеркивания)
+        photo_filename_from_callback = '_'.join(parts[4:])
+    
     kbc = KeyboardCollection()
     
     # Получаем исполнителя
@@ -28,6 +37,26 @@ async def admin_block_photo_violation(callback: CallbackQuery, state: FSMContext
     if not worker:
         await callback.message.edit_text("❌ Исполнитель не найден")
         return
+    
+    # Проверяем, актуально ли фото
+    if photo_filename_from_callback:
+        # Получаем имя файла из текущего фото в БД
+        current_photo_filename = None
+        if worker.profile_photo:
+            current_photo_filename = os.path.basename(worker.profile_photo)
+        
+        # Если фото не совпадает или отсутствует - сообщаем админу
+        if current_photo_filename != photo_filename_from_callback:
+            await callback.answer(
+                "⚠️ Пользователь уже сам удалил или изменил это фото.",
+                show_alert=True
+            )
+            # Обновляем caption сообщения
+            await callback.message.edit_caption(
+                caption=f"⚠️ {callback.message.caption or 'Загружено новое фото профиля'}\n\n"
+                       f"Пользователь уже удалил/изменил это фото."
+            )
+            return
     
     # Проверяем, есть ли уже блокировка
     banned = await Banned.get_banned(tg_id=worker.tg_id)
@@ -130,7 +159,16 @@ async def admin_delete_photo_violation(callback: CallbackQuery, state: FSMContex
     """Удаление фото с нарушением правил"""
     logger.debug(f'admin_delete_photo_violation...')
     
-    worker_id = int(callback.data.split('_')[3])
+    # Парсим callback_data: admin_delete_photo_{worker_id} или admin_delete_photo_{worker_id}_{photo_filename}
+    parts = callback.data.split('_')
+    worker_id = int(parts[3])
+    
+    # Проверяем, есть ли имя фото в callback_data
+    photo_filename_from_callback = None
+    if len(parts) > 4:
+        # Объединяем все части после worker_id (на случай если имя файла содержит подчеркивания)
+        photo_filename_from_callback = '_'.join(parts[4:])
+    
     kbc = KeyboardCollection()
     
     # Получаем исполнителя
@@ -138,6 +176,26 @@ async def admin_delete_photo_violation(callback: CallbackQuery, state: FSMContex
     if not worker:
         await callback.message.edit_text("❌ Исполнитель не найден")
         return
+    
+    # Проверяем, актуально ли фото (только для фото профиля)
+    if photo_filename_from_callback:
+        # Получаем имя файла из текущего фото в БД
+        current_photo_filename = None
+        if worker.profile_photo:
+            current_photo_filename = os.path.basename(worker.profile_photo)
+        
+        # Если фото не совпадает или отсутствует - сообщаем админу
+        if current_photo_filename != photo_filename_from_callback:
+            await callback.answer(
+                "⚠️ Пользователь уже сам удалил или изменил это фото.",
+                show_alert=True
+            )
+            # Обновляем caption сообщения
+            await callback.message.edit_caption(
+                caption=f"⚠️ {callback.message.caption or 'Загружено новое фото профиля'}\n\n"
+                       f"Пользователь уже удалил/изменил это фото."
+            )
+            return
     
     # Определяем тип фото по caption
     caption = callback.message.caption or ""

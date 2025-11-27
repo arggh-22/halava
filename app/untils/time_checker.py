@@ -236,7 +236,7 @@ async def handle_expired_advertisement(advertisement, kbc):
         try:
             await bot.send_message(
                 chat_id=customer.tg_id,
-                text=f'Срок актуальность объявления #{advertisement.id} истек!'
+                text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
                      f'{text}',
                 reply_markup=kbc.menu()
             )

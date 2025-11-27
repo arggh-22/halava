@@ -10,7 +10,7 @@ from typing import List
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
-    CallbackQuery, Message, FSInputFile, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
+    CallbackQuery, Message, FSInputFile, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import StateFilter
@@ -18,7 +18,7 @@ from aiogram.fsm.context import FSMContext
 from app.data.database.models import (
     Customer, Worker, City, WorkerAndSubscription, WorkType, Banned, Abs, WorkersAndAbs, Admin,
     WorkerAndReport, WorkerAndBadResponse, WorkerCitySubscription, WorkerRank, WorkerStatus, ContactExchange,
-    ContactTransaction
+    ContactTransaction, CitySubscriptionTariff, CitySubscriptionDiscount, ContactTariff, WorkerWorkTypeChanges
 )
 from app.keyboards import KeyboardCollection
 from app.states import WorkStates, UserStates, BannedStates
@@ -101,15 +101,10 @@ async def check_worker_has_unlimited_contacts(worker_id: int) -> bool:
         if not worker:
             return False
 
-        # Проверяем безлимитный доступ
-        if worker.unlimited_contacts_until:
-            from datetime import datetime, timedelta
-            try:
-                end_date = datetime.strptime(worker.unlimited_contacts_until, "%Y-%m-%d")
-                if end_date > datetime.now():
-                    return True  # Безлимитный доступ активен
-            except ValueError:
-                pass  # Неверный формат даты
+        # Проверяем безлимитный доступ через функцию из help_defs
+        is_active, _ = help_defs.is_unlimited_active(worker)
+        if is_active:
+            return True
 
         # Проверяем ограниченные контакты
         if worker.purchased_contacts > 0:
@@ -342,7 +337,7 @@ async def enter_worker_name(message: Message, state: FSMContext) -> None:
                         tg_name=message.from_user.username or message.from_user.first_name or "Пользователь",
                         profile_name=worker_name,
                         registration_data=registration_date,
-                        stars=5)
+                        stars=25)  # Стартовый фонд: 25 звезд (5 оценок по 5 звезд)
 
     await new_worker.save()
     new_worker = await Worker.get_worker(tg_id=message.chat.id)
@@ -374,18 +369,17 @@ async def enter_worker_name(message: Message, state: FSMContext) -> None:
     except Exception as e:
         logger.error(f"Ошибка при отправке имени на модерацию: {e}")
 
-    # Показываем всплывающее окно с подтверждением
-    await message.answer('✅ Вы успешно зарегистрированы!', show_alert=True)
-
     # Создаем специальную клавиатуру с кнопкой "Выбрать"
     choose_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Выбрать", callback_data="choose_work_types")]
     ])
 
-    await message.answer(
+    msg = await message.answer(
         text='Выберите направления работ.',
         reply_markup=choose_keyboard
     )
+    # Сохраняем ID сообщения для последующего редактирования
+    await state.update_data(msg_id=msg.message_id)
     await state.set_state(WorkStates.worker_choose_work_types)
 
 
@@ -399,17 +393,78 @@ async def choose_work_types_start(callback: CallbackQuery, state: FSMContext) ->
     # Переходим к выбору направлений работ
     work_types = await WorkType.get_all()
 
-    msg = await callback.message.answer(
-        text='🎯 Выберите направления работы',
-        reply_markup=kbc.choose_work_types_improved(
-            all_work_types=work_types,
-            selected_ids=[],
-            count_work_types=len(work_types),
-            page=0,
-            btn_back=False
+    # Получаем ID сообщения из state (сохранен при создании первого сообщения)
+    state_data = await state.get_data()
+    msg_id = state_data.get('msg_id')
+    
+    # Формируем текст и клавиатуру
+    worker = await Worker.get_worker(tg_id=callback.from_user.id)
+    rank = await WorkerRank.get_or_create_rank(worker.id)
+    work_types_limit = rank.get_work_types_limit()
+    
+    if work_types_limit is None:
+        available_count = len(work_types)
+        limit_text = "без ограничений"
+    else:
+        available_count = min(work_types_limit, len(work_types))
+        limit_text = f"до {work_types_limit}"
+    
+    text = f"🎯 Выберите направления работы\n\n"
+    text += f"🏆 <b>Ваш ранг:</b> {rank.current_rank} {rank.get_rank_name()}\n"
+    text += f"📊 Выбрано: 0/{available_count} {limit_text}\n"
+    text += f"\n💡 Можете выбрать еще {available_count} направлений"
+    
+    try:
+        if msg_id:
+            # Редактируем существующее сообщение
+            await bot.edit_message_text(
+                chat_id=callback.message.chat.id,
+                message_id=msg_id,
+                text=text,
+                reply_markup=kbc.choose_work_types_improved(
+                    all_work_types=work_types,
+                    selected_ids=[],
+                    count_work_types=available_count,
+                    page=0,
+                    btn_back=True,
+                    name_btn_back='Сохранить',
+                    removal_blocked=False
+                ),
+                parse_mode='HTML'
+            )
+        else:
+            # Если msg_id нет, создаем новое сообщение
+            msg = await callback.message.answer(
+                text=text,
+                reply_markup=kbc.choose_work_types_improved(
+                    all_work_types=work_types,
+                    selected_ids=[],
+                    count_work_types=available_count,
+                    page=0,
+                    btn_back=True,
+                    name_btn_back='Сохранить',
+                    removal_blocked=False
+                ),
+                parse_mode='HTML'
+            )
+            await state.update_data(msg_id=msg.message_id)
+    except Exception as e:
+        # Если не удалось отредактировать, создаем новое сообщение
+        logger.debug(f"Could not edit message: {e}")
+        msg = await callback.message.answer(
+            text=text,
+            reply_markup=kbc.choose_work_types_improved(
+                all_work_types=work_types,
+                selected_ids=[],
+                count_work_types=available_count,
+                page=0,
+                btn_back=True,
+                name_btn_back='Сохранить',
+                removal_blocked=False
+            ),
+            parse_mode='HTML'
         )
-    )
-    await state.update_data(msg_id=msg.message_id)
+        await state.update_data(msg_id=msg.message_id)
 
 
 # Верификация убрана согласно ТЗ
@@ -493,11 +548,8 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
     contacts_purchased = await ContactExchange.count_by_worker(user_worker.id)
 
     # Рейтинг
-    if user_worker.count_ratings > 0:
-        rating = round(user_worker.stars / user_worker.count_ratings, 1)
-        rating_text = f"Рейтинг: {rating} ⭐ ({user_worker.count_ratings} {'оценка' if user_worker.count_ratings == 1 else 'оценки' if user_worker.count_ratings < 5 else 'оценок'})"
-    else:
-        rating_text = f"Рейтинг: 0 ⭐ (0 оценок)"
+    rating_display, count_ratings = help_defs.get_worker_rating_display(user_worker.stars, user_worker.count_ratings)
+    rating_text = f"Рейтинг: {rating_display} ⭐ ({count_ratings} {help_defs.get_rating_word(count_ratings)})"
 
     # Формируем текст профиля
     text = f"<b>Ваш профиль</b>\n\n"
@@ -623,11 +675,8 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
     contacts_purchased = await ContactExchange.count_by_worker(user_worker.id)
 
     # Рейтинг
-    if user_worker.count_ratings > 0:
-        rating = round(user_worker.stars / user_worker.count_ratings, 1)
-        rating_text = f"Рейтинг: {rating} ⭐ ({user_worker.count_ratings} {'оценка' if user_worker.count_ratings == 1 else 'оценки' if user_worker.count_ratings < 5 else 'оценок'})"
-    else:
-        rating_text = f"Рейтинг: 0 ⭐ (0 оценок)"
+    rating_display, count_ratings = help_defs.get_worker_rating_display(user_worker.stars, user_worker.count_ratings)
+    rating_text = f"Рейтинг: {rating_display} ⭐ ({count_ratings} {help_defs.get_rating_word(count_ratings)})"
 
     # Формируем текст профиля
     text = f"<b>Ваш профиль</b>\n\n"
@@ -649,14 +698,6 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
     text += f"Выполненных заказов: {user_worker.order_count}\n"
     text += f"Зарегистрирован: {user_worker.registration_data}"
 
-    # Выбор направлений доступен, если нет направлений или есть безлимит ('0')
-    is_unlimited = (not worker_sub.work_type_ids or
-                    (len(worker_sub.work_type_ids) == 1 and worker_sub.work_type_ids[0] == '0'))
-    # choose_works = is_unlimited
-    #
-    # profile_name = True if (user_worker.profile_name or user_worker.tg_name) else False
-
-    # has_status уже определен выше при формировании текста статуса
     has_status = False
     if worker_status_obj:
         has_status = worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz
@@ -666,11 +707,6 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
             photo=FSInputFile(user_worker.profile_photo),
             caption=text,
             reply_markup=kbc.menu_worker_keyboard(
-                # confirmed=True,  # Верификация убрана
-                # choose_works=choose_works,
-                # individual_entrepreneur=user_worker.individual_entrepreneur,
-                # create_photo=False,
-                # create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -679,11 +715,6 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
         await message.answer(
             text=text,
             reply_markup=kbc.menu_worker_keyboard(
-                # confirmed=True,  # Верификация убрана
-                # choose_works=choose_works,
-                # individual_entrepreneur=user_worker.individual_entrepreneur,
-                # create_photo=True,
-                # create_name=profile_name,
                 has_status=has_status
             ),
             parse_mode='HTML'
@@ -771,11 +802,8 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
     contacts_purchased = await ContactExchange.count_by_worker(user_worker.id)
 
     # Рейтинг
-    if user_worker.count_ratings > 0:
-        rating = round(user_worker.stars / user_worker.count_ratings, 1)
-        rating_text = f"Рейтинг: {rating} ⭐ ({user_worker.count_ratings} {'оценка' if user_worker.count_ratings == 1 else 'оценки' if user_worker.count_ratings < 5 else 'оценок'})"
-    else:
-        rating_text = f"Рейтинг: 0 ⭐ (0 оценок)"
+    rating_display, count_ratings = help_defs.get_worker_rating_display(user_worker.stars, user_worker.count_ratings)
+    rating_text = f"Рейтинг: {rating_display} ⭐ ({count_ratings} {help_defs.get_rating_word(count_ratings)})"
 
     # Формируем текст профиля
     text = f"<b>Ваш профиль</b>\n\n"
@@ -837,17 +865,20 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
             return
     user_worker = await Worker.get_worker(tg_id=callback.message.chat.id)
     if not user_worker:
-        await (callback.message.answer(
-            text=f'''Упс, вы пока не зарегистрированы, как исполнитель''',
-            reply_markup=kbc.registration_worker(),
-        ))
+        # Сразу переходим к регистрации без промежуточного сообщения
         if customer := await Customer.get_customer(tg_id=callback.message.chat.id):
-            await state.set_state(WorkStates.worker_choose_work_types)
+            await state.set_state(UserStates.registration_end)
             await state.update_data(city_id=str(customer.city_id), username=str(customer.tg_name))
+            # Сразу вызываем регистрацию
+            await registration_worker_from_customer(callback, state)
             return
-        await state.set_state(UserStates.registration_enter_city)
+        await state.set_state(UserStates.registration_end)
         if admin := await Admin.get_by_tg_id(tg_id=callback.message.chat.id):
             await state.update_data(username=str(admin.tg_name))
+        else:
+            await state.update_data(username=str(callback.from_user.username or callback.from_user.first_name or "Пользователь"))
+        # Сразу вызываем регистрацию
+        await registration_worker_from_start(callback, state)
         return
 
     if not user_worker.active:
@@ -898,17 +929,21 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
     user_worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
     if not user_worker:
-        await (callback.message.answer(
-            text=f'''Упс, вы пока не зарегистрированы, как исполнитель''',
-            reply_markup=kbc.registration_worker(),
-        ))
-
+        # Сразу переходим к регистрации без промежуточного сообщения
         if customer := await Customer.get_customer(tg_id=callback.message.chat.id):
             await state.set_state(UserStates.registration_end)
             await state.update_data(city_id=str(customer.city_id), username=str(customer.tg_name))
+            # Сразу вызываем регистрацию
+            await registration_worker_from_customer(callback, state)
             return
 
-        await state.set_state(WorkStates.registration_enter_city)
+        await state.set_state(UserStates.registration_end)
+        if admin := await Admin.get_by_tg_id(tg_id=callback.message.chat.id):
+            await state.update_data(username=str(admin.tg_name))
+        else:
+            await state.update_data(username=str(callback.from_user.username or callback.from_user.first_name or "Пользователь"))
+        # Сразу вызываем регистрацию
+        await registration_worker_from_start(callback, state)
         return
 
     if not user_worker.active:
@@ -1999,11 +2034,13 @@ async def process_photos(message: Message, state: FSMContext):
         if len(escaped_text) > max_text_length:
             escaped_text = escaped_text[:max_text_length] + '... (обрезано)'
         caption = base_text + escaped_text
+        # Извлекаем имя файла для сохранения в callback_data
+        photo_filename = os.path.basename(file_path_photo)
         await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
                              caption=caption,
                              photo=FSInputFile(file_path_photo),
                              protect_content=False,
-                             reply_markup=kbc.delite_it_photo(worker_id=worker.id))
+                             reply_markup=kbc.delite_it_photo(worker_id=worker.id, photo_filename=photo_filename))
         return
 
     # Если текст не найден - сохраняем фото
@@ -2032,10 +2069,12 @@ async def process_photos(message: Message, state: FSMContext):
 
     await state.set_state(WorkStates.create_photo_profile)
 
+    # Извлекаем имя файла для сохранения в callback_data
+    photo_filename = os.path.basename(file_path_photo)
     await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
                          caption=f'ID #{message.chat.id}\nЗагружено новое фото профиля',
                          photo=FSInputFile(file_path_photo),
-                         protect_content=False, reply_markup=kbc.delite_it_photo(worker_id=worker.id))
+                         protect_content=False, reply_markup=kbc.delite_it_photo(worker_id=worker.id, photo_filename=photo_filename))
 
 
 @router.callback_query(F.data == "add_worker_name", WorkStates.worker_menu)
@@ -2107,7 +2146,6 @@ async def process_worker_name(message: Message, state: FSMContext):
         return
 
     # Проверяем блокировку
-    from app.data.database.models import Banned
     banned = await Banned.get_banned(tg_id=worker.tg_id)
     if banned and banned.forever:
         await message.answer("🚫 Ваш аккаунт заблокирован за повторные нарушения правил платформы!", show_alert=True)
@@ -2165,7 +2203,6 @@ async def abs_in_city(callback: CallbackQuery, state: FSMContext) -> None:
     all_city_ids = list(worker.city_id)  # Основной город
 
     # Добавляем дополнительные города из активных подписок
-    from app.data.database.models import WorkerCitySubscription
     city_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
     for subscription in city_subscriptions:
         all_city_ids.extend(subscription.city_ids)
@@ -2330,7 +2367,6 @@ async def check_abs_navigation(callback: CallbackQuery, state: FSMContext) -> No
     advertisements.sort(key=lambda x: x.id, reverse=True)
 
     # Получаем списки скрытых объявлений и жалоб
-    from app.data.database.models import WorkerAndReport, WorkerAndBadResponse
     worker_and_reports = await WorkerAndReport.get_by_worker(worker_id=worker.id)
     worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
     worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
@@ -2502,7 +2538,6 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     all_city_ids = list(worker.city_id)  # Основной город
 
     # Добавляем дополнительные города из активных подписок
-    from app.data.database.models import WorkerCitySubscription
     city_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
     for subscription in city_subscriptions:
         all_city_ids.extend(subscription.city_ids)
@@ -2626,7 +2661,6 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     all_city_ids = list(worker.city_id)  # Основной город
 
     # Добавляем дополнительные города из активных подписок
-    from app.data.database.models import WorkerCitySubscription
     city_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
     for subscription in city_subscriptions:
         all_city_ids.extend(subscription.city_ids)
@@ -2644,7 +2678,6 @@ async def check_abs(callback: CallbackQuery, state: FSMContext) -> None:
     advertisements.sort(key=lambda x: x.id, reverse=True)
 
     # Получаем списки скрытых объявлений и жалоб
-    from app.data.database.models import WorkerAndReport, WorkerAndBadResponse
     worker_and_reports = await WorkerAndReport.get_by_worker(worker_id=worker.id)
     worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
     worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
@@ -2852,7 +2885,6 @@ async def navigate_photo_worker(callback: CallbackQuery, state: FSMContext) -> N
 
     # Получаем все города исполнителя
     all_city_ids = list(worker.city_id)
-    from app.data.database.models import WorkerCitySubscription
     city_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
     for subscription in city_subscriptions:
         all_city_ids.extend(subscription.city_ids)
@@ -2868,7 +2900,6 @@ async def navigate_photo_worker(callback: CallbackQuery, state: FSMContext) -> N
     advertisements.sort(key=lambda x: x.id, reverse=True)
 
     # Фильтруем объявления
-    from app.data.database.models import WorkerAndReport, WorkerAndBadResponse
     worker_and_reports = await WorkerAndReport.get_by_worker(worker_id=worker.id)
     worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
     worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
@@ -2985,7 +3016,6 @@ async def get_filtered_advertisements_for_worker(worker, worker_sub):
     all_city_ids = list(worker.city_id)  # Основной город
 
     # Добавляем дополнительные города из активных подписок
-    from app.data.database.models import WorkerCitySubscription
     city_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
     for subscription in city_subscriptions:
         all_city_ids.extend(subscription.city_ids)
@@ -3003,7 +3033,6 @@ async def get_filtered_advertisements_for_worker(worker, worker_sub):
     advertisements.sort(key=lambda x: x.id, reverse=True)
 
     # Получаем списки скрытых объявлений и жалоб
-    from app.data.database.models import WorkerAndReport, WorkerAndBadResponse
     worker_and_reports = await WorkerAndReport.get_by_worker(worker_id=worker.id)
     worker_and_bad_responses = await WorkerAndBadResponse.get_by_worker(worker_id=worker.id)
     worker_and_abs = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
@@ -3043,7 +3072,7 @@ async def get_filtered_advertisements_for_worker(worker, worker_sub):
     return advertisements_final
 
 
-@router.callback_query(F.data == 'choose_work_types', WorkStates.worker_menu)
+@router.callback_query(F.data == 'choose_work_types')
 async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     logger.debug(f'choose_work_types...')
     kbc = KeyboardCollection()
@@ -3052,7 +3081,6 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext):
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
 
     # Получаем ранг исполнителя
-    from app.data.database.models import WorkerRank
     rank = await WorkerRank.get_or_create_rank(worker.id)
 
     # Получаем лимит направлений на основе ранга
@@ -3139,7 +3167,6 @@ async def add_work_type(callback: CallbackQuery, state: FSMContext) -> None:
     if not worker:
         await callback.answer("❌ Исполнитель не найден", show_alert=True)
         return
-    from app.data.database.models import WorkerRank
     rank = await WorkerRank.get_or_create_rank(worker.id)
     work_types_limit = rank.get_work_types_limit()
 
@@ -3160,7 +3187,6 @@ async def add_work_type(callback: CallbackQuery, state: FSMContext) -> None:
     # Проверяем, достигнут ли максимальный лимит направлений
     if work_types_limit is not None and len(current_ids) >= work_types_limit:
         # Достигнут максимальный лимит - сбрасываем pending_selection
-        from app.data.database.models import WorkerWorkTypeChanges
         work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
 
         if work_type_changes.pending_selection:
@@ -3187,25 +3213,6 @@ async def remove_work_type(callback: CallbackQuery, state: FSMContext) -> None:
     work_type_id = callback.data.split('_')[3]
     state_data = await state.get_data()
     work_type_ids = str(state_data.get('work_type_ids', ''))
-
-    # Получаем информацию о лимитах изменений
-    worker = await Worker.get_worker(tg_id=callback.from_user.id)
-    from app.data.database.models import WorkerWorkTypeChanges
-    work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
-
-    # Получаем текущие выбранные направления
-    current_ids = work_type_ids.split('|') if work_type_ids else []
-
-    # Получаем информацию о лимитах ранга
-    from app.data.database.models import WorkerRank
-    rank = await WorkerRank.get_or_create_rank(worker.id)
-    work_types_limit = rank.get_work_types_limit()
-
-    # ИЗМЕНЕНО: Убрана проверка лимитов изменений
-    # Исполнители могут удалять направления без ограничений
-
-    # ИЗМЕНЕНО: Убрана проверка лимита ранга при удалении направлений
-    # Исполнители могут удалять направления без ограничений
 
     # Удаляем направление
     current_ids = work_type_ids.split('|') if work_type_ids else []
@@ -3320,13 +3327,8 @@ async def update_work_types_interface(callback: CallbackQuery, state: FSMContext
 
     # Получаем ранг исполнителя для проверки лимитов
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-    from app.data.database.models import WorkerRank
     rank = await WorkerRank.get_or_create_rank(worker.id)
     work_types_limit = rank.get_work_types_limit()
-
-    # Получаем информацию о лимитах изменений
-    from app.data.database.models import WorkerWorkTypeChanges
-    work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
 
     # Получаем данные из кэша
     work_types = await get_cached_work_types()
@@ -3432,7 +3434,6 @@ async def choose_work_types_old(callback: CallbackQuery, state: FSMContext) -> N
 
     state_data = await state.get_data()
     count_work_types = int(state_data.get('count_work_types'))
-    subscription_id = int(state_data.get('subscription_id'))
     work_type_ids = str(state_data.get('work_type_ids'))
 
     work_type_id_str = work_type_ids + '|' + str(callback.data.split('_')[1])
@@ -3473,12 +3474,10 @@ async def choose_work_types_old(callback: CallbackQuery, state: FSMContext) -> N
         if work_type.id not in work_type_id_list:
             new_work_types.append(work_type)
 
-    # subscription = await SubscriptionType.get_subscription_type(id=subscription_id)  # УДАЛЕНО: SubscriptionType больше не используется
 
     names = [work_type.work_type for work_type in new_work_types]
     ids = [work_type.id for work_type in new_work_types]
 
-    # btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
     btn_back = True  # Всегда показываем кнопку назад
 
     await callback.message.answer(
@@ -3494,7 +3493,6 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
 
     state_data = await state.get_data()
     count_work_types = int(state_data.get('count_work_types'))
-    subscription_id = int(state_data.get('subscription_id'))
     work_type_ids = str(state_data.get('work_type_ids'))
 
     work_type_id_list = work_type_ids.split('|')
@@ -3523,12 +3521,9 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
         if work_type.id not in work_type_id_list:
             new_work_types.append(work_type)
 
-    # subscription = await SubscriptionType.get_subscription_type(id=subscription_id)  # УДАЛЕНО: SubscriptionType больше не используется
-
     names = [work_type.work_type for work_type in new_work_types]
     ids = [work_type.id for work_type in new_work_types]
 
-    # btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
     btn_back = True  # Всегда показываем кнопку назад
 
     await callback.message.answer(
@@ -3544,7 +3539,6 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
 
     state_data = await state.get_data()
     count_work_types = int(state_data.get('count_work_types'))
-    subscription_id = int(state_data.get('subscription_id'))
     work_type_ids = str(state_data.get('work_type_ids'))
 
     work_type_id_list = work_type_ids.split('|')
@@ -3577,12 +3571,9 @@ async def choose_work_types(callback: CallbackQuery, state: FSMContext) -> None:
         if work_type.id not in work_type_id_list:
             new_work_types.append(work_type)
 
-    # subscription = await SubscriptionType.get_subscription_type(id=subscription_id)  # УДАЛЕНО: SubscriptionType больше не используется
-
     names = [work_type.work_type for work_type in new_work_types]
     ids = [work_type.id for work_type in new_work_types]
 
-    # btn_back = True if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else False  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
     btn_back = True  # Всегда показываем кнопку назад
 
     await callback.message.answer(
@@ -3647,7 +3638,6 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
 
     if original_work_types != current_work_types:
         # Что-то изменилось - нужно определить, ВЫБОР или ИЗМЕНЕНИЕ
-        from app.data.database.models import WorkerWorkTypeChanges
         work_type_changes = await WorkerWorkTypeChanges.get_or_create(worker.id)
 
         logger.info(
@@ -3666,14 +3656,10 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
 
             if work_type_changes.pending_selection:
                 # Проверяем, выбрано ли максимальное количество направлений по рангу
-                from app.data.database.models import WorkerRank
                 rank = await WorkerRank.get_or_create_rank(worker.id)
                 work_types_limit = rank.get_work_types_limit()
 
                 current_count = len(current_work_types)
-
-                # Сбрасываем pending_selection только если выбрано максимальное количество направлений по рангу
-                should_reset = False
 
                 if work_types_limit is None:
                     # Платина - без ограничений, НЕ сбрасываем pending_selection
@@ -3702,7 +3688,6 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
             # При изменении проверяем, нужно ли сбрасывать pending_selection
             if work_type_changes.pending_selection:
                 # Проверяем, достигнут ли максимальный лимит направлений по рангу
-                from app.data.database.models import WorkerRank
                 rank = await WorkerRank.get_or_create_rank(worker.id)
                 work_types_limit = rank.get_work_types_limit()
 
@@ -3750,7 +3735,25 @@ async def choose_work_types_end(callback: CallbackQuery, state: FSMContext) -> N
     # pending_selection сбрасывается только при достижении максимального лимита направлений по рангу
     # При ручном завершении (кнопка "Сохранить") флаг НЕ сбрасывается
 
-    await callback.message.answer(text, reply_markup=kbc.menu())
+    # Редактируем существующее сообщение вместо создания нового
+    msg_id = state_data.get('msg_id')
+    try:
+        if msg_id:
+            await bot.edit_message_text(
+                chat_id=callback.message.chat.id,
+                message_id=msg_id,
+                text=text,
+                reply_markup=kbc.menu(),
+                parse_mode='HTML'
+            )
+        else:
+            # Если msg_id нет, создаем новое сообщение
+            await callback.message.answer(text, reply_markup=kbc.menu())
+    except Exception as e:
+        # Если не удалось отредактировать, создаем новое сообщение
+        logger.debug(f"Could not edit message: {e}")
+        await callback.message.answer(text, reply_markup=kbc.menu())
+    
     await state.set_state(WorkStates.worker_menu)
 
 
@@ -3844,7 +3847,6 @@ async def worker_status(callback: CallbackQuery, state: FSMContext) -> None:
     worker = await Worker.get_worker(tg_id=callback.message.chat.id)
 
     # Получаем статус исполнителя
-    from app.data.database.models import WorkerStatus
     worker_status_obj = await WorkerStatus.get_or_create(worker.id)
 
     text = "📋 <b>Подтверждение статуса исполнителя</b>\n\n"
@@ -3910,7 +3912,6 @@ async def confirm_ip_status(callback: CallbackQuery, state: FSMContext) -> None:
 
     # Проверяем, нет ли уже подтвержденного статуса
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-    from app.data.database.models import WorkerStatus
     worker_status = await WorkerStatus.get_or_create(worker.id)
 
     if worker_status.has_ip or worker_status.has_ooo or worker_status.has_sz:
@@ -3945,7 +3946,6 @@ async def confirm_ooo_status(callback: CallbackQuery, state: FSMContext) -> None
 
     # Проверяем, нет ли уже подтвержденного статуса
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-    from app.data.database.models import WorkerStatus
     worker_status = await WorkerStatus.get_or_create(worker.id)
 
     if worker_status.has_ip or worker_status.has_ooo or worker_status.has_sz:
@@ -3980,7 +3980,6 @@ async def confirm_sz_status(callback: CallbackQuery, state: FSMContext) -> None:
 
     # Проверяем, нет ли уже подтвержденного статуса
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
-    from app.data.database.models import WorkerStatus
     worker_status = await WorkerStatus.get_or_create(worker.id)
 
     if worker_status.has_ip or worker_status.has_ooo or worker_status.has_sz:
@@ -4014,7 +4013,7 @@ async def process_ip_confirmation(message: Message, state: FSMContext) -> None:
     logger.debug(f'process_ip_confirmation...')
     kbc = KeyboardCollection()
 
-    state_data = await state.get_data()
+    # state_data = await state.get_data()
     # msg_id = state_data.get('msg_id')
 
     ogrnip = message.text.strip()
@@ -4052,7 +4051,6 @@ async def process_ip_confirmation(message: Message, state: FSMContext) -> None:
     if result:
         # Сохраняем статус
         worker = await Worker.get_worker(tg_id=message.chat.id)
-        from app.data.database.models import WorkerStatus
         from datetime import datetime
         worker_status = await WorkerStatus.get_or_create(worker.id)
         worker_status.has_ip = True
@@ -4126,8 +4124,6 @@ async def process_ooo_confirmation(message: Message, state: FSMContext) -> None:
     elif result:
         # Сохраняем статус
         worker = await Worker.get_worker(tg_id=message.chat.id)
-        from app.data.database.models import WorkerStatus
-        from datetime import datetime
         worker_status = await WorkerStatus.get_or_create(worker.id)
         worker_status.has_ooo = True
         worker_status.ooo_number = ogrn
@@ -4197,8 +4193,6 @@ async def process_sz_confirmation(message: Message, state: FSMContext) -> None:
     elif result:
         # Сохраняем статус
         worker = await Worker.get_worker(tg_id=message.chat.id)
-        from app.data.database.models import WorkerStatus
-        from datetime import datetime
         worker_status = await WorkerStatus.get_or_create(worker.id)
         worker_status.has_sz = True
         worker_status.sz_number = inn
@@ -4285,7 +4279,6 @@ async def add_city(callback: CallbackQuery, state: FSMContext) -> None:
     text += "Выберите дополнительное количество городов для получения заказов:"
 
     # Загружаем тарифы из БД
-    from app.data.database.models import CitySubscriptionTariff
     tariffs = await CitySubscriptionTariff.get_all()
 
     if not tariffs:
@@ -4338,9 +4331,6 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
     if change_subscription_id:
         await state.update_data(change_subscription_id=change_subscription_id)
 
-    # Загружаем тарифы из БД
-    from app.data.database.models import CitySubscriptionTariff, CitySubscriptionDiscount
-
     # Получаем базовую цену за месяц для указанного количества городов
     tariff = await CitySubscriptionTariff.get_by_city_count(city_count)
     if not tariff:
@@ -4372,12 +4362,7 @@ async def city_count_selected(callback: CallbackQuery, state: FSMContext) -> Non
     for months, price_kopecks in prices_info:
         price_rub = price_kopecks / 100
         # Формируем правильное склонение для месяца
-        if months == 1:
-            month_word = "месяц"
-        elif months in [2, 3, 4]:
-            month_word = "месяца"
-        else:
-            month_word = "месяцев"
+        month_word = help_defs.get_month_word(months)
 
         builder.add(kbc._inline(f"{months} {month_word} {int(price_rub)}₽",
                                 f"city_period_{months}_{int(price_rub)}"))
@@ -4569,28 +4554,67 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
             # Сохраняем subscription_id для последующего выбора городов
             subscription_id = change_subscription_id
         else:
-            # Это новая покупка - создаем новую подписку
-            # Здесь должна быть интеграция с платежной системой
-            # Пока что просто создаем подписку (имитация успешной оплаты)
+            # Это новая покупка - отправляем invoice для оплаты
+            # РЕАЛЬНАЯ ПЛАТЕЖНАЯ СИСТЕМА
+            month_word = help_defs.get_month_word(months)
+            if city_count == 1:
+                city_word = "город"
+            elif city_count in [2, 3, 4]:
+                city_word = "города"
+            else:
+                city_word = "городов"
+            description = f"Подписка на {city_count} {city_word} на {months} {month_word}"
+            
+            prices = [LabeledPrice(label=f"Подписка на города ({city_count} городов, {months} {month_word})", amount=price * 100)]
+            
+            await state.set_state(WorkStates.worker_buy_cities)
+            
+            try:
+                await callback.message.answer_invoice(
+                    title=f"Подписка на города",
+                    description=description,
+                    provider_token=config.PAYMENTS,
+                    currency="RUB",
+                    prices=prices,
+                    start_parameter=f"city-subscription-{city_count}-{months}",
+                    payload=f"city-purchase-{city_count}-{months}-{price}",
+                    need_email=True,
+                    send_email_to_provider=True
+                )
+                await state.update_data(
+                    worker_id=str(worker.id),
+                    city_count=city_count,
+                    months=months,
+                    price=price,
+                    change_subscription_id=change_subscription_id
+                )
+                return
+            except TelegramBadRequest as e:
+                logger.error(f"Payment provider error: {e}")
+                # Обрабатываем ошибку недоступности платежного метода
+                if "PAYMENT_PROVIDER_INVALID" in str(e):
+                    error_text = "❌ Платежный метод недоступен\n\n"
+                    error_text += "🚫 К сожалению, в вашей стране недоступны платежные методы Telegram.\n\n"
+                    error_text += "📞 Для получения помощи обратитесь в поддержку"
 
-            # Вычисляем даты
-            start_date = datetime.now()
-            end_date = start_date + timedelta(days=months * 30)
+                    await callback.answer(
+                        text=error_text,
+                        show_alert=True,
+                    )
+                else:
+                    # Другие ошибки платежа
+                    error_text = "❌ Ваш платеж не был выполнен!"
 
-            # Создаем подписку с пустыми city_ids (будут выбраны позже)
-            subscription = WorkerCitySubscription(
-                id=None,  # Для новой записи
-                worker_id=worker.id,
-                city_ids=[],  # Пока пустой список, будет заполнен при выборе городов
-                subscription_start=start_date.strftime('%Y-%m-%d'),
-                subscription_end=end_date.strftime('%Y-%m-%d'),
-                subscription_months=months,
-                price=price,
-                purchased_city_count=city_count  # Сохраняем количество купленных городов
-            )
-            await subscription.save()
-            subscription_id = subscription.id
+                    await callback.answer(
+                        text=error_text,
+                        show_alert=True
+                    )
 
+                # Возвращаемся в меню исполнителя
+                await state.set_state(WorkStates.worker_menu)
+                return
+
+        # Для смены тарифа - продолжаем без платежа
         # Проверяем, есть ли доступные города для выбора
         all_cities = await City.get_all()
 
@@ -4620,14 +4644,15 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
             # Сохраняем для определения смены тарифа
         )
 
+        # Вычисляем даты для отображения
+        start_date = datetime.now()
+        end_date = start_date + timedelta(days=months * 30)
+
         if is_tariff_change:
             text = f"✅ <b>Тариф успешно изменён!</b>\n\n"
             text += f"🔄 Подписка обновлена на {city_count} город\n"
-        else:
-            text = f"✅ <b>Покупка успешно выполнена!</b>\n\n"
-            text += f"🎉 Подписка на {city_count} город активирована!\n"
-        text += f"📅 Период: {months} {help_defs.get_month_word(months)}\n"
-        text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
+            text += f"📅 Период: {months} {help_defs.get_month_word(months)}\n"
+            text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
 
         if len(available_cities) == 0:
             text += f"⚠️ <b>Нет доступных городов для выбора!</b>\n"
@@ -4652,6 +4677,227 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
     except Exception as e:
         logger.error(f"Error in confirm_city_purchase: {e}")
         await callback.answer("❌ Произошла ошибка при покупке", show_alert=True)
+
+
+@router.message(F.successful_payment, WorkStates.worker_buy_cities)
+async def success_city_payment_handler(message: Message, state: FSMContext):
+    """Обработчик успешного платежа за города"""
+    logger.debug(f'success_city_payment_handler...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    worker_id = int(state_data.get('worker_id'))
+    city_count = int(state_data.get('city_count'))
+    months = int(state_data.get('months'))
+    price = int(state_data.get('price'))
+    change_subscription_id = state_data.get('change_subscription_id')
+    is_renewal = state_data.get('is_renewal', False)
+    subscription_id = state_data.get('subscription_id')
+    renew_city_ids = state_data.get('renew_city_ids', [])
+
+    worker = await Worker.get_worker(id=worker_id)
+
+    if not worker:
+        await message.answer("❌ Ошибка при обработке платежа")
+        await state.set_state(WorkStates.worker_menu)
+        return
+
+    try:
+        if is_renewal and subscription_id:
+            # Это продление подписки
+            conn = await aiosqlite.connect(database='app/data/database/database.db')
+            cursor = await conn.execute(
+                'SELECT * FROM worker_city_subscriptions WHERE id = ?',
+                [subscription_id])
+            record = await cursor.fetchone()
+            await cursor.close()
+
+            if not record:
+                await conn.close()
+                await message.answer("❌ Подписка не найдена")
+                await state.set_state(WorkStates.worker_menu)
+                return
+
+            # Используем существующие города из подписки или из состояния
+            existing_city_ids = [int(x) for x in record[2].split('|')] if record[2] else []
+            city_ids_to_use = renew_city_ids if renew_city_ids else existing_city_ids
+
+            # Вычисляем новые даты (продлеваем от текущей даты окончания или от сегодня)
+            current_end_date = datetime.strptime(record[4], '%Y-%m-%d')
+            if current_end_date < datetime.now():
+                start_date = datetime.now()
+            else:
+                start_date = current_end_date
+
+            end_date = start_date + timedelta(days=months * 30)
+
+            # Обновляем подписку
+            city_ids_str = '|'.join(map(str, city_ids_to_use))
+            await conn.execute(
+                '''UPDATE worker_city_subscriptions
+                   SET city_ids             = ?,
+                       subscription_start   = ?,
+                       subscription_end     = ?,
+                       subscription_months  = ?,
+                       price                = ?,
+                       purchased_city_count = ?,
+                       active               = 1
+                   WHERE id = ?''',
+                [city_ids_str,
+                 start_date.strftime('%Y-%m-%d'),
+                 end_date.strftime('%Y-%m-%d'),
+                 months,
+                 price,
+                 city_count,
+                 subscription_id])
+            await conn.commit()
+            await conn.close()
+
+            # Получаем названия городов для сообщения
+            city_names = []
+            for city_id in city_ids_to_use:
+                city = await City.get_city(id=city_id)
+                if city:
+                    city_names.append(city.city)
+
+            text = f"✅ <b>Подписка успешно продлена!</b>\n\n"
+            text += f"🏙️ Количество городов: {city_count}\n"
+            text += f"📅 Период: {months} {help_defs.get_month_word(months)}\n"
+            text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
+
+            if city_names:
+                text += f"📍 Города:\n"
+                for name in city_names:
+                    text += f"• {name}\n"
+                text += f"\n💡 Вы будете продолжать получать заказы из этих городов!"
+
+            await message.answer(
+                text=text,
+                reply_markup=kbc.menu_btn(),
+                parse_mode='HTML'
+            )
+
+            # Очищаем данные продления из состояния
+            await state.update_data(
+                renew_subscription_id=None,
+                renew_city_count=None,
+                renew_city_ids=None,
+                is_renewal=False
+            )
+            await state.set_state(WorkStates.worker_menu)
+            return
+
+        # Вычисляем даты
+        start_date = datetime.now()
+        end_date = start_date + timedelta(days=months * 30)
+
+        if change_subscription_id:
+            # Это смена тарифа - обновляем существующую подписку
+            conn = await aiosqlite.connect(database='app/data/database/database.db')
+            cursor = await conn.execute(
+                'SELECT * FROM worker_city_subscriptions WHERE id = ?',
+                [change_subscription_id])
+            record = await cursor.fetchone()
+            await cursor.close()
+
+            if not record:
+                await conn.close()
+                await message.answer("❌ Подписка не найдена")
+                await state.set_state(WorkStates.worker_menu)
+                return
+
+            # Обновляем подписку
+            cursor = await conn.execute(
+                '''UPDATE worker_city_subscriptions
+                   SET subscription_start   = ?,
+                       subscription_end     = ?,
+                       subscription_months  = ?,
+                       price                = ?,
+                       purchased_city_count = ?,
+                       active               = 1
+                   WHERE id = ?''',
+                [start_date.strftime('%Y-%m-%d'),
+                 end_date.strftime('%Y-%m-%d'),
+                 months,
+                 price,
+                 city_count,
+                 change_subscription_id])
+            await conn.commit()
+            await cursor.close()
+            await conn.close()
+            subscription_id = change_subscription_id
+        else:
+            # Это новая покупка - создаем новую подписку
+            subscription = WorkerCitySubscription(
+                id=None,
+                worker_id=worker.id,
+                city_ids=[],
+                subscription_start=start_date.strftime('%Y-%m-%d'),
+                subscription_end=end_date.strftime('%Y-%m-%d'),
+                subscription_months=months,
+                price=price,
+                purchased_city_count=city_count
+            )
+            await subscription.save()
+            subscription_id = subscription.id
+
+        # Проверяем, есть ли доступные города для выбора
+        all_cities = await City.get_all()
+        all_active_subscriptions = await WorkerCitySubscription.get_active_by_worker(worker.id)
+        all_subscription_cities = []
+        for subscription in all_active_subscriptions:
+            if subscription.id == subscription_id:
+                continue
+            all_subscription_cities.extend(subscription.city_ids)
+
+        excluded_cities = worker.city_id + all_subscription_cities
+        available_cities = [city for city in all_cities if city.id not in excluded_cities]
+
+        await state.update_data(
+            subscription_id=subscription_id,
+            city_count=city_count,
+            selected_cities=[],
+            change_subscription_id=change_subscription_id if change_subscription_id else None
+        )
+
+        if len(available_cities) == 0:
+            text = f"✅ <b>Покупка успешно выполнена!</b>\n\n"
+            text += f"🎉 Подписка на {city_count} город активирована!\n"
+            text += f"📅 Период: {months} {help_defs.get_month_word(months)}\n"
+            text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
+            text += f"⚠️ <b>Нет доступных городов для выбора!</b>\n"
+            text += f"Все города уже выбраны в других подписках или являются основными.\n"
+            text += f"Подписка сохранена, вы сможете выбрать города позже."
+
+            await message.answer(
+                text=text,
+                reply_markup=kbc.menu_btn(),
+                parse_mode='HTML'
+            )
+            await state.set_state(WorkStates.worker_menu)
+        else:
+            text = f"✅ <b>Покупка успешно выполнена!</b>\n\n"
+            text += f"🎉 Подписка на {city_count} город активирована!\n"
+            text += f"📅 Период: {months} {help_defs.get_month_word(months)}\n"
+            text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
+            text += f"📍 Теперь выберите города для получения заказов"
+
+            await state.set_state(WorkStates.worker_choose_subscription_cities)
+            await state.update_data(msg_id=None)
+            
+            # Создаем fake callback для вызова choose_subscription_cities
+            from aiogram.types import CallbackQuery as FakeCallback
+            fake_callback = type('obj', (object,), {
+                'message': message,
+                'from_user': message.from_user,
+                'data': 'fake'
+            })()
+            await choose_subscription_cities(fake_callback, state)
+
+    except Exception as e:
+        logger.error(f"Error in success_city_payment_handler: {e}")
+        await message.answer("❌ Произошла ошибка при обработке платежа")
+        await state.set_state(WorkStates.worker_menu)
 
 
 @router.callback_query(lambda c: c.data.startswith('confirm_city_renew_'))
@@ -4689,69 +4935,68 @@ async def confirm_city_renew(callback: CallbackQuery, state: FSMContext) -> None
         existing_city_ids = [int(x) for x in record[2].split('|')] if record[2] else []
         city_ids_to_use = renew_city_ids if renew_city_ids else existing_city_ids
 
-        # Вычисляем новые даты (продлеваем от текущей даты окончания или от сегодня)
-        current_end_date = datetime.strptime(record[4], '%Y-%m-%d')
-        # Продлеваем от сегодня, если подписка уже истекла, или от текущей даты окончания
-        if current_end_date < datetime.now():
-            start_date = datetime.now()
+        # РЕАЛЬНАЯ ПЛАТЕЖНАЯ СИСТЕМА - отправляем invoice для продления
+        month_word = help_defs.get_month_word(months)
+        if renew_city_count == 1:
+            city_word = "город"
+        elif renew_city_count in [2, 3, 4]:
+            city_word = "города"
         else:
-            start_date = current_end_date
+            city_word = "городов"
+        description = f"Продление подписки на {renew_city_count} {city_word} на {months} {month_word}"
+        
+        prices = [LabeledPrice(label=f"Продление подписки на города ({renew_city_count} городов, {months} {month_word})", amount=price * 100)]
+        
+        await state.set_state(WorkStates.worker_buy_cities)
+        
+        try:
+            await callback.message.answer_invoice(
+                title=f"Продление подписки на города",
+                description=description,
+                provider_token=config.PAYMENTS,
+                currency="RUB",
+                prices=prices,
+                start_parameter=f"city-renew-{subscription_id}-{months}",
+                payload=f"city-renew-{subscription_id}-{months}-{price}",
+                need_email=True,
+                send_email_to_provider=True
+            )
+            await state.update_data(
+                worker_id=str(worker.id),
+                subscription_id=subscription_id,
+                city_count=renew_city_count,
+                months=months,
+                price=price,
+                renew_city_ids=city_ids_to_use,
+                is_renewal=True
+            )
+            await conn.close()
+            return
+        except TelegramBadRequest as e:
+            await conn.close()
+            logger.error(f"Payment provider error: {e}")
+            # Обрабатываем ошибку недоступности платежного метода
+            if "PAYMENT_PROVIDER_INVALID" in str(e):
+                error_text = "❌ Платежный метод недоступен\n\n"
+                error_text += "🚫 К сожалению, в вашей стране недоступны платежные методы Telegram.\n\n"
+                error_text += "📞 Для получения помощи обратитесь в поддержку"
 
-        end_date = start_date + timedelta(days=months * 30)
+                await callback.answer(
+                    text=error_text,
+                    show_alert=True,
+                )
+            else:
+                # Другие ошибки платежа
+                error_text = "❌ Ваш платеж не был выполнен!"
 
-        # Обновляем подписку (НЕ создаем новую!)
-        city_ids_str = '|'.join(map(str, city_ids_to_use))
-        await conn.execute(
-            '''UPDATE worker_city_subscriptions
-               SET city_ids             = ?,
-                   subscription_start   = ?,
-                   subscription_end     = ?,
-                   subscription_months  = ?,
-                   price                = ?,
-                   purchased_city_count = ?,
-                   active               = 1
-               WHERE id = ?''',
-            [city_ids_str,
-             start_date.strftime('%Y-%m-%d'),
-             end_date.strftime('%Y-%m-%d'),
-             months,
-             price,
-             renew_city_count,  # Обновляем количество городов
-             subscription_id])
-        await conn.commit()
-        await conn.close()
+                await callback.answer(
+                    text=error_text,
+                    show_alert=True
+                )
 
-        # Получаем названия городов для сообщения
-        city_names = []
-        for city_id in city_ids_to_use:
-            city = await City.get_city(id=city_id)
-            if city:
-                city_names.append(city.city)
-
-        text = f"✅ <b>Подписка успешно продлена!</b>\n\n"
-        text += f"🏙️ Количество городов: {renew_city_count}\n"
-        text += f"📅 Период: {months} месяц\n"
-        text += f"⏰ Действует до: {end_date.strftime('%d.%m.%Y')}\n\n"
-
-        if city_names:
-            text += f"📍 Города:\n"
-            for name in city_names:
-                text += f"• {name}\n"
-            text += f"\n💡 Вы будете продолжать получать заказы из этих городов!"
-
-        await callback.message.answer(
-            text=text,
-            reply_markup=kbc.menu_btn(),
-            parse_mode='HTML'
-        )
-
-        # Очищаем данные продления из состояния
-        await state.update_data(
-            renew_subscription_id=None,
-            renew_city_count=None,
-            renew_city_ids=None
-        )
-        await state.set_state(WorkStates.worker_menu)
+            # Возвращаемся в меню исполнителя
+            await state.set_state(WorkStates.worker_menu)
+            return
 
     except Exception as e:
         logger.error(f"Error in confirm_city_renew: {e}")
@@ -5241,9 +5486,6 @@ async def city_subscription_management(callback: CallbackQuery, state: FSMContex
 
         text += f"\nВыберите новый срок подписки:"
 
-        # Загружаем тарифы из БД
-        from app.data.database.models import CitySubscriptionTariff, CitySubscriptionDiscount
-
         # Получаем базовую цену за месяц для указанного количества городов
         tariff = await CitySubscriptionTariff.get_by_city_count(city_count)
         if not tariff:
@@ -5315,13 +5557,39 @@ async def confirm_cancel_subscription(callback: CallbackQuery, state: FSMContext
     subscription_id = int(callback.data.split('_')[3])
 
     try:
-        # Деактивируем подписку
-        conn = await aiosqlite.connect(database='app/data/database/database.db')
-        await conn.execute(
-            'UPDATE worker_city_subscriptions SET active = 0 WHERE id = ?',
-            [subscription_id])
-        await conn.commit()
-        await conn.close()
+        # Получаем подписку по ID
+        subscription = None
+        try:
+            conn = await aiosqlite.connect(database='app/data/database/database.db')
+            cursor = await conn.execute(
+                'SELECT * FROM worker_city_subscriptions WHERE id = ?',
+                [subscription_id])
+            record = await cursor.fetchone()
+            await cursor.close()
+            await conn.close()
+
+            if record:
+                city_ids = [int(x) for x in record[2].split('|')] if record[2] else []
+                subscription = WorkerCitySubscription(
+                    id=record[0],
+                    worker_id=record[1],
+                    city_ids=city_ids,
+                    subscription_start=record[3],
+                    subscription_end=record[4],
+                    subscription_months=record[5],
+                    price=record[6],
+                    active=bool(record[7]),
+                    purchased_city_count=record[8]
+                )
+        except Exception as e:
+            logger.error(f"Error getting subscription: {e}")
+
+        if not subscription:
+            await callback.answer("❌ Подписка не найдена", show_alert=True)
+            return
+
+        # Деактивируем подписку используя метод модели
+        await subscription.deactivate()
 
         text = f"✅ <b>Подписка отменена</b>\n\n"
         text += f"Подписка на дополнительные города деактивирована.\n"
@@ -5344,6 +5612,11 @@ async def send_city_subscription_expiry_notifications():
     try:
         from app.keyboards import KeyboardCollection
         kbc = KeyboardCollection()
+
+        # Деактивируем просроченные подписки (subscription_end < сегодня и active = 1)
+        deactivated_count = await WorkerCitySubscription.deactivate_expired_subscriptions()
+        if deactivated_count > 0:
+            logger.info(f"Deactivated {deactivated_count} expired city subscriptions")
 
         expiring_subscriptions = await WorkerCitySubscription.get_expiring_tomorrow()
 
@@ -5389,8 +5662,107 @@ async def send_city_subscription_expiry_notifications():
         logger.error(f"Error in send_city_subscription_expiry_notifications: {e}")
 
 
-@router.callback_query(F.data == "worker_purchased_contacts", WorkStates.worker_menu)
-async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) -> None:
+async def send_unlimited_contacts_expiry_notifications():
+    """Отправляет уведомления об истечении безлимитных подписок на контакты и очищает истекшие"""
+    try:
+        from app.keyboards import KeyboardCollection
+        from datetime import datetime, timedelta
+        kbc = KeyboardCollection()
+
+        now = datetime.now()
+        
+        # Получаем всех воркеров с безлимитной подпиской через модель
+        records = await Worker.get_workers_with_unlimited_subscriptions()
+
+        expired_worker_ids = []  # Список ID воркеров с истекшими подписками
+
+        for record in records:
+            worker_id = record[0]
+            tg_id = record[1]
+            unlimited_until = record[2]
+
+            if not unlimited_until:
+                continue
+
+            worker = await Worker.get_worker(id=worker_id)
+            if not worker:
+                continue
+
+            # Проверяем активность безлимита через функцию из help_defs
+            is_active, _ = help_defs.is_unlimited_active(worker)
+            
+            if not is_active:
+                # Подписка истекла - добавляем в список для очистки
+                expired_worker_ids.append(worker_id)
+                logger.info(f"Found expired unlimited subscription for worker {worker_id}")
+                continue
+            
+            # Парсим дату для вычисления дней до истечения
+            try:
+                date_str = str(unlimited_until).strip()
+                end_date = None
+                
+                try:
+                    end_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    formats = ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"]
+                    for fmt in formats:
+                        try:
+                            end_date = datetime.strptime(date_str, fmt)
+                            break
+                        except ValueError:
+                            continue
+                
+                if end_date:
+                    days_left = (end_date - now).days
+                    
+                    # Если подписка истекает сегодня или завтра
+                    if days_left == 0 or days_left == 1:
+                        # Определяем текст заголовка в зависимости от дня
+                        day_text = "Сегодня" if days_left == 0 else "Завтра"
+                        
+                        text = f"⚠️ <b>{day_text} истекает срок безлимитной подписки на контакты</b>\n\n"
+                        text += f"🔥 Безлимитный доступ к контактам заказчиков будет недоступен.\n\n"
+                        text += f"💡 Продлите подписку, чтобы продолжать получать контакты без ограничений."
+
+                        try:
+                            await bot.send_message(
+                                chat_id=tg_id,
+                                text=text,
+                                reply_markup=kbc.contact_purchase_notify(),
+                                parse_mode='HTML'
+                            )
+                            logger.info(f"Sent '{day_text.lower()} expires' notification to worker {worker_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to send '{day_text.lower()} expires' notification to worker {tg_id}: {e}")
+            except Exception as e:
+                logger.error(f"Error parsing unlimited_contacts_until for worker {worker_id}: {e}, value: {unlimited_until}")
+                continue
+
+        # Очищаем истекшие подписки через модель
+        if expired_worker_ids:
+            await Worker.clear_expired_unlimited_subscriptions(expired_worker_ids)
+            logger.info(f"Cleared {len(expired_worker_ids)} expired unlimited subscriptions")
+
+    except Exception as e:
+        logger.error(f"Error in send_unlimited_contacts_expiry_notifications: {e}")
+
+
+@router.callback_query(F.data == "skip_unlimited_expiry")
+async def skip_unlimited_expiry(callback: CallbackQuery) -> None:
+    """Обработчик кнопки 'Пропустить' для уведомления об истечении безлимита"""
+    try:
+        await callback.message.delete()
+        await callback.answer("Уведомление закрыто")
+    except TelegramBadRequest:
+        await callback.answer("Уведомление закрыто")
+    except Exception as e:
+        logger.error(f"Error in skip_unlimited_expiry: {e}")
+        await callback.answer("Ошибка")
+
+
+@router.callback_query(F.data == "worker_purchased_contacts")
+async def worker_purchased_contacts(callback: CallbackQuery) -> None:
     """Покупка контактов"""
     logger.debug(f'worker_purchased_contacts...')
     kbc = KeyboardCollection()
@@ -5402,17 +5774,25 @@ async def worker_purchased_contacts(callback: CallbackQuery, state: FSMContext) 
 
     text = f"💳 <b>Купить контакты</b>\n\n"
     text += f"📊 У вас сейчас: {info_text}\n"
-    text += f"🔓 Безлимитный доступ: {'✅ Активен' if worker.unlimited_contacts_until else '❌ Нет'}\n\n"
-
-    if worker.unlimited_contacts_until:
+    
+    # Проверяем, активен ли безлимит через функцию из help_defs
+    is_unlimited_active, unlimited_until = help_defs.is_unlimited_active(worker)
+    unlimited_until_text = ""
+    
+    if unlimited_until:
         try:
-            until_date = datetime.fromisoformat(worker.unlimited_contacts_until)
-            if until_date > datetime.now():
-                text += f"⏰ Безлимит действует до: {until_date.strftime('%d.%m.%Y %H:%M')}\n\n"
+            until_date = datetime.fromisoformat(unlimited_until)
+            if is_unlimited_active:
+                unlimited_until_text = f"⏰ Безлимит действует до: {until_date.strftime('%d.%m.%Y')}\n\n"
             else:
-                text += f"⏰ Безлимит истек\n\n"
+                unlimited_until_text = f"⏰ Безлимит истек\n\n"
         except ValueError:
-            text += f"⏰ Безлимит истек\n\n"
+            unlimited_until_text = f"⏰ Безлимит истек\n\n"
+    
+    text += f"🔓 Безлимитный доступ: {'✅ Активен' if is_unlimited_active else '❌ Нет'}\n\n"
+    
+    if unlimited_until_text:
+        text += unlimited_until_text
 
     text += f"💡 Контакты нужны для получения телефонов заказчиков"
 
@@ -5468,7 +5848,6 @@ async def buy_contacts_handler(callback: CallbackQuery, state: FSMContext) -> No
         return
 
     # Получаем тариф из БД
-    from app.data.database.models import ContactTariff
     tariff_id = int(parts[1])
     tariff = await ContactTariff.get_by_id(tariff_id)
 
@@ -5516,7 +5895,7 @@ async def buy_contacts_handler(callback: CallbackQuery, state: FSMContext) -> No
 
 @router.callback_query(lambda c: c.data.startswith('confirm_contact_purchase_'), WorkStates.worker_menu)
 async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -> None:
-    """Подтверждение покупки контактов"""
+    """Подтверждение покупки контактов - отправка инвойса"""
     logger.debug(f'confirm_contact_purchase...')
     kbc = KeyboardCollection()
 
@@ -5525,7 +5904,6 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
     tariff_id = int(parts[3])
 
     # Получаем тариф из БД
-    from app.data.database.models import ContactTariff
     tariff = await ContactTariff.get_by_id(tariff_id)
 
     if not tariff:
@@ -5533,13 +5911,83 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
         return
 
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
+    price_rub_value = int(tariff.price / 100)
 
-    # Здесь должна быть интеграция с платежной системой
-    # Пока что просто добавляем контакты (имитация успешной оплаты)
+    # Формируем описание тарифа
+    if tariff.unlimited:
+        months = tariff.unlimited_days // 30 if tariff.unlimited_days else 1
+        description = f"Безлимитный доступ к контактам на {months} {help_defs.get_month_word(months)}"
+    else:
+        description = f"{tariff.contacts_count} {help_defs.get_contact_word(tariff.contacts_count)}"
+
+    prices = [LabeledPrice(label=tariff.name, amount=tariff.price)]
+    
+    await state.set_state(WorkStates.worker_buy_contacts)
+
+    # РЕАЛЬНАЯ ПЛАТЕЖНАЯ СИСТЕМА
+    try:
+        await callback.message.answer_invoice(
+            title=f"Покупка контактов: {tariff.name}",
+            description=description,
+            provider_token=config.PAYMENTS,
+            currency="RUB",
+            prices=prices,
+            start_parameter=f"contact-tariff-{tariff_id}",
+            payload=f"contact-purchase-{tariff_id}",
+            need_email=True,
+            send_email_to_provider=True
+        )
+        await state.update_data(
+            worker_id=str(worker.id),
+            tariff_id=tariff_id,
+            price_rub=price_rub_value
+        )
+    except TelegramBadRequest as e:
+        logger.error(f"Payment provider error: {e}")
+        # Обрабатываем ошибку недоступности платежного метода
+        if "PAYMENT_PROVIDER_INVALID" in str(e):
+            error_text = "❌ Платежный метод недоступен\n\n"
+            error_text += "🚫 К сожалению, в вашей стране недоступны платежные методы Telegram.\n\n"
+            error_text += "📞 Для получения помощи обратитесь в поддержку"
+
+            await callback.answer(
+                text=error_text,
+                show_alert=True,
+            )
+        else:
+            # Другие ошибки платежа
+            error_text = "❌ Ваш платеж не был выполнен!"
+
+            await callback.answer(
+                text=error_text,
+                show_alert=True
+            )
+
+        # Возвращаемся в меню исполнителя
+        await state.set_state(WorkStates.worker_menu)
+        return
+
+
+@router.message(F.successful_payment, WorkStates.worker_buy_contacts)
+async def success_contact_payment_handler(message: Message, state: FSMContext):
+    """Обработчик успешного платежа за контакты"""
+    logger.debug(f'success_contact_payment_handler...')
+    kbc = KeyboardCollection()
+
+    state_data = await state.get_data()
+    worker_id = int(state_data.get('worker_id'))
+    tariff_id = int(state_data.get('tariff_id'))
+    price_rub_value = int(state_data.get('price_rub'))
+
+    worker = await Worker.get_worker(id=worker_id)
+    tariff = await ContactTariff.get_by_id(tariff_id)
+
+    if not worker or not tariff:
+        await message.answer("❌ Ошибка при обработке платежа")
+        await state.set_state(WorkStates.worker_menu)
+        return
 
     try:
-        price_rub_value = int(tariff.price / 100)
-
         if tariff.unlimited:  # Безлимит
             # Устанавливаем безлимитный доступ на указанное количество дней
             until_date = datetime.now() + timedelta(days=tariff.unlimited_days)
@@ -5596,7 +6044,7 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
 💡 Используйте их для получения контактов заказчиков!
             """
 
-        await callback.message.answer(
+        await message.answer(
             text=text,
             reply_markup=kbc.menu_btn(),
             parse_mode='HTML'
@@ -5604,8 +6052,9 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
         await state.set_state(WorkStates.worker_menu)
 
     except Exception as e:
-        logger.error(f"Error in confirm_contact_purchase: {e}")
-        await callback.answer("❌ Произошла ошибка при покупке", show_alert=True)
+        logger.error(f"Error in success_contact_payment_handler: {e}")
+        await message.answer("❌ Произошла ошибка при обработке платежа")
+        await state.set_state(WorkStates.worker_menu)
 
 
 @router.callback_query(F.data == "worker_change_city_menu", WorkStates.worker_menu)

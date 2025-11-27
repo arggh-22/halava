@@ -9,7 +9,7 @@ Handlers для работы с откликами исполнителя:
 import logging
 from datetime import datetime
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup
+from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
@@ -22,7 +22,9 @@ from loaders import bot
 from app.untils.contact_filter import check_message_for_contacts, check_message_history_for_contacts
 from app.untils.message_utils import safe_edit_message
 from app.untils.checks import fool_check, phone_finder
-from app.untils.help_defs import is_content_forbidden
+from app.untils.help_defs import (
+    is_content_forbidden, get_worker_rating_display, get_rating_word, get_worker_status_string
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -38,27 +40,6 @@ CHAT_RULES_TEXT = """
 
 В чате запрещено передавать любые свои контакты: 📞 номера, ✉️ email, 🔗 ссылки, а также использовать латинские буквы, фото и видео.
 """
-
-
-# """
-# ⚠️ <b>ВАЖНО: Правила Анонимного Чата</b>
-#
-# 🚫 <b>СТРОГО ЗАПРЕЩЕНО:</b>
-# • Передавать номера телефонов (в любом виде)
-# • Отправлять email адреса
-# • Делиться ссылками на соцсети/мессенджеры
-# • Использовать латинские буквы
-# • Отправлять медиафайлы (фото, видео, документы)
-# • Пытаться обойти фильтр (разбивать контакты)
-#
-# ✅ <b>ДЛЯ ОБМЕНА КОНТАКТАМИ:</b>
-# Используйте кнопку <b>"📞 Запросить контакт"</b>
-#
-# ⚠️ <b>При нарушении:</b>
-# Сообщение будет заблокировано, возможна блокировка аккаунта!
-#
-# <b>Вы ознакомились с правилами и готовы продолжить?</b>
-# """
 
 
 # Универсальная функция для безопасного редактирования сообщений
@@ -90,29 +71,6 @@ async def safe_edit_or_send(callback: CallbackQuery, text: str, reply_markup=Non
             reply_markup=reply_markup,
             parse_mode=parse_mode
         )
-
-
-# Функция для получения строки статусов исполнителя
-async def get_worker_status_string(worker_id: int) -> str:
-    """Возвращает строку с подтвержденными статусами исполнителя"""
-    from app.data.database.models import WorkerStatus
-    worker_status = await WorkerStatus.get_by_worker(worker_id)
-
-    if not worker_status:
-        return "⚠️ Статус не подтвержден"
-
-    statuses = []
-    if worker_status.has_ip:
-        statuses.append("ИП ✅")
-    if worker_status.has_ooo:
-        statuses.append("ООО ✅")
-    if worker_status.has_sz:
-        statuses.append("Самозанятость ✅")
-
-    if not statuses:
-        return "⚠️ Статус не подтвержден"
-
-    return " | ".join(statuses)
 
 
 # Универсальная функция для отправки сообщения с фото профиля или без
@@ -202,15 +160,15 @@ async def view_response_by_customer(callback: CallbackQuery, state: FSMContext):
         # Формируем текст с информацией об исполнителе
         text = f"📋 <b>Отклик на объявление #{abs_id}</b>\n\n"
 
-        # ID и имя
-        worker_name = worker.profile_name or worker.tg_name
-        text += f"👤 <b>ID:</b> {worker.id} {worker_name}\n"
-
-        # Рейтинг
-        if worker.count_ratings > 0:
-            text += f"⭐ <b>Рейтинг:</b> {worker.stars / worker.count_ratings:.1f}/5 ({worker.count_ratings} оценок)\n"
+        # ID и имя - показываем имя если есть, иначе ID
+        if worker.profile_name:
+            text += f"👤 <b>ID:</b> {worker.profile_name}\n"
         else:
-            text += f"⭐ <b>Рейтинг:</b> Нет оценок\n"
+            text += f"👤 <b>ID:</b> {worker.id}\n"
+
+        # Рейтинг - всегда показываем, даже если нет оценок
+        rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
+        text += f"⭐ <b>Рейтинг:</b> {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
 
         # Статус верификации и регистрации
         status_string = await get_worker_status_string(worker.id)
@@ -513,7 +471,7 @@ async def confirm_reject_customer_response(callback: CallbackQuery, state: FSMCo
                 responses_data.append({
                     'worker_id': resp_item.worker_id,
                     'worker_public_id': f'ID#{worker_obj.id}',
-                    'worker_name': worker_obj.profile_name or worker_obj.tg_name or f'ID#{worker_obj.id}',
+                    'worker_name': worker_obj.profile_name,  # Только profile_name, не tg_name
                     'worker_stars': worker_obj.stars,
                     'worker_ratings': worker_obj.count_ratings,
                     'active': resp_item.applyed,
@@ -785,15 +743,15 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
         notification_text = f"📨 <b>Новый отклик на ваше объявление!</b>\n\n"
         notification_text += f"📋 Объявление: #{abs_id}\n\n"
 
-        # ID и имя
-        worker_name = worker.profile_name or worker.tg_name
-        notification_text += f"👤 <b>ID:</b> {worker.id} {worker_name}\n"
-
-        # Рейтинг
-        if worker.count_ratings > 0:
-            notification_text += f"⭐ <b>Рейтинг:</b> {worker.stars / worker.count_ratings:.1f}/5 ({worker.count_ratings} оценок)\n"
+        # ID и имя - показываем имя если есть, иначе ID
+        if worker.profile_name:
+            notification_text += f"👤 <b>ID:</b> {worker.profile_name}\n"
         else:
-            notification_text += f"⭐ <b>Рейтинг:</b> Нет оценок\n"
+            notification_text += f"👤 <b>ID:</b> {worker.id}\n"
+
+        # Рейтинг - всегда показываем, даже если нет оценок
+        rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
+        notification_text += f"⭐ <b>Рейтинг:</b> {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
 
         # Статус верификации и регистрации (всегда показываем)
         status_string = await get_worker_status_string(worker.id)
@@ -1001,15 +959,15 @@ async def process_response_text(message: Message, state: FSMContext):
         notification_text = f"📨 <b>Новый отклик на ваше объявление!</b>\n\n"
         notification_text += f"📋 Объявление: #{abs_id}\n\n"
 
-        # ID и имя
-        worker_name = worker.profile_name or worker.tg_name
-        notification_text += f"👤 <b>ID:</b> {worker.id} {worker_name}\n"
-
-        # Рейтинг
-        if worker.count_ratings > 0:
-            notification_text += f"⭐ <b>Рейтинг:</b> {worker.stars / worker.count_ratings:.1f}/5 ({worker.count_ratings} оценок)\n"
+        # ID и имя - показываем имя если есть, иначе ID
+        if worker.profile_name:
+            notification_text += f"👤 <b>ID:</b> {worker.profile_name}\n"
         else:
-            notification_text += f"⭐ <b>Рейтинг:</b> Нет оценок\n"
+            notification_text += f"👤 <b>ID:</b> {worker.id}\n"
+
+        # Рейтинг - всегда показываем, даже если нет оценок
+        rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
+        notification_text += f"⭐ <b>Рейтинг:</b> {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
 
         # Статус верификации и регистрации (всегда показываем)
         status_string = await get_worker_status_string(worker.id)

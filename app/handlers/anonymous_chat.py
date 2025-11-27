@@ -20,15 +20,18 @@ from aiogram.exceptions import TelegramBadRequest
 from app.states import WorkStates, CustomerStates
 from app.keyboards import KeyboardCollection
 from app.data.database.models import (
-    Worker, Customer, Abs, WorkersAndAbs, ContactExchange, ContactTransaction
+    Worker, Customer, Abs, WorkersAndAbs, ContactExchange, ContactTransaction, WorkerResponseCancellation,
+    WorkerContactPurchaseDeclines, ContactTariff
 )
 from loaders import bot
 from app.untils.contact_filter import check_message_for_contacts, check_message_history_for_contacts
 from app.untils.checks import fool_check, phone_finder
+from app.untils import help_defs
 from app.untils.help_defs import (
     is_content_forbidden, get_contact_word, update_worker_or_customer_chat_status, send_notification_to_customer,
-    read_text_file, send_contacts_to_worker
+    read_text_file, send_contacts_to_worker, get_worker_status_string, is_unlimited_active
 )
+from app.untils.help_defs import get_worker_rating_display, get_rating_word
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -77,29 +80,6 @@ async def parse_contacts_message(customer):
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 
-# Функция для получения строки статусов исполнителя
-async def get_worker_status_string(worker_id: int) -> str:
-    """Возвращает строку с подтвержденными статусами исполнителя"""
-    from app.data.database.models import WorkerStatus
-    worker_status = await WorkerStatus.get_by_worker(worker_id)
-
-    if not worker_status:
-        return "⚠️ Статус не подтвержден"
-
-    statuses = []
-    if worker_status.has_ip:
-        statuses.append("ИП ✅")
-    if worker_status.has_ooo:
-        statuses.append("ООО ✅")
-    if worker_status.has_sz:
-        statuses.append("Самозанятость ✅")
-
-    if not statuses:
-        return "⚠️ Статус не подтвержден"
-
-    return " | ".join(statuses)
-
-
 async def get_response_status_indicator(response, user_type: str) -> str:
     """
     Определяет индикатор статуса для отклика в списке
@@ -107,7 +87,6 @@ async def get_response_status_indicator(response, user_type: str) -> str:
     """
     try:
         # Проверяем, закрыт ли чат (контакты переданы)
-        from app.data.database.models import ContactExchange
         contact_exchange = await ContactExchange.get_by_worker_and_abs(response.worker_id, response.abs_id)
         if contact_exchange and contact_exchange.contacts_purchased:
             return "✅"  # Чат закрыт
@@ -690,89 +669,39 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
         kbc = KeyboardCollection()
 
         # СЦЕНАРИЙ 1: Исполнитель имеет безлимитную подписку
-        if worker.unlimited_contacts_until:
+        is_unlimited_active_now, _ = is_unlimited_active(worker)
+        if is_unlimited_active_now:
+            # Безлимит активен - сразу передаем контакты
+            await contact_exchange.update(contacts_purchased=True)
+
+            await ContactTransaction.log_usage(worker_id=worker.id, abs_id=abs_id, source="unlimited")
+
+            # Передаем контакты исполнителю с учетом нового функционала
+            contacts_text = (
+                f"📞 <b>Контакты заказчика:</b>\n\n"
+                f"{await parse_contacts_message(customer)}"
+            )
+
+            # Отправляем уведомление исполнителя
+            await send_contacts_to_worker(worker, customer, abs_id, ad_text, contacts_text)
+
+            # Отправляем уведомление заказчику (только сообщение 1)
+            await send_notification_to_customer(customer, worker, abs_id, ad_text)
+
+            # Закрываем чат
+            response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
+            if response:
+                await response.update(applyed=False)
+
+            # Удаляем исходное сообщение "Запрос контакта от исполнителя" (сообщение 2),
+            # так как уже отправлено сообщение 1 "Контакты переданы исполнителю!"
             try:
-                end_date = datetime.strptime(worker.unlimited_contacts_until, "%Y-%m-%d")
-                if end_date > datetime.now():
-                    # Безлимит активен - сразу передаем контакты
-                    await contact_exchange.update(contacts_purchased=True)
+                await callback.message.delete()
+            except Exception as delete_error:
+                logger.debug(f"Could not delete original contact request message: {delete_error}")
 
-                    await ContactTransaction.log_usage(worker_id=worker.id, abs_id=abs_id, source="unlimited")
-
-                    # Передаем контакты исполнителю с учетом нового функционала
-                    contacts_text = (
-                        f"📞 <b>Контакты заказчика:</b>\n\n"
-                        f"{await parse_contacts_message(customer)}"
-                    )
-
-                    # Отправляем уведомление исполнителя
-                    await send_contacts_to_worker(worker, customer, abs_id, ad_text, contacts_text)
-
-                    # Отправляем уведомление заказчику
-                    await send_notification_to_customer(customer, worker, abs_id, ad_text)
-
-                    # Закрываем чат
-                    response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
-                    if response:
-                        await response.update(applyed=False)
-
-                    # Обновляем исходное сообщение заказчика
-                    try:
-                        # Получаем исходный текст сообщения
-                        original_text = "Запрос контакта от исполнителя\n\n"
-                        original_text += f"Объявление: #{abs_id}\n"
-                        original_text += f"ID: {worker.id}\n"
-                        original_text += f"Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}/5 ({worker.count_ratings} оценок)\n"
-                        original_text += f"Статус: {'ИП ✅' if worker.individual_entrepreneur else 'Не подтвержден ⚠️'}\n"
-                        original_text += f"Выполнено заказов: {worker.order_count}\n"
-                        original_text += f"Зарегистрирован: {worker.registration_data}\n\n"
-                        original_text += "✅ <b>Контакты переданы исполнителю!</b>"
-
-                        # Проверяем, есть ли фото в сообщении
-                        if callback.message.photo:
-                            # Если есть фото, редактируем caption
-                            await callback.message.edit_caption(
-                                caption=original_text,
-                                reply_markup=kbc.anonymous_chat_customer_buttons(
-                                    worker_id=worker_id,
-                                    abs_id=abs_id,
-                                    contact_requested=True,
-                                    contact_sent=True,
-                                    contacts_purchased=True
-                                ),
-                                parse_mode='HTML'
-                            )
-                        else:
-                            # Если нет фото, редактируем текст
-                            await callback.message.answer(
-                                text=original_text,
-                                reply_markup=kbc.anonymous_chat_customer_buttons(
-                                    worker_id=worker_id,
-                                    abs_id=abs_id,
-                                    contact_requested=True,
-                                    contact_sent=True,
-                                    contacts_purchased=True
-                                ),
-                                parse_mode='HTML'
-                            )
-                    except Exception as edit_error:
-                        # Если не можем отредактировать, отправляем новое сообщение
-                        await callback.message.answer(
-                            text="✅ <b>Контакты переданы исполнителю!</b>",
-                            reply_markup=kbc.anonymous_chat_customer_buttons(
-                                worker_id=worker_id,
-                                abs_id=abs_id,
-                                contact_requested=True,
-                                contact_sent=True,
-                                contacts_purchased=True
-                            ),
-                            parse_mode='HTML'
-                        )
-
-                    await callback.answer("✅ Контакты переданы исполнителю!")
-                    return
-            except ValueError:
-                pass  # Неверный формат даты
+            await callback.answer("✅ Контакты переданы исполнителю!")
+            return
 
         # СЦЕНАРИЙ 2: Исполнитель имеет купленные контакты
         if worker.purchased_contacts > 0:
@@ -791,13 +720,20 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
             # Уведомляем исполнителя
             await send_contacts_to_worker(worker, customer, abs_id, ad_text, contacts_text)
 
-            # Уведомляем заказчика
+            # Уведомляем заказчика (только сообщение 1)
             await send_notification_to_customer(customer, worker, abs_id, ad_text)
 
             # Закрываем чат
             response = await WorkersAndAbs.get_by_worker_and_abs(worker_id, abs_id)
             if response:
                 await response.update(applyed=False)
+
+            # Удаляем исходное сообщение "Запрос контакта от исполнителя" (сообщение 2),
+            # так как уже отправлено сообщение 1 "Контакты переданы исполнителю!"
+            try:
+                await callback.message.delete()
+            except Exception as delete_error:
+                logger.debug(f"Could not delete original contact request message: {delete_error}")
 
             await callback.answer("✅ Контакты переданы исполнителю!")
             return
@@ -834,12 +770,15 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
 
         # Обновляем исходное сообщение заказчика
         try:
+            status_string = await get_worker_status_string(worker.id)
+
             # Получаем исходный текст сообщения
             original_text = "Запрос контакта от исполнителя\n\n"
             original_text += f"Объявление: #{abs_id}\n"
             original_text += f"ID: {worker.id}\n"
-            original_text += f"Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}/5 ({worker.count_ratings} оценок)\n"
-            original_text += f"Статус: {'ИП ✅' if worker.individual_entrepreneur else 'Не подтвержден ⚠️'}\n"
+            rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
+            original_text += f"Рейтинг: {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
+            original_text += f"Статус: {status_string}\n"
             original_text += f"Выполнено заказов: {worker.order_count}\n"
             original_text += f"Зарегистрирован: {worker.registration_data}\n\n"
             original_text += "⏳ <b>Ожидаем решения исполнителя...</b>"
@@ -929,15 +868,20 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
             return
 
         # Проверяем, есть ли у исполнителя купленные контакты
-        if worker.purchased_contacts > 0:
-            # Есть купленные контакты - сразу списываем и передаем
-            new_count = worker.purchased_contacts - 1
-            await worker.update_purchased_contacts(purchased_contacts=new_count)
+        is_active, _ = help_defs.is_unlimited_active(worker)
+        if worker.purchased_contacts > 0 or is_active:
+            if worker.purchased_contacts > 0 and not is_active:
+                # Есть купленные контакты - сразу списываем и передаем
+                new_count = worker.purchased_contacts - 1
+                await worker.update_purchased_contacts(purchased_contacts=new_count)
+                source = "purchased"
+            else:
+                source = "unlimited"
 
             # Обновляем ContactExchange
             await contact_exchange.update(contacts_purchased=True)
 
-            await ContactTransaction.log_usage(worker_id=worker.id, abs_id=abs_id, source="purchased")
+            await ContactTransaction.log_usage(worker_id=worker.id, abs_id=abs_id, source=source)
 
             # Передаем контакты исполнителю с учетом нового функционала
             contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
@@ -968,7 +912,6 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
 
             await callback.answer("✅ Контакты получены!")
             return
-
         # Нет купленных контактов - показываем тарифы покупки
         kbc = KeyboardCollection()
         try:
@@ -1020,7 +963,6 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
         customer = await Customer.get_customer(id=advertisement.customer_id)
 
         # Регистрируем отказ от покупки контактов
-        from app.data.database.models import WorkerContactPurchaseDeclines
         decline_record = await WorkerContactPurchaseDeclines.get_or_create(worker.id)
         decline_count, was_blocked = await decline_record.add_decline()
 
@@ -1412,8 +1354,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
             return
 
         # Проверяем есть ли у исполнителя безлимит или купленные контакты
-        has_unlimited = worker.unlimited_contacts_until and datetime.now() < datetime.fromisoformat(
-            worker.unlimited_contacts_until)
+        has_unlimited, _ = is_unlimited_active(worker)
         has_purchased = worker.purchased_contacts > 0
 
         kbc = KeyboardCollection()
@@ -1808,13 +1749,13 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
                 msg for msg in response.worker_messages
                 if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
             ]
-        
+
         history_valid, history_error = check_message_history_for_contacts(
             message_history=worker_message_history,
             current_message=message.text,
             user_type="worker"
         )
-        
+
         if not history_valid:
             await message.answer(
                 f"🚫 <b>Сообщение заблокировано!</b>\n\n{history_error}\n\n"
@@ -1858,7 +1799,8 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
             turn=False,  # теперь очередь заказчика
             message_timestamps=new_timestamps,
             last_message_by_worker=len(new_worker_messages),  # обновляем счетчик последнего сообщения
-            last_read_by_worker=len(customer_messages_list) # исполнитель "прочитал" сообщения заказчика, отправив ответ
+            last_read_by_worker=len(customer_messages_list)
+            # исполнитель "прочитал" сообщения заказчика, отправив ответ
         )
 
         # Обновляем объект в памяти после сохранения в БД
@@ -1960,13 +1902,13 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
                 msg for msg in response.customer_messages
                 if msg and msg.strip()
             ]
-        
+
         history_valid, history_error = check_message_history_for_contacts(
             message_history=customer_message_history,
             current_message=message.text,
             user_type="customer"
         )
-        
+
         if not history_valid:
             await message.answer(
                 f"🚫 <b>Сообщение заблокировано!</b>\n\n{history_error}\n\n"
@@ -2438,7 +2380,6 @@ async def cancel_worker_response_confirm(callback: CallbackQuery, state: FSMCont
             return
 
         # Проверяем, что отклик существует
-        from app.data.database.models import WorkersAndAbs
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             await callback.answer("❌ Отклик не найден", show_alert=True)
@@ -2456,17 +2397,17 @@ async def cancel_worker_response_confirm(callback: CallbackQuery, state: FSMCont
 
         # Определяем зону активности
         if new_activity >= 74:
-            zone_emoji = "🟢"
-            zone_name = "зеленой"
+            zone_emoji = "💚"
+            zone_name = "зеленую"
         elif new_activity >= 48:
-            zone_emoji = "🟡"
-            zone_name = "желтой"
+            zone_emoji = "💛"
+            zone_name = "желтую"
         elif new_activity >= 9:
-            zone_emoji = "🟠"
-            zone_name = "оранжевой"
+            zone_emoji = "🧡"
+            zone_name = "оранжевую"
         else:
-            zone_emoji = "🔴"
-            zone_name = "красной"
+            zone_emoji = "❤️"
+            zone_name = "красную"
 
         confirmation_text = (
             f"⚠️ <b>Подтверждение отмены отклика</b>\n\n"
@@ -2518,7 +2459,6 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
             return
 
         # Проверяем, что отклик существует
-        from app.data.database.models import WorkersAndAbs
         response = await WorkersAndAbs.get_by_worker_and_abs(worker.id, abs_id)
         if not response:
             await callback.answer("❌ Отклик не найден", show_alert=True)
@@ -2538,7 +2478,6 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
             await contact_exchange.delete()
 
         # Записываем отмену в таблицу отслеживания
-        from app.data.database.models import WorkerResponseCancellation
         cancellation = WorkerResponseCancellation(
             worker_id=worker.id,
             abs_id=abs_id
@@ -2570,15 +2509,13 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
         from loaders import bot
         notification_text = (
             f"Отмена отклика:\n\n—13 активность\n\n"
-            f"{zone_emoji} Текущая активность: {new_activity}\n\n"
-            "Вы вернулись к списку откликов"
+            f"{zone_emoji} Текущая активность: {new_activity}"
         )
 
         await callback.answer(notification_text, show_alert=True)
         kbc = KeyboardCollection()
 
         # Отправляем уведомление заказчику
-        from app.data.database.models import Abs, Customer
         advertisement = await Abs.get_one(id=abs_id)
         if advertisement:
             customer = await Customer.get_customer(id=advertisement.customer_id)
@@ -2734,13 +2671,13 @@ async def worker_chat_message(message: Message, state: FSMContext):
                     msg for msg in response.worker_messages
                     if msg and msg.strip() and msg != "Исполнитель не отправил сообщение"
                 ]
-        
+
         history_valid, history_error = check_message_history_for_contacts(
             message_history=worker_message_history,
             current_message=message.text,
             user_type="worker"
         )
-        
+
         if not history_valid:
             kbc = KeyboardCollection()
             await message.answer(
@@ -2791,9 +2728,11 @@ async def worker_chat_message(message: Message, state: FSMContext):
 
         # Рейтинг
         if worker.count_ratings > 0:
-            notification_text += f"⭐ <b>Рейтинг:</b> {worker.stars / worker.count_ratings:.1f}/5 ({worker.count_ratings} оценок)\n"
+            rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
+            notification_text += f"⭐ <b>Рейтинг:</b> {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
         else:
-            notification_text += f"⭐ <b>Рейтинг:</b> Нет оценок\n"
+            rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
+            notification_text += f"⭐ <b>Рейтинг:</b> {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
 
         # Статус верификации и регистрации (всегда показываем)
         status_string = await get_worker_status_string(worker.id)
@@ -2847,7 +2786,6 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
     # Проверяем блокировку за отказы от покупки контактов
     worker = await Worker.get_worker(tg_id=callback.from_user.id)
     if worker:
-        from app.data.database.models import WorkerContactPurchaseDeclines
         decline_record = await WorkerContactPurchaseDeclines.get_by_worker(worker.id)
         if decline_record and decline_record.is_currently_blocked():
             await callback.answer(
@@ -2857,7 +2795,7 @@ async def request_contact(callback: CallbackQuery, state: FSMContext):
                 show_alert=True
             )
             return
-    
+
     # Продолжаем выполнение оригинальной функции
     await request_contact_original(callback, state)
 
@@ -2898,9 +2836,11 @@ async def request_contact_original(callback: CallbackQuery, state: FSMContext):
 
         # Рейтинг
         if worker.count_ratings > 0:
-            notification_text += f"⭐ <b>Рейтинг:</b> {worker.stars / worker.count_ratings:.1f}/5 ({worker.count_ratings} оценок)\n"
+            rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
+            notification_text += f"⭐ <b>Рейтинг:</b> {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
         else:
-            notification_text += f"⭐ <b>Рейтинг:</b> Нет оценок\n"
+            rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
+            notification_text += f"⭐ <b>Рейтинг:</b> {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
 
         # Статус верификации и регистрации (всегда показываем)
         status_string = await get_worker_status_string(worker.id)
@@ -2998,7 +2938,6 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
         tariff_id = int(parts[2])
 
         # Получаем тариф из БД
-        from app.data.database.models import ContactTariff
         tariff = await ContactTariff.get_by_id(tariff_id)
 
         if not tariff:
@@ -3093,7 +3032,6 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
         tariff_id = int(parts[3])
 
         # Получаем тариф из БД
-        from app.data.database.models import ContactTariff
         tariff = await ContactTariff.get_by_id(tariff_id)
 
         if not tariff:
@@ -3175,8 +3113,26 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                 customer = await Customer.get_customer(id=advertisement.customer_id)
 
                 if worker and customer:
-                    # Списываем один контакт
-                    if tokens != -1:
+                    # ВАЖНО: Проверяем, не истек ли безлимит или не закончились ли контакты во время покупки
+                    is_unlimited_active_after_purchase, _ = is_unlimited_active(worker)
+                    has_purchased_after = worker.purchased_contacts > 0
+
+                    if not is_unlimited_active_after_purchase and not has_purchased_after:
+                        await callback.answer(
+                            "❌ Во время покупки безлимит истек или контакты закончились. Пожалуйста, попробуйте снова.",
+                            show_alert=True
+                        )
+                        return
+
+                    # Списываем один контакт только если нет безлимита
+                    if tokens != -1 and not is_unlimited_active_after_purchase:
+                        # Дополнительная проверка перед списанием
+                        if worker.purchased_contacts <= 0:
+                            await callback.answer(
+                                "❌ Контакты закончились во время покупки. Пожалуйста, попробуйте снова.",
+                                show_alert=True
+                            )
+                            return
                         new_count = worker.purchased_contacts - 1
                         await worker.update_purchased_contacts(purchased_contacts=new_count)
 
@@ -3185,7 +3141,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
                     if contact_exchange:
                         await contact_exchange.update(contacts_purchased=True)
 
-                    usage_source = "unlimited" if tokens == -1 else "purchased"
+                    usage_source = "unlimited" if (tokens == -1 or is_unlimited_active_after_purchase) else "purchased"
                     await ContactTransaction.log_usage(worker_id=worker.id, abs_id=target_abs_id, source=usage_source)
 
                     # Передаем контакты исполнителю с учетом нового функционала
@@ -3193,13 +3149,24 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
 
                     await send_contacts_to_worker(worker, customer, target_abs_id, ad_text, contacts_text)
 
-                    # Формируем текст сообщения с объявлением
+                    # Формируем текст сообщения с объявлением (только сообщение 1)
                     await send_notification_to_customer(customer, worker, target_abs_id, ad_text)
 
                     # Закрываем чат
                     response = await WorkersAndAbs.get_by_worker_and_abs(target_worker_id, target_abs_id)
                     if response:
                         await response.update(applyed=False)
+
+                    # Удаляем исходное сообщение "Запрос контакта от исполнителя" (сообщение 2),
+                    # так как уже отправлено сообщение 1 "Контакты переданы исполнителю!"
+                    if contact_exchange and contact_exchange.message_id:
+                        try:
+                            await bot.delete_message(
+                                chat_id=customer.tg_id,
+                                message_id=contact_exchange.message_id
+                            )
+                        except Exception as delete_error:
+                            logger.debug(f"Could not delete original contact request message {contact_exchange.message_id}: {delete_error}")
                 else:
                     try:
                         await callback.message.answer(

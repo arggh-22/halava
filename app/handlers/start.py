@@ -1,13 +1,14 @@
 import logging
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import Message, CallbackQuery, FSInputFile, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 
 import config
-from app.data.database.models import Admin, Customer, Worker, City, Banned, Abs, InfoHaltura, UserAndSupportQueue, \
-    WorkerAndRefsAssociation, BannedAbs, AskAnswer, WorkerAndSubscription, WorkType
+from app.data.database.models import (
+    Admin, Customer, Worker, City, Banned, Abs, InfoHaltura, UserAndSupportQueue, WorkerAndRefsAssociation, AskAnswer
+)
 from app.keyboards import KeyboardCollection
 from app.states import WorkStates, UserStates, BannedStates, CustomerStates, AdminStates
 from app.untils import help_defs, checks, message_utils
@@ -20,13 +21,14 @@ router.message.filter(F.from_user.id != F.bot.id)
 
 @router.message(Command("ping"))
 async def ping_cmd(message: Message) -> None:
-    await message.answer(text='''⊂ヽ
-  ＼＼ Λ＿Λ
+    await message.answer(text='''
+⊂ヽ
+ ＼＼ Λ＿Λ
    ＼( ˇωˇ) 
      ⌒ヽ
    /   へ＼
-   /  / ＼＼
-   ﾚ ノ   ヽつWeb Tech
+   /  /  ＼＼
+   ﾚ ノ    ヽつWeb Tech
   / /
   / /|
  ( (ヽ
@@ -34,7 +36,9 @@ async def ping_cmd(message: Message) -> None:
  | 丿 ＼ ⌒)
  | |  ) /
 `ノ )  Lﾉ
-(_／''')
+(_／
+'''
+                         )
 
 
 async def get_user_data_optimized(tg_id: int):
@@ -70,11 +74,6 @@ async def start_cmd(message: Message, state: FSMContext) -> None:
     if message.chat.id < 0:
         await message.answer('Пользоваться ботом можно только из ЛС')
         return
-
-    # Удаляем клавиатуры
-    # msg = await message.answer(f'Удаляю клавиатуры',
-    #                            reply_markup=ReplyKeyboardRemove())
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
     await state.clear()
     kbc = KeyboardCollection()
@@ -208,7 +207,7 @@ async def apply_user_agreement(callback: CallbackQuery, state: FSMContext) -> No
 @router.message(Command("admin"))
 async def admin_cmd(message: Message, state: FSMContext) -> None:
     logger.debug('admin_cmd...')
-    
+
     # Проверяем права администратора
     admin = await Admin.get_by_tg_id(message.chat.id)
     if not admin:
@@ -219,29 +218,20 @@ async def admin_cmd(message: Message, state: FSMContext) -> None:
     class FakeCallback:
         def __init__(self, message):
             self.message = message
-    
+
     fake_callback = FakeCallback(message)
-    
+
     # Импортируем и вызываем оптимизированную функцию admin_menu
     from app.handlers.admin import admin_menu
     await admin_menu(fake_callback, state)
 
 
-
-
 @router.message(Command("menu"))
 async def menu_cmd(message: Message, state: FSMContext) -> None:
     logger.debug(f'menu_cmd...')
-    print(state)
-    print("sssssssssaaaaaaaaasssssss")
-
     if message.chat.id < 0:
         await message.answer('Пользоваться ботом можно только из ЛС')
         return
-
-    # msg = await message.answer(f'Удаляю клавиатуры',
-    #                            reply_markup=ReplyKeyboardRemove())
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
     await state.clear()
     kbc = KeyboardCollection()
@@ -270,64 +260,18 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
 
             # Send customer menu
             await help_defs.send_customer_menu(message, customer, state, message=True)
-
-            # kbc = KeyboardCollection()
-            #
-            # user_abs = await Abs.get_all_by_customer(customer.id)
-            # city = await City.get_city(id=int(customer.city_id))
-
-            # text = ('Ваш профиль\n\n'
-            #         f'ID: {customer.id}\n'
-            #         f'Ваш город: {city.city}\n'
-            #         f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-            #         f'Осталось объявлений на сегодня: {customer.abs_count}')
-
-            # await state.set_state(CustomerStates.customer_menu)
-            # await message.answer(text=text,
-            #                      reply_markup=kbc.menu_customer_keyboard())
             return
     elif customer := await Customer.get_customer(tg_id=message.chat.id):
         logger.debug(f'customer_menu...')
 
         # Send customer menu
         await help_defs.send_customer_menu(message, customer, state, message=True)
-
-        # kbc = KeyboardCollection()
-
-        # user_abs = await Abs.get_all_by_customer(customer.id)
-        # city = await City.get_city(id=int(customer.city_id))
-        #
-        # text = ('Ваш профиль\n\n'
-        #         f'ID: {customer.id}\n'
-        #         f'Ваш город: {city.city}\n'
-        #         f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-        #         f'Осталось объявлений на сегодня: {customer.abs_count}')
-        #
-        # await state.set_state(CustomerStates.customer_menu)
-        # await message.answer(
-        #     text=text,
-        #     reply_markup=kbc.menu_customer_keyboard()
-        # )
         return
     else:
-        text = ('Размещаются запросы только на услуги:\n'
-                ' — анонимно;\n'
-                ' — без ссылок;\n'
-                ' — номера телефона;\n\n'
-                'После успешной публикации, заказчику поступают в личку отклики от исполнителей с рейтингом и количеством выполненных заказов. \n\n'
-                'Заказчику остается только выбрать подходящего и связаться лично. \n\n'
-                'После завершения работы - заказчик закрывает заказ и оставляет отзыв. \n\n'
-                'Исполнителям поступают запросы в личку по направлениям, которые они выбрали и совершают отклики.\n\n'
-                '<b>Запросы на услуги размещаются бесплатно без ограничений.</b>\n\n'
-                '<b>За попытку предложений не по теме предусмотрена блокировка.</b>')
-        await message.answer_video(
-            video=FSInputFile('app/data/database/WhatsApp.jpg'),
-            caption=text,
-            reply_markup=kbc.apply_user_agreement(),
-            parse_mode='HTML'
+        # Пользователь не зарегистрирован - показываем простое сообщение
+        await message.answer(
+            text='Вы еще не зарегистрированы, вызовите команду /start'
         )
-        await state.set_state(UserStates.registration_enter_city)
-        await state.update_data(username=str(message.from_user.username))
         return
 
 
@@ -336,28 +280,28 @@ async def menu_universal(callback: CallbackQuery, state: FSMContext) -> None:
     """Универсальный обработчик кнопки 'В меню' - работает как команда /menu"""
     logger.debug(f'menu_universal...')
     print(f"[DEBUG] menu_universal called for user {callback.message.chat.id}")
-    
+
     await state.clear()
     kbc = KeyboardCollection()
-    
+
     # Проверяем, заблокирован ли пользователь
     if user_baned := await Banned.get_banned(tg_id=callback.message.chat.id):
         if user_baned.ban_now or user_baned.forever:
             await callback.message.answer(text='⛔️ Упс, вы заблокированы', reply_markup=kbc.support_btn())
             await state.set_state(BannedStates.banned)
             return
-    
+
     # Используем ту же логику, что и команда /menu
     await state.set_state(UserStates.menu)
-    
+
     if worker := await Worker.get_worker(tg_id=callback.message.chat.id):
         if worker.active:
-            print(f"[DEBUG] User {callback.message.chat.id} is an active Worker")
+            logger.debug(f"[DEBUG] User {callback.message.chat.id} is an active Worker")
             # Импортируем функцию отображения меню из worker.py
             from app.handlers.worker import show_worker_menu_for_callback
             await show_worker_menu_for_callback(callback, state, worker)
         else:
-            print(f"[DEBUG] User {callback.message.chat.id} is an inactive Worker")
+            logger.debug(f"[DEBUG] User {callback.message.chat.id} is an inactive Worker")
             customer = await Customer.get_customer(tg_id=callback.message.chat.id)
             if customer is None:
                 await state.set_state(UserStates.menu)
@@ -366,50 +310,26 @@ async def menu_universal(callback: CallbackQuery, state: FSMContext) -> None:
                     reply_markup=kbc.command_menu_keyboard(),
                 )
                 return
-            
+
             # Показываем меню заказчика для неактивного исполнителя
             await help_defs.send_customer_menu(callback, customer, state)
-            # user_abs = await Abs.get_all_by_customer(customer.id)
-            # city = await City.get_city(id=int(customer.city_id))
-            #
-            # text = ('Ваш профиль\n\n'
-            #         f'ID: {customer.id}\n'
-            #         f'Ваш город: {city.city}\n'
-            #         f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-            #         f'Осталось объявлений на сегодня: {customer.abs_count}')
-            #
-            # await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
-            # await state.set_state(CustomerStates.customer_menu)
     elif customer := await Customer.get_customer(tg_id=callback.message.chat.id):
-        print(f"[DEBUG] User {callback.message.chat.id} is a Customer")
-        # user_abs = await Abs.get_all_by_customer(customer.id)
-        # city = await City.get_city(id=int(customer.city_id))
-        #
-        # text = ('Ваш профиль\n\n'
-        #         f'ID: {customer.id}\n'
-        #         f'Ваш город: {city.city}\n'
-        #         f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
-        #         f'Осталось объявлений на сегодня: {customer.abs_count}')
-        #
-        # await callback.message.answer(text=text, reply_markup=kbc.menu_customer_keyboard())
+        logger.debug(f"[DEBUG] User {callback.message.chat.id} is a Customer")
         await help_defs.send_customer_menu(callback, customer, state)
-        # await state.set_state(CustomerStates.customer_menu)
     elif await Admin.get_by_tg_id(tg_id=callback.message.chat.id):
-        print(f"[DEBUG] User {callback.message.chat.id} is an Admin")
+        logger.debug(f"[DEBUG] User {callback.message.chat.id} is an Admin")
         await state.set_state(AdminStates.menu)
         await callback.message.answer(
             text='🏠 Меню администратора',
             reply_markup=kbc.menu_admin_keyboard()
         )
     else:
-        print(f"[DEBUG] User {callback.message.chat.id} is a regular user")
+        logger.debug(f"[DEBUG] User {callback.message.chat.id} is a regular user")
         await state.set_state(UserStates.menu)
         await callback.message.answer(
             text=f'Меню\n\nВыберите интересующий вас пункт',
             reply_markup=kbc.command_menu_keyboard(),
         )
-
-
 
 
 @router.callback_query(F.data == 'role', StateFilter(UserStates.menu))
@@ -435,7 +355,7 @@ async def user_change_role(message: Message, state: FSMContext) -> None:
     # Проверяем, является ли пользователь админом ПЕРЕД проверкой блокировки
     # Админы могут использовать /role даже если заблокированы
     is_admin = await Admin.get_by_tg_id(tg_id=message.chat.id)
-    
+
     # Проверяем блокировку только если пользователь не админ
     if not is_admin:
         if user_baned := await Banned.get_banned(tg_id=message.chat.id):
@@ -443,12 +363,9 @@ async def user_change_role(message: Message, state: FSMContext) -> None:
                 await message.answer(text='⛔️ Упс, вы заблокированы', reply_markup=kbc.support_btn())
                 await state.set_state(BannedStates.banned)
                 return
-    
+
     if await Worker.get_worker(tg_id=message.chat.id) or await Customer.get_customer(
             tg_id=message.chat.id) or is_admin:
-        # msg = await message.answer(f'Удаляю клавиатуры',
-        #                            reply_markup=ReplyKeyboardRemove())
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
         await state.set_state(UserStates.menu)
         if is_admin:
@@ -514,10 +431,6 @@ async def user_look_info(message: Message, state: FSMContext) -> None:
     if message.chat.id < 0:
         await message.answer('Пользоваться ботом можно только из ЛС')
         return
-
-    # msg = await message.answer(f'Удаляю клавиатуры',
-    #                            reply_markup=ReplyKeyboardRemove())
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
     kbc = KeyboardCollection()
     await state.set_state(UserStates.user_info)
@@ -608,7 +521,7 @@ async def check_abs(callback: CallbackQuery) -> None:
 async def show_blocking_info(callback: CallbackQuery, state: FSMContext, banned: 'Banned') -> None:
     """Показывает информацию о блокировке пользователю"""
     kbc = KeyboardCollection()
-    
+
     # Формируем текст с информацией о блокировке
     if banned.forever:
         ban_text = "Вы заблокированы навсегда"
@@ -616,10 +529,10 @@ async def show_blocking_info(callback: CallbackQuery, state: FSMContext, banned:
         # Форматируем дату в виде ДД.ММ.ГГГГ
         ban_end_formatted = banned.ban_end.strftime('%d.%m.%Y') if banned.ban_end else "неизвестно"
         ban_text = f"Вы заблокированы До {ban_end_formatted}"
-    
+
     text = f"🚫 {ban_text}\n\n"
     text += f"Причина: {banned.ban_reason}\n\n"
-    
+
     if not banned.forever:
         text += f"Срок блокировки: 24 часа\n\n"
 
@@ -634,12 +547,12 @@ async def show_blocking_info(callback: CallbackQuery, state: FSMContext, banned:
 async def support_blocking_yes(callback: CallbackQuery, state: FSMContext) -> None:
     """Пользователь выбрал 'Да' на вопрос о блокировке"""
     logger.debug(f'support_blocking_yes...')
-    
+
     kbc = KeyboardCollection()
-    
+
     # Проверяем, заблокирован ли пользователь
     banned = await Banned.get_banned(tg_id=callback.message.chat.id)
-    
+
     if banned and (banned.ban_now or banned.forever):
         await show_blocking_info(callback, state, banned)
     else:
@@ -654,14 +567,11 @@ async def support_blocking_yes(callback: CallbackQuery, state: FSMContext) -> No
 async def support_blocking_no(callback: CallbackQuery, state: FSMContext) -> None:
     """Пользователь выбрал 'Нет' на вопрос о блокировке"""
     logger.debug(f'support_blocking_no...')
-    
-    kbc = KeyboardCollection()
-    
+
     # Переходим к заданию вопроса
     await state.set_state(UserStates.support_ask_question)
     msg = await callback.message.answer(
         'Напишите ваш вопрос',
-        # reply_markup=kbc.support_btn()
     )
     await state.update_data(msg_id=msg.message_id)
 
@@ -670,13 +580,10 @@ async def support_blocking_no(callback: CallbackQuery, state: FSMContext) -> Non
 async def support_ask_question(callback: CallbackQuery, state: FSMContext) -> None:
     """Пользователь хочет задать вопрос"""
     logger.debug(f'support_ask_question...')
-    
-    kbc = KeyboardCollection()
-    
+
     await state.set_state(UserStates.support_ask_question)
     msg = await callback.message.answer(
         'Напишите ваш вопрос',
-        # reply_markup=kbc.support_btn()
     )
     await state.update_data(msg_id=msg.message_id)
 
@@ -685,12 +592,12 @@ async def support_ask_question(callback: CallbackQuery, state: FSMContext) -> No
 async def support_reply_hide(callback: CallbackQuery, state: FSMContext) -> None:
     """Скрывает ответ поддержки и открывает соответствующее меню"""
     logger.debug('support_reply_hide...')
-    
+
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
-    
+
     await callback.answer()
     await menu_universal(callback, state)
     return
@@ -700,18 +607,18 @@ async def support_reply_hide(callback: CallbackQuery, state: FSMContext) -> None
 async def support_history(callback: CallbackQuery, state: FSMContext) -> None:
     """Показывает историю запросов пользователя в поддержку"""
     logger.debug(f'support_history...')
-    
+
     kbc = KeyboardCollection()
-    
+
     # Получаем историю запросов
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=callback.message.chat.id):
         if user_and_support_queue.user_messages or user_and_support_queue.admin_messages:
             text = "📋 <b>История ваших запросов в поддержку:</b>\n\n"
-            
+
             # Показываем сообщения пользователя и ответы админов
             for i, user_msg in enumerate(user_and_support_queue.user_messages):
-                text += f"<b>Ваш вопрос {i+1}:</b>\n{user_msg}\n\n"
-                
+                text += f"<b>Ваш вопрос {i + 1}:</b>\n{user_msg}\n\n"
+
                 # Показываем ответ админа, если есть
                 if i < len(user_and_support_queue.admin_messages):
                     admin_msg = user_and_support_queue.admin_messages[i]
@@ -834,12 +741,81 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
                 city = await City.get_city(id=city_id)
                 cites += f'{step}{city.city}\n'
 
+            status_string = await help_defs.get_worker_status_string(worker.id)
+
+            rating_display, _ = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
+
+            # Получаем информацию о контактах
+            contacts_info_parts = []
+
+            # Проверяем безлимитную подписку через функцию из help_defs
+            is_unlimited_active_now, unlimited_until = help_defs.is_unlimited_active(worker)
+            if is_unlimited_active_now and unlimited_until:
+                from datetime import datetime
+                try:
+                    # Парсим дату для отображения
+                    date_str = str(unlimited_until).strip()
+                    end_date = None
+                    
+                    try:
+                        end_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        formats = ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"]
+                        for fmt in formats:
+                            try:
+                                end_date = datetime.strptime(date_str, fmt)
+                                break
+                            except ValueError:
+                                continue
+                    
+                    if end_date:
+                        # Вычисляем количество оставшихся дней и месяцев
+                        now = datetime.now()
+                        days_left = (end_date - now).days
+                        months_left = days_left // 30
+                        if months_left > 0:
+                            # Правильное склонение для месяцев
+                            if months_left == 1:
+                                month_word = "месяц"
+                            elif 2 <= months_left <= 4:
+                                month_word = "месяца"
+                            else:
+                                month_word = "месяцев"
+                            contacts_info_parts.append(f'🔥 Безлимит {months_left} {month_word}')
+                        else:
+                            # Меньше месяца, показываем дни
+                            if days_left == 1:
+                                day_word = "день"
+                            elif 2 <= days_left <= 4:
+                                day_word = "дня"
+                            else:
+                                day_word = "дней"
+                            contacts_info_parts.append(f'🔥 Безлимит {days_left} {day_word}')
+                except Exception as e:
+                    logger.error(f"Error parsing unlimited_contacts_until for worker {worker.id}: {e}, value: {unlimited_until}")
+                    pass
+
+            # Проверяем купленные контакты (всегда проверяем, даже если есть безлимит)
+            if worker.purchased_contacts and worker.purchased_contacts > 0:
+                contacts_info_parts.append(f'💰: {worker.purchased_contacts}')
+
+            # Формируем итоговую строку
+            if contacts_info_parts:
+                contacts_info = f'Контакты ₽: {" | ".join(contacts_info_parts)}'
+            else:
+                contacts_info = 'Контакты ₽: нет'
+
+            # Логируем для отладки
+            logger.debug(
+                f"Worker {worker.id} contacts info: unlimited_until={worker.unlimited_contacts_until}, purchased={worker.purchased_contacts}, result={contacts_info}")
+
             text = (
                 f'Сообщение от исполнителя #{message.chat.id}\n\n'
-                f'Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.stars else 0} ⭐️\n'
-                f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
+                f'Рейтинг: {rating_display} ⭐️\n'
+                f'Статус: {status_string}\n'
                 f'{cites}\n'
                 f'Выполненных заказов: {worker.order_count}\n'
+                f'{contacts_info}\n'
             )
         else:
             if customer := await Customer.get_customer(tg_id=message.chat.id):
@@ -869,12 +845,12 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=message.chat.id):
         if user_and_support_queue.user_messages or user_and_support_queue.admin_messages:
             text += '\n\n📋 <b>История переписки:</b>\n'
-            
+
             # Показываем все предыдущие сообщения
             for i, user_msg in enumerate(user_and_support_queue.user_messages):
                 if user_msg != msg_to_send:  # Не показываем текущий вопрос дважды
-                    text += f'\n<b>Вопрос {i+1}:</b>\n{user_msg}\n'
-                    
+                    text += f'\n<b>Вопрос {i + 1}:</b>\n{user_msg}\n'
+
                     # Показываем ответ админа, если есть
                     if i < len(user_and_support_queue.admin_messages):
                         admin_msg = user_and_support_queue.admin_messages[i]
@@ -894,13 +870,13 @@ async def user_ask_support_text(message: Message, state: FSMContext) -> None:
     else:
         # Создаем новую запись
         new_support_queue = UserAndSupportQueue(
-            id=None, 
-            user_tg_id=message.chat.id, 
+            id=None,
+            user_tg_id=message.chat.id,
             user_messages=msg_to_send,
             turn=True
         )
         await new_support_queue.save()
-    
+
     await message.answer(
         'Ваш вопрос принят, ожидайте пожалуйста ответа.',
         reply_markup=kbc.chat_closed_buttons()
@@ -1001,8 +977,6 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
                 await user_and_support_queue.update(user_messages=user_and_support_queue.user_messages,
                                                     admin_messages=user_and_support_queue.admin_messages, turn=False)
             return
-
-    # await bot.delete_message(chat_id=message.from_user.id, message_id=msg, )
 
     await state.set_state(UserStates.menu)
     if user_and_support_queue := await UserAndSupportQueue.get_one_by_tg_id(user_tg_id=message.chat.id):

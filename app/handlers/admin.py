@@ -43,178 +43,6 @@ def is_cache_valid():
             current_time - _admin_summary_cache["ts"] < _admin_summary_cache["ttl"])
 
 
-# @router.callback_query(F.data == 'menu', StateFilter(AdminStates.menu, UserStates.menu, AdminStates.edit_stop_words,
-#                                                      AdminStates.unblock_user, AdminStates.block_user,
-#                                                      AdminStates.check_subscription, AdminStates.edit_subscription,
-#                                                      AdminStates.get_customer, AdminStates.get_worker,
-#                                                      AdminStates.check_abs, AdminStates.check_banned_abs,
-#                                                      AdminStates.get_user, AdminStates.send_to_user,
-#                                                      AdminStates.manage_contact_tariffs, AdminStates.view_contact_tariff,
-#                                                      AdminStates.edit_contact_tariff_name, AdminStates.edit_contact_tariff_price,
-#                                                      AdminStates.edit_contact_tariff_contacts_count, AdminStates.edit_contact_tariff_unlimited_days,
-#                                                      AdminStates.add_contact_tariff_type, AdminStates.add_contact_tariff_name,
-#                                                      AdminStates.add_contact_tariff_contacts_count, AdminStates.add_contact_tariff_price,
-#                                                      AdminStates.add_contact_tariff_unlimited_days,
-#                                                      AdminStates.manage_city_tariffs, AdminStates.view_city_tariff,
-#                                                      AdminStates.edit_city_tariff_price, AdminStates.add_city_tariff_count,
-#                                                      AdminStates.add_city_tariff_price, AdminStates.manage_city_discounts,
-#                                                      AdminStates.view_city_discount, AdminStates.edit_city_discount_percent,
-#                                                      AdminStates.add_city_discount_months, AdminStates.add_city_discount_percent))
-# async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
-#     logger.debug('admin_menu...')
-#     kbc = KeyboardCollection()
-#
-#     # Проверяем кеш
-#     if is_cache_valid():
-#         # Используем данные из кеша
-#         cached_data = _admin_summary_cache.get("data", {})
-#         len_users = cached_data.get("len_users", 0)
-#         len_customer = cached_data.get("len_customer", 0)
-#         len_worker = cached_data.get("len_worker", 0)
-#         len_banned_users = cached_data.get("len_banned_users", 0)
-#         len_advertisement = cached_data.get("len_advertisement", 0)
-#         len_banned_advertisement = cached_data.get("len_banned_advertisement", 0)
-#
-#         # Проверяем наличие admin в кеше, если нет - загружаем заново
-#         if "admin" in cached_data:
-#             admin = cached_data["admin"]
-#         else:
-#             admin = await Admin.get_by_tg_id(callback.message.chat.id)
-#
-#         # Получаем данные админа из кеша или загружаем заново
-#         deleted_abs = cached_data.get("deleted_abs", admin.deleted_abs if admin else 0)
-#         done_abs = cached_data.get("done_abs", admin.done_abs if admin else 0)
-#
-#         logger.debug('Using cached admin summary data')
-#     else:
-#         # Загружаем свежие данные
-#         logger.debug('Loading fresh admin summary data')
-#         try:
-#             # Получаем админа
-#             admin = await Admin.get_by_tg_id(callback.message.chat.id)
-#             logger.debug(f"Admin loaded: {admin.id if admin else 'None'}")
-#
-#             # Используем оптимизированные COUNT запросы вместо загрузки всех данных
-#             import aiosqlite
-#
-#             async with aiosqlite.connect(database='app/data/database/database.db') as conn:
-#                 logger.debug("Connected to database")
-#
-#                 # Подсчет заказчиков (проверяем существование таблицы)
-#                 try:
-#                     cursor = await conn.execute('SELECT COUNT(*) FROM customers')
-#                     len_customer = (await cursor.fetchone())[0]
-#                     logger.debug(f"Customers count: {len_customer}")
-#                 except Exception as e:
-#                     logger.warning(f"Таблица customers не найдена: {e}")
-#                     len_customer = 0
-#
-#                 # Подсчет исполнителей (проверяем существование таблицы)
-#                 try:
-#                     cursor = await conn.execute('SELECT COUNT(*) FROM workers')
-#                     len_worker = (await cursor.fetchone())[0]
-#                     logger.debug(f"Workers count: {len_worker}")
-#                 except Exception as e:
-#                     logger.warning(f"Таблица workers не найдена: {e}")
-#                     len_worker = 0
-#
-#                 # Подсчет уникальных пользователей (заказчики, которые не являются исполнителями)
-#                 try:
-#                     cursor = await conn.execute('''
-#                                                 SELECT COUNT(*)
-#                                                 FROM customers c
-#                                                 WHERE c.tg_id NOT IN
-#                                                       (SELECT w.tg_id FROM workers w WHERE w.tg_id IS NOT NULL)
-#                                                 ''')
-#                     unique_customers = (await cursor.fetchone())[0]
-#                     len_users = len_worker + unique_customers
-#                     logger.debug(f"Unique customers: {unique_customers}, Total users: {len_users}")
-#                 except Exception as e:
-#                     logger.warning(f"Ошибка при подсчете уникальных пользователей: {e}")
-#                     len_users = len_worker + len_customer
-#
-#                 # Подсчет заблокированных пользователей (проверяем существование таблицы)
-#                 # try:
-#                 #     cursor = await conn.execute('''
-#                 #                                 SELECT COUNT(*)
-#                 #                                 FROM banned
-#                 #                                 WHERE ban_now = 1
-#                 #                                    OR forever = 1
-#                 #                                 ''')
-#                 #     len_banned_users = (await cursor.fetchone())[0]
-#                 #     logger.debug(f"Banned users count: {len_banned_users}")
-#                 # except Exception as e:
-#                 #     logger.warning(f"Таблица banned не найдена: {e}")
-#                 #     len_banned_users = 0
-#
-#                 # Подсчет объявлений (проверяем существование таблицы)
-#                 try:
-#                     cursor = await conn.execute('SELECT COUNT(*) FROM abs')
-#                     len_advertisement = (await cursor.fetchone())[0]
-#                     logger.debug(f"Ads count: {len_advertisement}")
-#                 except Exception as e:
-#                     logger.warning(f"Таблица abs не найдена: {e}")
-#                     len_advertisement = 0
-#
-#                 # Подсчет заблокированных объявлений (проверяем существование таблицы)
-#                 try:
-#                     cursor = await conn.execute('SELECT COUNT(*) FROM banned_abs')
-#                     len_banned_advertisement = (await cursor.fetchone())[0]
-#                     logger.debug(f"Banned ads count: {len_banned_advertisement}")
-#                 except Exception as e:
-#                     logger.warning(f"Таблица banned_abs не найдена: {e}")
-#                     len_banned_advertisement = 0
-#
-#                 await cursor.close()
-#                 logger.debug("Database connection closed")
-#
-#         except Exception as e:
-#             logger.error(f"Ошибка при загрузке аналитики: {e}")
-#             logger.error(f"Тип ошибки: {type(e).__name__}")
-#             logger.error(f"Детали ошибки: {str(e)}")
-#
-#             # В случае ошибки, не используем кеш и загружаем данные заново
-#             clear_admin_cache()
-#
-#             # Fallback к простым значениям в случае ошибки
-#             len_users = 0
-#             len_customer = 0
-#             len_worker = 0
-#             # len_banned_users = 0
-#             len_advertisement = 0
-#             len_banned_advertisement = 0
-#             admin = await Admin.get_by_tg_id(callback.message.chat.id)
-#
-#         # Сохраняем в кеш
-#         import time
-#         _admin_summary_cache["data"] = {
-#             "len_users": len_users,
-#             "len_customer": len_customer,
-#             "len_worker": len_worker,
-#             # "len_banned_users": len_banned_users,
-#             "len_advertisement": len_advertisement,
-#             "len_banned_advertisement": len_banned_advertisement,
-#             "admin": admin,
-#             "deleted_abs": admin.deleted_abs if admin else 0,
-#             "done_abs": admin.done_abs if admin else 0
-#         }
-#         _admin_summary_cache["ts"] = time.time()
-#
-#     text = (f'Меню\n\n'
-#             f'Всего пользователей: {len_users}\n'
-#             f'Заказчиков: {len_customer}\n'
-#             f'Исполнителей: {len_worker}\n'
-#             # f'Заблокировано: {len_banned_users}\n'
-#             f'Размещено объявлений: {len_advertisement}\n'
-#             f'Заблокировано объявлений: {len_banned_advertisement}\n'
-#             f'Удалено объявлений: {admin.deleted_abs}\n'
-#             f'Выполнено объявлений: {admin.done_abs}\n')
-#
-#     await state.set_state(AdminStates.menu)
-#     await callback.message.delete()
-#     await callback.message.answer(text=text, reply_markup=kbc.menu_admin_keyboard())
-
-
 @router.callback_query(F.data == 'refresh_admin_stats', StateFilter(AdminStates.menu))
 async def refresh_admin_stats(callback: CallbackQuery, state: FSMContext) -> None:
     """Принудительное обновление статистики админа"""
@@ -387,9 +215,6 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
-        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
         work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
                            worker_sub.work_type_ids] if worker_sub.work_type_ids else None
         if len(worker.city_id) == 1:
@@ -402,20 +227,18 @@ async def get_customer(callback: CallbackQuery, state: FSMContext) -> None:
             city = await City.get_city(id=city_id)
             cites += f'{step}{city.city}\n'
 
+        status_string = await help_defs.get_worker_status_string(worker.id)
+
         text += (f'<i>Профиль исполнителя</i>\n\n'
-                 f'ID: {worker.id}  {"✅" if worker.confirmed else "☑️"}\n'
-                 f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
+                 f'ID: {worker.id}\n'
+                 f'Статус: {status_string}\n'
                  f'Общий ID исполнителя: {worker.tg_id}\n'
-                 f'Ваш рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️\n'
+                 f'Ваш рейтинг: {help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)[0]} ⭐️\n'
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
-                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
                  f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка для многострочной строки
-        # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -503,7 +326,7 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
     logger.debug(f'unban_user_text...')
     kbc = KeyboardCollection()
 
-    state_data = await state.get_data()
+    # state_data = await state.get_data()
     # msg_id = int(state_data.get('msg_id'))
 
     try:
@@ -571,7 +394,7 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
     logger.debug(f'ban_user_text...')
     kbc = KeyboardCollection()
 
-    state_data = await state.get_data()
+    # state_data = await state.get_data()
     # msg_id = int(state_data.get('msg_id'))
 
     try:
@@ -609,7 +432,7 @@ async def get_customer(message: Message, state: FSMContext) -> None:
     logger.debug(f'get_customer_text...')
     kbc = KeyboardCollection()
 
-    state_data = await state.get_data()
+    # state_data = await state.get_data()
     # msg_id = int(state_data.get('msg_id'))
 
     try:
@@ -653,13 +476,9 @@ async def get_user(message: Message, state: FSMContext) -> None:
     logger.debug(f'get_user_text...')
     kbc = KeyboardCollection()
 
-    state_data = await state.get_data()
-    # msg_id = int(state_data.get('msg_id'))
-
     try:
         user_id = int(message.text)
     except Exception:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
@@ -673,9 +492,6 @@ async def get_user(message: Message, state: FSMContext) -> None:
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
-        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
         work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
                            worker_sub.work_type_ids] if worker_sub.work_type_ids else None
 
@@ -689,20 +505,18 @@ async def get_user(message: Message, state: FSMContext) -> None:
             city = await City.get_city(id=city_id)
             cites += f'{step}{city.city}\n'
 
+        status_string = await help_defs.get_worker_status_string(worker.id)
+
         text += (f'<i>Профиль исполнителя</i>\n\n'
-                 f'ID: {worker.id}  {"✅" if worker.confirmed else "☑️"}\n'
-                 f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
+                 f'ID: {worker.id}\n'
+                 f'Статус: {status_string}\n'
                  f'Общий ID исполнителя: {worker.tg_id}\n'
-                 f'Ваш рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️\n'
+                 f'Ваш рейтинг: {help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)[0]} ⭐️\n'
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
-                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
                  f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка для многострочной строки
-        # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -722,7 +536,6 @@ async def get_user(message: Message, state: FSMContext) -> None:
             customer_id = False
         await message.answer(text=text, protect_content=False,
                              reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id))
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await state.update_data(user_id=user_id)
         return
     else:
@@ -754,9 +567,6 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
     if worker := await Worker.get_worker(tg_id=user_id):
         worker_acc = True
         worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-        # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
-        # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-        #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
         work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
                            worker_sub.work_type_ids] if worker_sub.work_type_ids else None
 
@@ -770,20 +580,18 @@ async def banned_abs_in_city(callback: CallbackQuery, state: FSMContext) -> None
             city = await City.get_city(id=city_id)
             cites += f'{step}{city.city}\n'
 
+        status_string = await help_defs.get_worker_status_string(worker.id)
+
         text += (f'Профиль исполнителя\n\n'
-                 f'ID: {worker.id}  {"✅" if worker.confirmed else "☑️"}\n'
-                 f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
+                 f'ID: {worker.id}\n'
+                 f'Статус: {status_string}\n'
                  f'Общий ID исполнителя: {worker.tg_id}\n'
-                 f'Ваш рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️\n'
+                 f'Ваш рейтинг: {help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)[0]} ⭐️\n'
                  f'{cites}'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 # f'Ваш тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
-                 # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
                  f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-                 # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
                  f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка для многострочной строки
-        # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
@@ -1052,13 +860,9 @@ async def get_worker(message: Message, state: FSMContext) -> None:
     logger.debug(f'get_worker_text...')
     kbc = KeyboardCollection()
 
-    state_data = await state.get_data()
-    # msg_id = int(state_data.get('msg_id'))
-
     try:
         worker_id = int(message.text)
     except Exception:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
@@ -1066,34 +870,28 @@ async def get_worker(message: Message, state: FSMContext) -> None:
     worker = await Worker.get_worker(id=worker_id)
 
     if worker is None:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer('Исполнитель с таким ID не существует', reply_markup=kbc.admin_back_btn('menu'))
         return
 
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
-    # subscription = await SubscriptionType.get_subscription_type(worker_sub.subscription_id)  # ЗАКОММЕНТИРОВАНО: subscription_id больше не используется
-    # work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
-    #                    worker_sub.work_type_ids] if not worker_sub.unlimited_work_types else None  # ЗАКОММЕНТИРОВАНО: unlimited_work_types больше не используется
     work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
                        worker_sub.work_type_ids] if worker_sub.work_type_ids else None
     city = await City.get_city(id=int(worker.city_id))
 
+    status_string = await help_defs.get_worker_status_string(worker.id)
+
+    rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
     text = (f'Профиль исполнителя\n\n'
-            f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}  {"✅" if worker.confirmed else "☑️"}\n'
-            f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
+            f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}\n'
+            f'Статус: {status_string}\n'
             f'Общий ID исполнителя: {worker.tg_id}\n'
-            f'Рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️ ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n'
+            f'Рейтинг: {rating_display} ⭐️ ({count_ratings} {help_defs.get_grade_word(count_ratings)})\n'
             f'Город: {city.city}\n'
             f'Выполненных заказов: {worker.order_count}\n'
             f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-            # f'Тариф: {subscription.subscription_type}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
-            # f'Осталось откликов: {"неограниченно" if worker_sub.unlimited_orders or worker_sub.subscription_id == 1 else worker_sub.guaranteed_orders}\n'  # ЗАКОММЕНТИРОВАНО: количество откликов теперь определяется рангом
             f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
-            # f'Уведомление об актуальности заказов: {"доступно ✔" if subscription.notification else "не доступно ❌"}\n'  # ЗАКОММЕНТИРОВАНО: SubscriptionType больше не используется
             f'Зарегистрирован с {worker.registration_data}\n')  # Закрывающая скобка
-    # f'\nПодписка действует до: {worker_sub.subscription_end if worker_sub.subscription_end else "3-х выполненных заказов"}\n'  # ЗАКОММЕНТИРОВАНО: subscription_end больше не используется
 
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer(text=text, reply_markup=kbc.admin_back_btn('menu'), protect_content=False)
 
 
@@ -1752,11 +1550,14 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
             city = await City.get_city(id=city_id)
             cites += f'{step}{city.city}\n'
 
+        status_string = await help_defs.get_worker_status_string(worker.id)
+
         text += (f'Профиль исполнителя\n\n'
-                 f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}  {"✅" if worker.confirmed else "☑️"}\n'
-                 f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
-                 f'Общий ID исполнителя: {worker.tg_id}\n'
-                 f'Ваш рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars}⭐️ ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n'
+                 f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}\n'
+                 f'Статус: {status_string}\n'
+                 f'Общий ID исполнителя: {worker.tg_id}\n')
+        rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
+        text += (f'Ваш рейтинг: {rating_display}⭐️ ({count_ratings} {help_defs.get_grade_word(count_ratings)})\n'
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
@@ -1955,11 +1756,14 @@ async def back_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
             city = await City.get_city(id=city_id)
             cites += f'{step}{city.city}\n'
 
+        status_string = await help_defs.get_worker_status_string(worker.id)
+
+        rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
         text += (f'Профиль исполнителя\n\n'
-                 f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}  {"✅" if worker.confirmed else "☑️"}\n'
-                 f'Наличие ИП: {"✅" if worker.individual_entrepreneur else "☑️"}\n'
+                 f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}\n'
+                 f'Статус: {status_string}\n'
                  f'Общий ID исполнителя: {worker.tg_id}\n'
-                 f'Ваш рейтинг: {round(worker.stars / worker.count_ratings, 1) if worker.count_ratings else worker.stars} ⭐️ ({worker.count_ratings if worker.count_ratings else 0} {help_defs.get_grade_word(worker.count_ratings if worker.count_ratings else 0)})\n'
+                 f'Ваш рейтинг: {rating_display} ⭐️ ({count_ratings} {help_defs.get_grade_word(count_ratings)})\n'
                  f'{cites}\n'
                  f'Выполненных заказов: {worker.order_count}\n'
                  f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
