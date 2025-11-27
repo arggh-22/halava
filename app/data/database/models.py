@@ -1956,6 +1956,26 @@ class WorkerAndSubscription:
         self.worker_id = worker_id
         self.work_type_ids = work_type_ids
 
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db',
+                                       detect_types=sqlite3.PARSE_DECLTYPES |
+                                                    sqlite3.PARSE_COLNAMES)
+
+        try:
+            await conn.execute("""
+                               CREATE TABLE IF NOT EXISTS worker_and_subscription
+                               (
+                                   id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   worker_id     INTEGER NOT NULL,
+                                   work_type_ids TEXT
+                               );
+                               """)
+
+            await conn.commit()
+        finally:
+            await conn.close()
+
     async def save(self) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db',
                                        detect_types=sqlite3.PARSE_DECLTYPES |
