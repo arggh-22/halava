@@ -4582,6 +4582,7 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
             await state.set_state(WorkStates.worker_buy_cities)
             
             try:
+                print(config.PAYMENTS)
                 await callback.message.answer_invoice(
                     title=f"Подписка на города",
                     description=description,
