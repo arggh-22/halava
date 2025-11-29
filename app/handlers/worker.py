@@ -10,7 +10,8 @@ from typing import List
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
-    CallbackQuery, Message, FSInputFile, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
+    CallbackQuery, Message, FSInputFile, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice,
+    PreCheckoutQuery
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import StateFilter
@@ -4582,7 +4583,6 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
             await state.set_state(WorkStates.worker_buy_cities)
             
             try:
-                print(config.PAYMENTS)
                 await callback.message.answer_invoice(
                     title=f"Подписка на города",
                     description=description,
@@ -4690,6 +4690,32 @@ async def confirm_city_purchase(callback: CallbackQuery, state: FSMContext) -> N
     except Exception as e:
         logger.error(f"Error in confirm_city_purchase: {e}")
         await callback.answer("❌ Произошла ошибка при покупке", show_alert=True)
+
+
+@router.pre_checkout_query(lambda query: True, WorkStates.worker_buy_cities)
+async def pre_checkout_city_handler(pre_checkout_query: PreCheckoutQuery) -> None:
+    """Обработчик pre_checkout_query для платежей за подписку на города"""
+    logger.debug(f'pre_checkout_city_handler... invoice_payload: {pre_checkout_query.invoice_payload}')
+    try:
+        # Проверяем, что payload начинается с city-purchase или city-renew
+        payload = pre_checkout_query.invoice_payload
+        if payload and (payload.startswith('city-purchase') or payload.startswith('city-renew')):
+            # Подтверждаем платеж
+            await pre_checkout_query.answer(ok=True)
+            logger.debug(f'pre_checkout_city_handler: payment approved for payload: {payload}')
+        else:
+            # Отклоняем платеж, если payload не соответствует ожидаемому формату
+            await pre_checkout_query.answer(
+                ok=False,
+                error_message="Некорректные данные платежа"
+            )
+            logger.warning(f'pre_checkout_city_handler: payment rejected - invalid payload: {payload}')
+    except Exception as e:
+        logger.error(f'Error in pre_checkout_city_handler: {e}')
+        await pre_checkout_query.answer(
+            ok=False,
+            error_message="Произошла ошибка при проверке платежа"
+        )
 
 
 @router.message(F.successful_payment, WorkStates.worker_buy_cities)
@@ -5979,6 +6005,32 @@ async def confirm_contact_purchase(callback: CallbackQuery, state: FSMContext) -
         # Возвращаемся в меню исполнителя
         await state.set_state(WorkStates.worker_menu)
         return
+
+
+@router.pre_checkout_query(lambda query: True, WorkStates.worker_buy_contacts)
+async def pre_checkout_contact_handler(pre_checkout_query: PreCheckoutQuery) -> None:
+    """Обработчик pre_checkout_query для платежей за контакты"""
+    logger.debug(f'pre_checkout_contact_handler... invoice_payload: {pre_checkout_query.invoice_payload}')
+    try:
+        # Проверяем, что payload начинается с contact-purchase
+        payload = pre_checkout_query.invoice_payload
+        if payload and payload.startswith('contact-purchase'):
+            # Подтверждаем платеж
+            await pre_checkout_query.answer(ok=True)
+            logger.debug(f'pre_checkout_contact_handler: payment approved for payload: {payload}')
+        else:
+            # Отклоняем платеж, если payload не соответствует ожидаемому формату
+            await pre_checkout_query.answer(
+                ok=False,
+                error_message="Некорректные данные платежа"
+            )
+            logger.warning(f'pre_checkout_contact_handler: payment rejected - invalid payload: {payload}')
+    except Exception as e:
+        logger.error(f'Error in pre_checkout_contact_handler: {e}')
+        await pre_checkout_query.answer(
+            ok=False,
+            error_message="Произошла ошибка при проверке платежа"
+        )
 
 
 @router.message(F.successful_payment, WorkStates.worker_buy_contacts)
