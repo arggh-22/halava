@@ -105,7 +105,7 @@ async def levenshtein_distance_check_city(phrase: str, words: list):
     phrase = phrase.lower()
     threshold = int(len(phrase) * 0.25)  # Увеличенный порог до 25% от длины введенного слова
 
-    for i, word in enumerate(words, start=1):
+    for i, word in enumerate(words):
         word = word.lower()
         # Сравнение всего слова целиком
         # distance_value = distance(word, phrase)

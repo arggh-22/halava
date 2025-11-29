@@ -123,14 +123,14 @@ async def choose_city_main(message: Message, state: FSMContext) -> None:
         await message.answer(text=f'Город не найден, попробуйте еще раз или воспользуйтесь кнопками')
         return
 
-    cities = []
+    found_cities = []
 
-    for city_id in city_find:
-        city = await City.get_city(id=city_id)
-        cities.append(city)
+    for idx in city_find:
+        if idx < len(cities):
+            found_cities.append(cities[idx])
 
-    city_names = [city.city for city in cities]
-    city_ids = [city.id for city in cities]
+    city_names = [city.city for city in found_cities]
+    city_ids = [city.id for city in found_cities]
 
     msg = await message.answer(
         text=f'Результаты поиска по: {city_input}\n'
@@ -2047,10 +2047,17 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         file_path_photo = f'{file_path}{i}.jpg'
         await bot.download(file=file_id, destination=file_path_photo)
         text_photo = yandex_ocr.analyze_file(file_path_photo)
+        # print(text_photo)
 
         if text_photo:
             if await checks.fool_check(text=text_photo):
                 text_photo_bool = True
+                # await callback.answer(
+                #     "⚠️ Фото нарушает правила платформы, его следует заменить!\n\n"
+                #     "Загрузите другое",
+                #     show_alert=True,
+                # )
+                # return
 
         print(file_path_photo)
 
@@ -2603,7 +2610,7 @@ async def choose_city_main(message: Message, state: FSMContext) -> None:
 
     city_input = message.text
 
-    state_data = await state.get_data()
+    # state_data = await state.get_data()
     # msg_id = int(state_data.get('msg_id'))
 
     cities = await City.get_all(sort=False)
@@ -2614,14 +2621,14 @@ async def choose_city_main(message: Message, state: FSMContext) -> None:
         await message.answer(text=f'Город не найден, попробуйте еще раз или воспользуйтесь кнопками')
         return
 
-    cities = []
+    found_cities = []
 
-    for city_id in city_find:
-        city = await City.get_city(id=city_id)
-        cities.append(city)
+    for idx in city_find:
+        if idx < len(cities):
+            found_cities.append(cities[idx])
 
-    city_names = [city.city for city in cities]
-    city_ids = [city.id for city in cities]
+    city_names = [city.city for city in found_cities]
+    city_ids = [city.id for city in found_cities]
 
     msg = await message.answer(
         text=f'Результаты поиска по: {city_input}\n'

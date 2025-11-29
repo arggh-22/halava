@@ -249,14 +249,14 @@ async def choose_city_main(message: Message, state: FSMContext) -> None:
         await message.answer(text=f'Город не найден, попробуйте еще раз или воспользуйтесь кнопками')
         return
 
-    cities = []
+    found_cities = []
 
-    for city_id in city_find:
-        city = await City.get_city(id=city_id)
-        cities.append(city)
+    for idx in city_find:
+        if idx < len(cities):
+            found_cities.append(cities[idx])
 
-    city_names = [city.city for city in cities]
-    city_ids = [city.id for city in cities]
+    city_names = [city.city for city in found_cities]
+    city_ids = [city.id for city in found_cities]
 
     msg = await message.answer(
         text=f'Результаты поиска по: {city_input}\n'
@@ -1659,18 +1659,18 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
             text_photo = yandex_ocr.analyze_file(file_path_photo)
 
             if text_photo:
-                if await checks.fool_check(text=text_photo):
-                    # Удаляем невалидный файл из portfolio/
-                    logger.warning(f"[PORTFOLIO_UPLOAD] Удаляю невалидное фото из portfolio: {file_path_photo}")
-                    help_defs.delete_file(file_path_photo)
-                    try:
-                        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
-                    except TelegramBadRequest:
-                        pass
-                    await callback.message.answer(text='На фото содержится недопустимый текст!\nПопробуйте еще раз')
-                    await state.clear()
-                    await state.set_state(WorkStates.portfolio_upload_photo)
-                    return
+                # if await checks.fool_check(text=text_photo):
+                # Удаляем невалидный файл из portfolio/
+                logger.warning(f"[PORTFOLIO_UPLOAD] Удаляю невалидное фото из portfolio: {file_path_photo}")
+                help_defs.delete_file(file_path_photo)
+                try:
+                    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+                except TelegramBadRequest:
+                    pass
+                await callback.message.answer(text='На фото содержится недопустимый текст!\nПопробуйте еще раз')
+                await state.clear()
+                await state.set_state(WorkStates.portfolio_upload_photo)
+                return
 
             # Файл валидный - сохраняем путь к нему
             photos[str(new_key)] = file_path_photo
@@ -5403,12 +5403,12 @@ async def subscription_city_search(message: Message, state: FSMContext) -> None:
 
     # Получаем найденные города
     found_cities = []
-    for i in city_find:
-        if i <= len(available_cities):
-            found_cities.append(available_cities[i - 1])
+    for idx in city_find:
+        if idx < len(available_cities):
+            found_cities.append(available_cities[idx])
 
-    city_names = [city.city for city in found_cities]
-    city_ids = [city.id for city in found_cities]
+    # city_names = [city.city for city in found_cities]
+    # city_ids = [city.id for city in found_cities]
 
     # Получаем названия основных городов
     main_city_names = []
@@ -6358,9 +6358,9 @@ async def change_main_city_search(message: Message, state: FSMContext) -> None:
         return
 
     cities_result = []
-    for city_id in city_find:
-        city = await City.get_city(id=city_id)
-        cities_result.append(city)
+    for idx in city_find:
+        if idx < len(all_cities):
+            cities_result.append(all_cities[idx])
 
     city_names = [city.city for city in cities_result]
     city_ids = [city.id for city in cities_result]
@@ -6486,9 +6486,9 @@ async def choose_city_search_worker(message: Message, state: FSMContext) -> None
         return
 
     cities_result = []
-    for city_id in city_find:
-        city = await City.get_city(id=city_id)
-        cities_result.append(city)
+    for idx in city_find:
+        if idx < len(cities):
+            cities_result.append(cities[idx])
 
     city_names = [city.city for city in cities_result]
     city_ids = [city.id for city in cities_result]
