@@ -26,6 +26,7 @@ from app.states import WorkStates, UserStates, BannedStates
 from app.untils import help_defs, checks, yandex_ocr
 from loaders import bot
 from app.untils.checks import validate_worker_name
+from app.untils.contact_filter import ContactFilter
 
 router = Router()
 router.message.filter(F.from_user.id != F.bot.id)
@@ -35,6 +36,59 @@ logger = logging.getLogger()
 _work_types_cache = None
 _cache_timestamp = None
 CACHE_DURATION = 300  # 5 минут
+
+
+async def check_portfolio_ocr_text(text: str) -> bool:
+    """
+    Проверяет OCR текст для портфолио.
+    Разрешает: латиницу, буквы (кириллицу)
+    Запрещает: PHONE_PATTERNS, EMAIL_PATTERNS, LINK_PATTERNS, MESSENGER_PATTERNS, 
+               BROKEN_CONTACT_PATTERNS, FORBIDDEN_WORDS, стоп-слова
+    
+    Returns:
+        True если текст допустим, False если содержит запрещенное
+    """
+    import re
+    
+    if not text:
+        return True
+    
+    # Проверка на стоп-слова
+    if await checks.fool_check(text=text):
+        return False
+    
+    # Проверка на PHONE_PATTERNS
+    for pattern in ContactFilter.PHONE_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return False
+    
+    # Проверка на EMAIL_PATTERNS
+    for pattern in ContactFilter.EMAIL_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return False
+    
+    # Проверка на LINK_PATTERNS
+    for pattern in ContactFilter.LINK_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return False
+    
+    # Проверка на MESSENGER_PATTERNS
+    for pattern in ContactFilter.MESSENGER_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return False
+    
+    # Проверка на BROKEN_CONTACT_PATTERNS
+    for pattern in ContactFilter.BROKEN_CONTACT_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return False
+    
+    # Проверка на FORBIDDEN_WORDS
+    text_lower = text.lower()
+    for word in ContactFilter.FORBIDDEN_WORDS:
+        if word in text_lower:
+            return False
+    
+    return True
 
 
 def get_activity_info_fallback(worker):
@@ -1327,31 +1381,26 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
 
                 text_photo = yandex_ocr.analyze_file(file_path_photo)
                 if text_photo:
-                    invalid_photos_count += 1
-                    worker = await Worker.get_worker(tg_id=message.chat.id)
-                    # Экранируем HTML символы в тексте OCR для безопасной отправки
-                    escaped_text = html.escape(str(text_photo))
-                    # Формируем базовый текст caption
-                    base_text = f'ID #{message.chat.id}\nЗагружено фото портфолио с текстом\nТекст: '
-                    max_text_length = 1024 - len(base_text) - 50  # Оставляем запас для "... (обрезано)"
-                    if len(escaped_text) > max_text_length:
-                        escaped_text = escaped_text[:max_text_length] + '... (обрезано)'
-                    caption = base_text + escaped_text
-                    await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
-                                         caption=caption,
-                                         photo=FSInputFile(file_path_photo),
-                                         protect_content=False,
-                                         reply_markup=kbc.delite_it_photo(worker_id=worker.id))
-                    # Удаляем невалидное фото из альбома
-                    album = [
-                        msg for msg in album if not (
-                                hasattr(msg, 'message_id') and msg.message_id == photo_msg.message_id
-                        )
-                    ]
-                    # Удаляем временный файл
-                    help_defs.delete_file(file_path_photo)
+                    # Проверяем текст через специальную функцию для портфолио
+                    if not await check_portfolio_ocr_text(text_photo):
+                        # Фото содержит запрещенное - удаляем из альбома
+                        invalid_photos_count += 1
+                        album = [
+                            msg for msg in album if not (
+                                    hasattr(msg, 'message_id') and msg.message_id == photo_msg.message_id
+                            )
+                        ]
+                        # Удаляем временный файл
+                        help_defs.delete_file(file_path_photo)
+                    else:
+                        # Фото валидное (есть текст, но он разрешен) - удаляем временный файл
+                        try:
+                            if os.path.exists(file_path_photo):
+                                help_defs.delete_file(file_path_photo)
+                        except Exception as e:
+                            logger.debug(f"[PORTFOLIO] Ошибка при удалении временного файла {file_path_photo}: {e}")
                 else:
-                    # Фото валидное - удаляем временный файл
+                    # Фото валидное (нет текста) - удаляем временный файл
                     try:
                         if os.path.exists(file_path_photo):
                             help_defs.delete_file(file_path_photo)
@@ -1363,7 +1412,7 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
             # Сообщаем об ошибках если есть
             if invalid_photos_count > 0:
                 await message.answer(
-                    text=f"❌ {invalid_photos_count} фото нарушают правила платформы (содержат текст) 🚫\n\nОстальные фото добавлены."
+                    text=f"❌ {invalid_photos_count} фото нарушают правила платформы 🚫\n\nОстальные фото добавлены."
                 )
 
             # Отправляем новое сообщение о загрузке (вместо редактирования)
@@ -1445,31 +1494,18 @@ async def upload_photo_portfolio(message: Message, state: FSMContext) -> None:
         logger.info(f'Portfolio OCR result: {text_photo}')
 
         if text_photo:
-            # Если найден текст на фото - показываем всплывающее окно
-            await message.answer(
-                text="Фото нарушает правила платформы 🚫\n\nЗагрузите другое!",
-                reply_markup=kbc.done_btn()
-            )
-
-            # Отправляем в лог админам
-            worker = await Worker.get_worker(tg_id=message.chat.id)
-            # Экранируем HTML символы в тексте OCR для безопасной отправки
-            escaped_text = html.escape(str(text_photo))
-            # Формируем базовый текст caption
-            base_text = f'ID #{message.chat.id}\nЗагружено фото портфолио с текстом\nТекст: '
-            max_text_length = 1024 - len(base_text) - 50  # Оставляем запас для "... (обрезано)"
-            if len(escaped_text) > max_text_length:
-                escaped_text = escaped_text[:max_text_length] + '... (обрезано)'
-            caption = base_text + escaped_text
-            await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
-                                 caption=caption,
-                                 photo=FSInputFile(file_path_photo),
-                                 protect_content=False,
-                                 reply_markup=kbc.delite_it_photo(worker_id=worker.id))
-            # Удаляем временный файл (это нормально - это только для проверки OCR)
-            logger.debug(f"[PORTFOLIO] Удаляю временный файл после проверки OCR (текст найден): {file_path_photo}")
-            help_defs.delete_file(file_path_photo)
-            return
+            # Проверяем текст через специальную функцию для портфолио
+            if not await check_portfolio_ocr_text(text_photo):
+                # Фото содержит запрещенное - блокируем загрузку
+                await message.answer(
+                    text="Фото нарушает правила платформы 🚫\n\nЗагрузите другое!",
+                    reply_markup=kbc.done_btn()
+                )
+                # Удаляем временный файл (это нормально - это только для проверки OCR)
+                logger.debug(f"[PORTFOLIO] Удаляю временный файл после проверки OCR (запрещенный текст найден): {file_path_photo}")
+                help_defs.delete_file(file_path_photo)
+                return
+            # Если текст есть, но он разрешен - продолжаем (латиница и буквы разрешены)
 
         # Удаляем временный файл (OCR проверка прошла успешно)
         # Финальное сохранение будет в portfolio/ при завершении загрузки
@@ -1658,9 +1694,9 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
 
             text_photo = yandex_ocr.analyze_file(file_path_photo)
 
-            if text_photo:
-                # if await checks.fool_check(text=text_photo):
-                # Удаляем невалидный файл из portfolio/
+            # Проверяем OCR текст через специальную функцию для портфолио
+            if text_photo and not await check_portfolio_ocr_text(text_photo):
+                # Фото содержит запрещенное - удаляем из portfolio/
                 logger.warning(f"[PORTFOLIO_UPLOAD] Удаляю невалидное фото из portfolio: {file_path_photo}")
                 help_defs.delete_file(file_path_photo)
                 try:
@@ -1693,6 +1729,19 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
             await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
         except TelegramBadRequest:
             pass
+
+        # Отправляем уведомление админу для каждого успешно загруженного фото БЕЗ текста OCR
+        for photo_key, photo_path in photos.items():
+            if os.path.exists(photo_path):
+                try:
+                    caption = f'ID #{callback.message.chat.id}\nЗагружено фото портфолио'
+                    await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG,
+                                         caption=caption,
+                                         photo=FSInputFile(photo_path),
+                                         protect_content=False,
+                                         reply_markup=kbc.delite_it_photo(worker_id=worker.id))
+                except Exception as e:
+                    logger.error(f"[PORTFOLIO_UPLOAD] Ошибка при отправке уведомления админу: {e}")
 
         # Очищаем состояние после успешной загрузки
         await state.clear()

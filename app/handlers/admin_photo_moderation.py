@@ -220,7 +220,7 @@ async def admin_delete_photo_violation(callback: CallbackQuery, state: FSMContex
         try:
             await bot.send_message(
                 chat_id=worker.tg_id, 
-                text="Фото портфолио нарушает правила платформы 🚫\n\nЗагрузите другие фото!",
+                text="⚠️ Ваше портфолио было удалено за нарушение правил платформы.\n\nЗагрузите другие фото!",
                 reply_markup=kbc.done_btn()
             )
         except TelegramBadRequest:

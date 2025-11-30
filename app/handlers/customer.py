@@ -1615,8 +1615,7 @@ async def customer_create_abs_price(message: Message, state: FSMContext) -> None
     kbc = KeyboardCollection()
 
     # Проверяем контент на запрещенные элементы
-    from app.untils.help_defs import handle_forbidden_content
-    if await handle_forbidden_content(message, bot):
+    if await help_defs.handle_forbidden_content(message):
         return  # Сообщение заблокировано, обработка прекращается
 
     task = message.text
