@@ -828,6 +828,20 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
+    def delite_customer_photo(self, customer_tg_id):
+        """
+        Создает клавиатуру для удаления/блокировки фото объявления заказчика
+        customer_tg_id - Telegram ID заказчика
+        """
+        block_callback = f'admin_block_customer_photo_{customer_tg_id}'
+        delete_callback = f'admin_delete_customer_photo_{customer_tg_id}'
+        
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text='Заблокировать и удалить', callback_data=block_callback))
+        builder.add(self._inline(button_text='Удалить', callback_data=delete_callback))
+        builder.adjust(1)
+        return builder.as_markup()
+
     def block_message_log(self, user_id):
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text=f'Заблокировать',
@@ -980,7 +994,7 @@ class KeyboardCollection:
         builder.add(self._inline(button_text=f'Разблокировать и удалить',
                                  callback_data=f'unban-user_{user_id}'))
         builder.add(self._inline(button_text=f'Подтвердить блокировку',
-                                 callback_data=f'close'))
+                                 callback_data=f'close_{user_id}'))
 
         if photo_len > 1:
             builder.adjust(3, 1)

@@ -1,5 +1,7 @@
 import logging
 import asyncio
+import os
+import shutil
 from datetime import datetime, timedelta
 
 from pydantic_core import ValidationError
@@ -21,12 +23,86 @@ from app.keyboards import KeyboardCollection
 from app.states import UserStates, CustomerStates, BannedStates, WorkStates
 from app.untils import help_defs, checks, yandex_ocr
 from app.untils.customer_proces import ban_task, same_task, close_task
+from app.untils.contact_filter import ContactFilter
 from loaders import bot
 from aiogram.fsm.storage.base import StorageKey
 
 router = Router()
 router.message.filter(F.from_user.id != F.bot.id)
 logger = logging.getLogger()
+
+
+async def check_advertisement_ocr_text(text: str) -> tuple[bool, bool]:
+    """
+    Проверяет OCR текст для объявлений заказчика.
+    Запрещает: латиницу, номер телефона, PHONE_PATTERNS, EMAIL_PATTERNS, LINK_PATTERNS, 
+               MESSENGER_PATTERNS, BROKEN_CONTACT_PATTERNS, FORBIDDEN_WORDS, LATIN_PATTERN
+    Запрещает стоп-слова (fool_check)
+    Разрешает: буквы (кириллицу)
+    
+    Returns:
+        Tuple[bool, bool]: (has_stop_words, has_other_violations)
+            - has_stop_words: True если найдены стоп-слова (требуется блокировка)
+            - has_other_violations: True если найдены другие нарушения (требуется предупреждение)
+    """
+    import re
+    
+    if not text:
+        return False, False
+    
+    # Проверка на стоп-слова (fool_check) - это блокировка
+    if await checks.fool_check(text=text):
+        return True, False
+    
+    has_violations = False
+    
+    # Проверка на латиницу (LATIN_PATTERN)
+    if re.search(ContactFilter.LATIN_PATTERN, text):
+        has_violations = True
+    
+    # Проверка на PHONE_PATTERNS
+    for pattern in ContactFilter.PHONE_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            has_violations = True
+            break
+    
+    # Проверка на EMAIL_PATTERNS
+    if not has_violations:
+        for pattern in ContactFilter.EMAIL_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                has_violations = True
+                break
+    
+    # Проверка на LINK_PATTERNS
+    if not has_violations:
+        for pattern in ContactFilter.LINK_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                has_violations = True
+                break
+    
+    # Проверка на MESSENGER_PATTERNS
+    if not has_violations:
+        for pattern in ContactFilter.MESSENGER_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                has_violations = True
+                break
+    
+    # Проверка на BROKEN_CONTACT_PATTERNS
+    if not has_violations:
+        for pattern in ContactFilter.BROKEN_CONTACT_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                has_violations = True
+                break
+    
+    # Проверка на FORBIDDEN_WORDS
+    if not has_violations:
+        text_lower = text.lower()
+        for word in ContactFilter.FORBIDDEN_WORDS:
+            if word in text_lower:
+                has_violations = True
+                break
+    
+    return False, has_violations
 
 
 @router.callback_query(F.data == "registration_customer", UserStates.registration_end)
@@ -1850,11 +1926,11 @@ async def create_abs_no_photo(callback: CallbackQuery, state: FSMContext) -> Non
         banned_abs = banned_abs[-1]
 
         text = (f'Заблокирован пользователь @{customer.tg_name}\n'
-                f'ID: #{customer.tg_id}\n\n'
+                f'Общий ID пользователя: #{customer.id}\n'
+                f'Telegram ID: #{customer.tg_id}\n\n'
                 f'{work}\n\n'
                 f'Задача: {task}\n\n'
                 f'Время: {time}\n'
-                f''
                 f'Причина: Повторяющиеся слова')
 
         text = help_defs.escape_markdown(text=text)
@@ -2012,15 +2088,16 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
     kbc = KeyboardCollection()
     state_data = await state.get_data()
 
-    msg = str(state_data.get('msg'))
+    msg_id = state_data.get('msg')
     work_type_id = str(state_data.get('work_type_id'))
     task = str(state_data.get('task'))
     time = str(state_data.get('time'))
     album = state_data.get('album', [])
 
     try:
-        await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg)
-    except TelegramBadRequest:
+        if msg_id and str(msg_id) != 'None':
+            await bot.delete_message(chat_id=callback.message.chat.id, message_id=int(msg_id))
+    except (TelegramBadRequest, ValueError, TypeError):
         pass
     msg = await callback.message.answer(text='Подождите идет проверка')
 
@@ -2046,19 +2123,38 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         file_path_photo = f'{file_path}{i}.jpg'
         await bot.download(file=file_id, destination=file_path_photo)
         text_photo = yandex_ocr.analyze_file(file_path_photo)
-        # print(text_photo)
-
+        
         if text_photo:
-            if await checks.fool_check(text=text_photo):
+            has_stop_words, has_other_violations = await check_advertisement_ocr_text(text_photo)
+            
+            if has_stop_words:
+                # Стоп-слова - блокируем
                 text_photo_bool = True
-                # await callback.answer(
-                #     "⚠️ Фото нарушает правила платформы, его следует заменить!\n\n"
-                #     "Загрузите другое",
-                #     show_alert=True,
-                # )
-                # return
-
-        print(file_path_photo)
+            elif has_other_violations:
+                # Другие нарушения - обнуляем state и возвращаем к загрузке
+                try:
+                    await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
+                except TelegramBadRequest:
+                    pass
+                
+                # Удаляем все скачанные фото
+                for photo_key, photo_path in photos.items():
+                    if os.path.exists(photo_path):
+                        help_defs.delete_file(photo_path)
+                if os.path.exists(file_path_photo):
+                    help_defs.delete_file(file_path_photo)
+                
+                # Обнуляем state
+                await state.update_data(album=[], processed_media_groups=[], end=0, msg=None)
+                
+                await callback.message.answer(
+                    text="⚠️ Фото нарушает правила платформы, его следует заменить!\n\n"
+                         "Загрузите другое",
+                    reply_markup=kbc.done_btn()
+                )
+                
+                await state.set_state(CustomerStates.customer_create_abs_add_photo)
+                return
 
         photos[str(i)] = file_path_photo
 
@@ -2098,11 +2194,11 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         banned_abs = banned_abs[-1]
 
         text = (f'Заблокирован пользователь @{customer.tg_name}\n'
-                f'Общий ID пользователя: #{customer.tg_id}\n\n'
+                f'Общий ID пользователя: #{customer.id}\n'
+                f'Telegram ID: #{customer.tg_id}\n\n'
                 f'{work}\n\n'
                 f'Задача: {task}\n\n'
                 f'Время: {time}\n'
-                f''
                 f'Причина: Текст на фото')
 
         text = help_defs.escape_markdown(text=text)
@@ -2180,11 +2276,11 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         banned_abs = banned_abs[-1]
 
         text = (f'Заблокирован пользователь @{customer.tg_name}\n'
-                f'ID: #{customer.tg_id}\n\n'
+                f'Общий ID пользователя: #{customer.id}\n'
+                f'Telegram ID: #{customer.tg_id}\n\n'
                 f'{work}\n\n'
                 f'Задача: {task}\n\n'
                 f'Время: {time}\n'
-                f''
                 f'Причина блокировки: {ban_reason}')
 
         text = help_defs.escape_markdown(text=text)
@@ -2285,11 +2381,11 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
         banned_abs = banned_abs[-1]
 
         text = (f'Заблокирован пользователь @{customer.tg_name}\n'
-                f'ID: #{customer.tg_id}\n\n'
+                f'Общий ID пользователя: #{customer.id}\n'
+                f'Telegram ID: #{customer.tg_id}\n\n'
                 f'{work}\n\n'
                 f'Задача: {task}\n\n'
                 f'Время: {time}\n'
-                f''
                 f'Причина: Повторяющиеся слова')
 
         text = help_defs.escape_markdown(text=text)
@@ -2421,9 +2517,15 @@ async def create_abs_skip_photo(callback: CallbackQuery, state: FSMContext) -> N
 
     # Отправляем в лог-канал
     text2 = f'ID пользователя: #{customer.tg_id}\n\n' + text_for_workers
-    await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG, caption=text2, photo=FSInputFile(photos['0']),
-                         protect_content=False,
-                         reply_markup=kbc.block_abs_log(advertisement.id, photo_num=0, photo_len=photos_len))
+    if photos and photos_len > 0 and '0' in photos:
+        await bot.send_photo(chat_id=config.ADVERTISEMENT_LOG, caption=text2, photo=FSInputFile(photos['0']),
+                             protect_content=False,
+                             reply_markup=kbc.block_abs_log(advertisement.id, photo_num=0, photo_len=photos_len))
+    else:
+        # Если нет фото, отправляем только текст
+        await bot.send_message(chat_id=config.ADVERTISEMENT_LOG, text=text2,
+                               protect_content=False,
+                               reply_markup=kbc.block_abs_log(advertisement.id, photo_num=0, photo_len=0))
 
     # Даем админу 5 секунд на проверку и возможную блокировку объявления
     await asyncio.sleep(5)
@@ -2483,6 +2585,143 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
     end = int(data.get('end', 0))
     processed_groups = data.get('processed_media_groups', [])
 
+    # Проверяем фото через OCR перед добавлением в альбом
+    photo = message.photo[-1].file_id
+    file_path_photo = await help_defs.save_photo(id=message.from_user.id)
+    await bot.download(file=photo, destination=file_path_photo)
+    
+    text_photo = yandex_ocr.analyze_file(file_path_photo)
+    
+    if text_photo:
+        has_stop_words, has_other_violations = await check_advertisement_ocr_text(text_photo)
+        
+        if has_stop_words:
+            # Стоп-слова - блокируем и отправляем админу (код аналогичен create_abs_skip_photo)
+            logger.warning(f"[CUSTOMER_AD] Найдены стоп-слова на фото, блокирую пользователя")
+            
+            # Сохраняем данные для блокировки
+            work_type_id = str(data.get('work_type_id', ''))
+            task = str(data.get('task', ''))
+            time = str(data.get('time', ''))
+            
+            # Сохраняем фото для блокировки
+            file_path_banned, _ = await help_defs.save_photo_var(id=message.chat.id, n=0)
+            banned_photo_path = f'{file_path_banned}0.jpg'
+            # Копируем файл для блокировки
+            shutil.copy(file_path_photo, banned_photo_path)
+            
+            # Блокируем пользователя (не отправляем в ADVERTISEMENT_LOG, так как пользователь автоматически блокируется)
+            banned = await Banned.get_banned(tg_id=message.chat.id)
+            ban_end = str(datetime.now() + timedelta(hours=24))
+            
+            if work_type_id and work_type_id != 'None':
+                work_type = await WorkType.get_work_type(id=int(work_type_id))
+                work = work_type.work_type.capitalize() if work_type else 'Не указано'
+            else:
+                work = 'Не указано'
+            
+            text = (f'{work}\n\n'
+                    f'Задача: {task}\n\n'
+                    f'Время: {time}\n')
+            
+            file_path = help_defs.create_file_in_directory_with_timestamp(id=message.chat.id, text=text,
+                                                                          path='app/data/banned/text/')
+            
+            banned_abs = BannedAbs(
+                id=None,
+                customer_id=customer.id,
+                work_type_id=int(work_type_id) if work_type_id and work_type_id != 'None' else 0,
+                city_id=customer.city_id,
+                photo_path={'0': banned_photo_path},
+                text_path=file_path,
+                date_to_delite=datetime.today() + timedelta(days=30),
+                photos_len=1
+            )
+            await banned_abs.save()
+            
+            banned_abs = await BannedAbs.get_all_by_customer(customer_id=customer.id)
+            banned_abs = banned_abs[-1]
+            
+            text = (f'Заблокирован пользователь @{customer.tg_name}\n'
+                    f'Общий ID пользователя: #{customer.id}\n'
+                    f'Telegram ID: #{customer.tg_id}\n\n'
+                    f'{work}\n\n'
+                    f'Задача: {task}\n\n'
+                    f'Время: {time}\n'
+                    f'Причина: Текст на фото')
+            
+            text = help_defs.escape_markdown(text=text)
+            
+            await bot.send_photo(chat_id=config.BLOCKED_CHAT, photo=FSInputFile(banned_photo_path), caption=text,
+                                 protect_content=False,
+                                 reply_markup=kbc.unban(banned_abs.id, photo_num=0, photo_len=1))
+            
+            if banned:
+                if banned.ban_counter >= 3:
+                    await banned.update(forever=True, ban_now=True)
+                    await message.answer('Вы заблокированы навсегда за неоднократное нарушение правил платформы',
+                                          reply_markup=kbc.support_btn())
+                    await state.set_state(BannedStates.banned)
+                    return
+                await banned.update(
+                    ban_counter=banned.ban_counter + 1,
+                    ban_now=True,
+                    ban_end=ban_end,
+                    ban_reason="Текст на фото"
+                )
+                await message.answer(
+                    '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность.',
+                    reply_markup=kbc.support_btn())
+                await state.set_state(BannedStates.banned)
+                return
+            else:
+                banned = Banned(
+                    id=None,
+                    tg_id=customer.tg_id,
+                    ban_now=True,
+                    ban_end=ban_end,
+                    ban_counter=1,
+                    forever=False,
+                    ban_reason="Текст на фото"
+                )
+                await banned.save()
+                await message.answer(
+                    '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность.',
+                    reply_markup=kbc.support_btn())
+                await state.set_state(BannedStates.banned)
+                return
+        
+        elif has_other_violations:
+            # Другие нарушения - обнуляем state и возвращаем к загрузке
+            logger.warning(f"[CUSTOMER_AD] Найдены нарушения на фото, обнуляю state")
+            
+            # Удаляем временный файл
+            help_defs.delete_file(file_path_photo)
+            
+            # Обнуляем все фото в state
+            await state.update_data(album=[], processed_media_groups=[], end=0, msg=None)
+            
+            # Сообщаем пользователю
+            msg_id = data.get('msg')
+            if msg_id:
+                try:
+                    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+                except TelegramBadRequest:
+                    pass
+            
+            await message.answer(
+                text="⚠️ Фото нарушает правила платформы, его следует заменить!\n\n"
+                     "Загрузите другое",
+                reply_markup=kbc.done_btn()
+            )
+            
+            # Возвращаем к состоянию загрузки фото
+            await state.set_state(CustomerStates.customer_create_abs_add_photo)
+            return
+    
+    # Удаляем временный файл после проверки
+    help_defs.delete_file(file_path_photo)
+    
     # Проверяем, является ли это частью медиа-группы (альбома)
     if message.media_group_id:
         media_group_id_str = str(message.media_group_id)
@@ -2533,12 +2772,13 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
 
     # Проверяем лимит фото
     if len(album) >= 10:
-        msg = str(data.get('msg'))
+        msg_id = data.get('msg')
         try:
-            try:
-                await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
-            except TelegramBadRequest:
-                pass
+            if msg_id and str(msg_id) != 'None':
+                try:
+                    await bot.delete_message(chat_id=message.from_user.id, message_id=int(msg_id))
+                except (TelegramBadRequest, ValueError, TypeError):
+                    pass
             msg = await message.answer(text='Больше фото загрузить нельзя\nНажмите, чтобы закончить загрузку',
                                        reply_markup=kbc.done_btn())
             await state.update_data(msg=msg.message_id)
@@ -2559,12 +2799,13 @@ async def create_abs_with_photo(message: Message, state: FSMContext) -> None:
         end_check = int(data_check.get('end', 0))
         
         if end_check == 1:  # Если мы успели первыми обновить end
-            msg = str(data.get('msg'))
+            msg_id = data.get('msg')
             try:
-                try:
-                    await bot.delete_message(chat_id=message.from_user.id, message_id=msg)
-                except TelegramBadRequest:
-                    pass
+                if msg_id and str(msg_id) != 'None':
+                    try:
+                        await bot.delete_message(chat_id=message.from_user.id, message_id=int(msg_id))
+                    except (TelegramBadRequest, ValueError, TypeError):
+                        pass
                 msg = await message.answer(text='Нажмите, чтобы закончить загрузку', reply_markup=kbc.done_btn())
                 await state.update_data(msg=msg.message_id)
                 logger.info(f"[CUSTOMER_AD] Сообщение 'Нажмите, чтобы закончить загрузку' отправлено")

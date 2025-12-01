@@ -983,6 +983,39 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
         pass
 
 
+@router.callback_query(lambda c: c.data.startswith('close_'))
+async def confirm_block(callback: CallbackQuery) -> None:
+    """Подтверждение блокировки - удаляет объявление и фото, но оставляет пользователя заблокированным"""
+    logger.debug(f'confirm_block...')
+    
+    # Парсим callback_data: close_{banned_abs_id}
+    parts = callback.data.split('_')
+    if len(parts) < 2:
+        await callback.message.delete()
+        await callback.message.answer("Ошибка: не удалось получить ID объявления.")
+        return
+    
+    try:
+        banned_abs_id = int(parts[1])
+    except ValueError:
+        await callback.message.delete()
+        await callback.message.answer("Ошибка: неверный ID объявления.")
+        return
+    
+    # Удаляем объявление и фото (как в unban-user_, но без разблокировки пользователя)
+    from app.data.database.models import BannedAbs
+    banned_abs = await BannedAbs.get_one(id=banned_abs_id)
+    if banned_abs:
+        await banned_abs.delete(delite_photo=True)
+        await callback.message.delete_reply_markup()
+        await callback.message.edit_caption(
+            caption=f"✅ {callback.message.caption or 'Блокировка подтверждена'}\n\nОбъявление удалено."
+        )
+    else:
+        await callback.message.delete()
+        await callback.message.answer("Объявление уже было удалено.")
+
+
 @router.callback_query(F.data == 'close')
 async def choose_city_end(callback: CallbackQuery) -> None:
     logger.debug(f'choose_city_end...')

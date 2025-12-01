@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile
 
-from app.data.database.models import Banned, Worker, UserAndSupportQueue
+from app.data.database.models import Banned, Worker, Customer, UserAndSupportQueue
 from app.keyboards import KeyboardCollection
 from loaders import bot
 
@@ -284,3 +284,97 @@ async def admin_delete_photo_violation(callback: CallbackQuery, state: FSMContex
         await callback.message.edit_caption(
             caption=f"✅ Фото профиля исполнителя {worker.tg_id} удалено за нарушение правил"
         )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_block_customer_photo_'))
+async def admin_block_customer_photo_violation(callback: CallbackQuery, state: FSMContext) -> None:
+    """Блокировка заказчика за нарушение правил при загрузке фото объявления"""
+    logger.debug(f'admin_block_customer_photo_violation...')
+    
+    # Парсим callback_data: admin_block_customer_photo_{customer_tg_id}
+    parts = callback.data.split('_')
+    customer_tg_id = int(parts[4])
+    
+    kbc = KeyboardCollection()
+    
+    # Получаем заказчика
+    customer = await Customer.get_customer(tg_id=customer_tg_id)
+    if not customer:
+        await callback.message.edit_caption("❌ Заказчик не найден")
+        return
+    
+    # Блокируем заказчика
+    banned = await Banned.get_banned(tg_id=customer_tg_id)
+    ban_end = datetime.now() + timedelta(hours=24)
+    
+    if banned:
+        if banned.ban_counter >= 3:
+            await banned.update(forever=True, ban_now=True)
+            ban_text = "навсегда"
+        else:
+            await banned.update(
+                ban_counter=banned.ban_counter + 1,
+                ban_now=True,
+                ban_end=ban_end,
+                ban_reason="Текст на фото объявления"
+            )
+            ban_text = "24 часа"
+    else:
+        banned = Banned(
+            id=None,
+            tg_id=customer_tg_id,
+            ban_now=True,
+            ban_end=ban_end,
+            ban_counter=1,
+            forever=False,
+            ban_reason="Текст на фото объявления"
+        )
+        await banned.save()
+        ban_text = "24 часа"
+    
+    # Отправляем уведомление заказчику
+    text = '⛔️ Упс, к сожалению пришлось закрыть Вам доступ на сутки за подозрительную активность.'
+    try:
+        await bot.send_message(
+            chat_id=customer_tg_id,
+            text=text,
+            reply_markup=kbc.support_btn()
+        )
+    except TelegramBadRequest:
+        pass
+    
+    # Обновляем сообщение в чате логов
+    await callback.message.edit_caption(
+        caption=f"✅ Заказчик {customer_tg_id} заблокирован за нарушение правил при загрузке фото\nСрок: {ban_text}"
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_delete_customer_photo_'))
+async def admin_delete_customer_photo_violation(callback: CallbackQuery, state: FSMContext) -> None:
+    """Удаление фото объявления заказчика без блокировки"""
+    logger.debug(f'admin_delete_customer_photo_violation...')
+    
+    # Парсим callback_data: admin_delete_customer_photo_{customer_tg_id}
+    parts = callback.data.split('_')
+    customer_tg_id = int(parts[4])
+    
+    # Получаем заказчика
+    customer = await Customer.get_customer(tg_id=customer_tg_id)
+    if not customer:
+        await callback.message.edit_caption("❌ Заказчик не найден")
+        return
+    
+    # Отправляем уведомление заказчику
+    text = "⚠️ Фото объявления нарушает правила платформы, его следует заменить!\n\nЗагрузите другое"
+    try:
+        await bot.send_message(
+            chat_id=customer_tg_id,
+            text=text
+        )
+    except TelegramBadRequest:
+        pass
+    
+    # Обновляем сообщение в чате логов
+    await callback.message.edit_caption(
+        caption=f"✅ Заказчику {customer_tg_id} отправлено уведомление об удалении фото"
+    )
