@@ -333,6 +333,9 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Фото профиля", callback_data="create_photo_profile"))
         builder.add(self._inline(button_text="Изменить имя", callback_data="worker_change_name"))
         builder.add(self._inline(button_text="Портфолио", callback_data="my_portfolio"))
+        
+        # Уведомления
+        builder.add(self._inline(button_text="🔔 Уведомления", callback_data="notification_settings"))
 
         builder.adjust(1)
         return builder.as_markup()
@@ -349,6 +352,7 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Мои объявления", callback_data="my_abs"))
         builder.add(self._inline(button_text="Мои контакты", callback_data="customer_contacts"))
         builder.add(self._inline(button_text="Сменить город", callback_data="customer_change_city"))
+        builder.add(self._inline(button_text="🔔 Уведомления", callback_data="notification_settings"))
         builder.adjust(1)
         return builder.as_markup()
 
@@ -1690,6 +1694,19 @@ class KeyboardCollection:
                                  callback_data=f"back_to_contact_offer_{worker_id}_{abs_id}"))
         builder.adjust(1)
 
+        return builder.as_markup()
+
+    def notification_settings_keyboard(self, unified_enabled: bool) -> InlineKeyboardMarkup:
+        """Клавиатура настроек уведомлений"""
+        builder = InlineKeyboardBuilder()
+        
+        if unified_enabled:
+            builder.add(self._inline(button_text="❌ Отключить", callback_data="toggle_notifications"))
+        else:
+            builder.add(self._inline(button_text="✅ Включить", callback_data="toggle_notifications"))
+        
+        builder.add(self._inline(button_text="🏠 В меню", callback_data="menu"))
+        builder.adjust(1)
         return builder.as_markup()
 
 #  _    _        _      _____              _

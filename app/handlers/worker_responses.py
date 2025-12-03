@@ -768,22 +768,26 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
         # Проверяем наличие портфолио у исполнителя
         has_portfolio = worker.portfolio_photo is not None and len(worker.portfolio_photo) > 0
 
-        # Отправляем уведомление заказчику с кнопками для взаимодействия
-        kbc = KeyboardCollection()
-        await send_with_worker_photo(
-            chat_id=customer.tg_id,
-            worker=worker,
-            text=notification_text,
-            reply_markup=kbc.anonymous_chat_customer_buttons(
-                worker_id=worker.id,
-                abs_id=abs_id,
-                contact_requested=False,
-                contact_sent=False,
-                contacts_purchased=False,
-                has_portfolio=has_portfolio
-            ),
-            parse_mode='HTML'
-        )
+        # Проверяем, нужно ли отправлять уведомление заказчику
+        from app.untils.notification_helper import should_send_notification
+        
+        if await should_send_notification(customer.tg_id, 'customer'):
+            # Отправляем уведомление заказчику с кнопками для взаимодействия
+            kbc = KeyboardCollection()
+            await send_with_worker_photo(
+                chat_id=customer.tg_id,
+                worker=worker,
+                text=notification_text,
+                reply_markup=kbc.anonymous_chat_customer_buttons(
+                    worker_id=worker.id,
+                    abs_id=abs_id,
+                    contact_requested=False,
+                    contact_sent=False,
+                    contacts_purchased=False,
+                    has_portfolio=has_portfolio
+                ),
+                parse_mode='HTML'
+            )
 
         # Подтверждение исполнителю
         kbc = KeyboardCollection()
@@ -984,22 +988,26 @@ async def process_response_text(message: Message, state: FSMContext):
         # Проверяем наличие портфолио у исполнителя
         has_portfolio = worker.portfolio_photo is not None and len(worker.portfolio_photo) > 0
 
-        # Отправляем уведомление заказчику с кнопками для взаимодействия
-        kbc = KeyboardCollection()
-        await send_with_worker_photo(
-            chat_id=customer.tg_id,
-            worker=worker,
-            text=notification_text,
-            reply_markup=kbc.anonymous_chat_customer_buttons(
-                worker_id=worker.id,
-                abs_id=abs_id,
-                contact_requested=False,
-                contact_sent=False,
-                contacts_purchased=False,
-                has_portfolio=has_portfolio
-            ),
-            parse_mode='HTML'
-        )
+        # Проверяем, нужно ли отправлять уведомление заказчику
+        from app.untils.notification_helper import should_send_notification
+        
+        if await should_send_notification(customer.tg_id, 'customer'):
+            # Отправляем уведомление заказчику с кнопками для взаимодействия
+            kbc = KeyboardCollection()
+            await send_with_worker_photo(
+                chat_id=customer.tg_id,
+                worker=worker,
+                text=notification_text,
+                reply_markup=kbc.anonymous_chat_customer_buttons(
+                    worker_id=worker.id,
+                    abs_id=abs_id,
+                    contact_requested=False,
+                    contact_sent=False,
+                    contacts_purchased=False,
+                    has_portfolio=has_portfolio
+                ),
+                parse_mode='HTML'
+            )
 
         # Подтверждение исполнителю
         kbc = KeyboardCollection()

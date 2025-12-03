@@ -197,6 +197,8 @@ async def handle_expired_advertisement(advertisement, kbc):
                         workers_for_assessments.append(worker)
         
         # Отправляем уведомления всем исполнителям (независимо от покупки контактов)
+        from app.untils.notification_helper import should_send_notification
+        
         workers_and_abs = await WorkersAndAbs.get_by_abs(abs_id=advertisement.id)
         if workers_and_abs:
             city = await City.get_city(id=advertisement.city_id)
@@ -205,14 +207,16 @@ async def handle_expired_advertisement(advertisement, kbc):
             for worker_and_abs in workers_and_abs:
                 worker = await Worker.get_worker(id=worker_and_abs.worker_id)
                 if worker:
-                    try:
-                        await bot.send_message(
-                            chat_id=worker.tg_id,
-                            text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text_for_workers}',
-                            reply_markup=kbc.worker_menu()
-                        )
-                    except Exception:
-                        pass
+                    # Проверяем, нужно ли отправлять уведомление исполнителю
+                    if await should_send_notification(worker.tg_id, 'worker'):
+                        try:
+                            await bot.send_message(
+                                chat_id=worker.tg_id,
+                                text=f'Объявление закрыто за истечением срока давности\n\nОбъявление неактуально\n\n{text_for_workers}',
+                                reply_markup=kbc.worker_menu()
+                            )
+                        except Exception:
+                            pass
                 await worker_and_abs.delete()
 
         if workers_for_assessments:
@@ -221,27 +225,35 @@ async def handle_expired_advertisement(advertisement, kbc):
                 for worker in workers_for_assessments]
             ids = [worker.id for worker in workers_for_assessments]
 
+            # Проверяем, нужно ли отправлять уведомление заказчику
+            from app.untils.notification_helper import should_send_notification
+            
+            if await should_send_notification(customer.tg_id, 'customer'):
+                try:
+                    await bot.send_message(
+                        chat_id=customer.tg_id,
+                        text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
+                             f'{text}'
+                             f'Выберите исполнителей для оценки:',
+                        reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement.id)
+                    )
+                except Exception as e:
+                    logger.info(e)
+
+    else:
+        # Проверяем, нужно ли отправлять уведомление заказчику
+        from app.untils.notification_helper import should_send_notification
+        
+        if await should_send_notification(customer.tg_id, 'customer'):
             try:
                 await bot.send_message(
                     chat_id=customer.tg_id,
                     text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
-                         f'{text}'
-                         f'Выберите исполнителей для оценки:',
-                    reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=advertisement.id)
+                         f'{text}',
+                    reply_markup=kbc.menu()
                 )
             except Exception as e:
                 logger.info(e)
-
-    else:
-        try:
-            await bot.send_message(
-                chat_id=customer.tg_id,
-                text=f'Срок актуальность объявления #{advertisement.id} истек!\n\n'
-                     f'{text}',
-                reply_markup=kbc.menu()
-            )
-        except Exception as e:
-            logger.info(e)
 
     # Удаляем объявление только если нет исполнителей для оценки
     await advertisement.delete(delite_photo=True if advertisement.photo_path else False)
@@ -256,19 +268,23 @@ async def handle_expiring_soon_advertisement(advertisement, kbc):
     
     # Проверяем, есть ли исполнители, которые купили контакты
     from app.data.database.models import ContactExchange
+    from app.untils.notification_helper import should_send_notification
+    
     contact_exchanges = await ContactExchange.get_by_abs(abs_id=advertisement.id)
     has_purchased_contacts = any(ce.contacts_purchased for ce in contact_exchanges)
     
-    try:
-        await bot.send_message(
-            chat_id=customer.tg_id,
-            text=f'⚠️ Объявление #{advertisement.id} истекает через 2 часа!\n\n'
-                 f'{text}\n\n'
-                 f'Объявление будет автоматически закрыто при истечении срока.',
-            reply_markup=kbc.advertisement_expiry_actions(advertisement.id, has_purchased_contacts)
-        )
-    except Exception as e:
-        logger.info(e)
+    # Проверяем, нужно ли отправлять уведомление заказчику
+    if await should_send_notification(customer.tg_id, 'customer'):
+        try:
+            await bot.send_message(
+                chat_id=customer.tg_id,
+                text=f'⚠️ Объявление #{advertisement.id} истекает через 2 часа!\n\n'
+                     f'{text}\n\n'
+                     f'Объявление будет автоматически закрыто при истечении срока.',
+                reply_markup=kbc.advertisement_expiry_actions(advertisement.id, has_purchased_contacts)
+            )
+        except Exception as e:
+            logger.info(e)
 
 
 async def handle_expiring_tomorrow_advertisement(advertisement, kbc):
@@ -280,18 +296,22 @@ async def handle_expiring_tomorrow_advertisement(advertisement, kbc):
     
     # Проверяем, есть ли исполнители, которые купили контакты
     from app.data.database.models import ContactExchange
+    from app.untils.notification_helper import should_send_notification
+    
     contact_exchanges = await ContactExchange.get_by_abs(abs_id=advertisement.id)
     has_purchased_contacts = any(ce.contacts_purchased for ce in contact_exchanges)
     
-    try:
-        await bot.send_message(
-            chat_id=customer.tg_id,
-            text=f'📅 Завтра истекает срок вашего объявления #{advertisement.id}!\n\n'
-                 f'{text}',
-            reply_markup=kbc.advertisement_expiry_actions(advertisement.id, has_purchased_contacts)
-        )
-    except Exception as e:
-        logger.info(e)
+    # Проверяем, нужно ли отправлять уведомление заказчику
+    if await should_send_notification(customer.tg_id, 'customer'):
+        try:
+            await bot.send_message(
+                chat_id=customer.tg_id,
+                text=f'📅 Завтра истекает срок вашего объявления #{advertisement.id}!\n\n'
+                     f'{text}',
+                reply_markup=kbc.advertisement_expiry_actions(advertisement.id, has_purchased_contacts)
+            )
+        except Exception as e:
+            logger.info(e)
 # Старая логика удалена - теперь используется новая адаптивная система
 
 

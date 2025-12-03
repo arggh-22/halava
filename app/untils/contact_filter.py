@@ -234,6 +234,19 @@ class ContactFilter:
             logger.warning(f"Latin text detected in message: {text[:50]}")
             return False, "❌ Использование латиницы в чате запрещено."
         
+        # Проверка на смешанные латинские и русские буквы в словах
+        # Разбиваем текст на слова и проверяем каждое слово
+        words = re.findall(r'\b\w+\b', text)
+        for word in words:
+            # Проверяем, есть ли в слове и кириллица, и латиница
+            has_cyrillic = bool(re.search(r'[а-яА-ЯёЁ]', word))
+            has_latin = bool(re.search(r'[a-zA-Z]', word))
+            
+            if has_cyrillic and has_latin:
+                # Найдено слово со смешанными алфавитами
+                logger.warning(f"Mixed alphabet word detected: '{word}' in message: {text[:50]}")
+                return False, f"❌ Обнаружено слово со смешанными буквами (латиница и кириллица): '{word}'. Используйте только русские буквы."
+        
         # Проверка на цифры (подозрительное количество)
         digit_count = sum(c.isdigit() for c in text)
         if digit_count > 7:

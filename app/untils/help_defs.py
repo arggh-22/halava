@@ -1076,6 +1076,11 @@ async def send_notification_to_customer(customer, worker, abs_id: int, ad_text: 
     :param ad_text: Текст объявления (необязательно)
     """
     from loaders import bot
+    from app.untils.notification_helper import should_send_notification
+
+    # Проверяем, нужно ли отправлять уведомление
+    if not await should_send_notification(customer.tg_id, 'customer'):
+        return
 
     kbc = KeyboardCollection()
 
@@ -1110,6 +1115,11 @@ async def send_contacts_to_worker(worker, customer, abs_id: int, ad_text: str | 
     """
 
     from loaders import bot
+    from app.untils.notification_helper import should_send_notification
+
+    # Проверяем, нужно ли отправлять уведомление
+    if not await should_send_notification(worker.tg_id, 'worker'):
+        return
 
     # Формируем текст сообщения с объявлением
     message_text = f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n"

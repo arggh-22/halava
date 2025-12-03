@@ -4967,3 +4967,88 @@ class WorkerContactPurchaseDeclines:
             return result
         finally:
             await conn.close()
+
+
+class UserNotificationSettings:
+    """Модель для управления настройками уведомлений пользователей"""
+    
+    def __init__(self, tg_id: int, unified_notifications: bool = False, id: int = None):
+        self.id = id
+        self.tg_id = tg_id
+        self.unified_notifications = unified_notifications
+    
+    async def save(self) -> None:
+        """Сохраняет настройки уведомлений в БД"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                'INSERT INTO user_notification_settings (tg_id, unified_notifications) VALUES (?, ?)',
+                (self.tg_id, 1 if self.unified_notifications else 0)
+            )
+            await conn.commit()
+            await cursor.close()
+        finally:
+            await conn.close()
+    
+    async def update(self, unified_notifications: bool = None) -> None:
+        """Обновляет настройки уведомлений"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            if unified_notifications is not None:
+                cursor = await conn.execute(
+                    'UPDATE user_notification_settings SET unified_notifications = ? WHERE tg_id = ?',
+                    (1 if unified_notifications else 0, self.tg_id)
+                )
+                self.unified_notifications = unified_notifications
+            await conn.commit()
+            await cursor.close()
+        finally:
+            await conn.close()
+    
+    @classmethod
+    async def get_by_tg_id(cls, tg_id: int) -> Optional['UserNotificationSettings']:
+        """Получает настройки уведомлений по tg_id"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute(
+                'SELECT * FROM user_notification_settings WHERE tg_id = ?',
+                (tg_id,)
+            )
+            record = await cursor.fetchone()
+            await cursor.close()
+            
+            if record:
+                return cls(
+                    id=record[0],
+                    tg_id=record[1],
+                    unified_notifications=bool(record[2])
+                )
+            return None
+        finally:
+            await conn.close()
+    
+    @classmethod
+    async def get_or_create(cls, tg_id: int) -> 'UserNotificationSettings':
+        """Получает настройки или создает с дефолтными значениями"""
+        settings = await cls.get_by_tg_id(tg_id)
+        if not settings:
+            settings = cls(tg_id=tg_id, unified_notifications=False)
+            await settings.save()
+        return settings
+    
+    @classmethod
+    async def create_table_if_not_exists(cls) -> None:
+        """Создает таблицу для настроек уведомлений"""
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_notification_settings
+                (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tg_id INTEGER UNIQUE NOT NULL,
+                    unified_notifications BOOLEAN DEFAULT 0
+                )
+            ''')
+            await conn.commit()
+        finally:
+            await conn.close()

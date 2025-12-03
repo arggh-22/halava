@@ -936,8 +936,11 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await registration_worker_from_start(callback, state)
         return
 
+    # Проверяем, была ли смена роли
+    role_changed = False
     if not user_worker.active:
         await user_worker.update_active(active=True)
+        role_changed = True
 
     if not user_worker.profile_name:
         logger.debug(f'profile_name is empty: {user_worker.profile_name}')
@@ -962,6 +965,19 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
 
     # Используем общую функцию для отображения меню
     await show_worker_menu(callback, state, user_worker)
+    
+    # Показываем alert при смене роли
+    if role_changed:
+        from app.data.database.models import UserNotificationSettings
+        settings = await UserNotificationSettings.get_or_create(callback.message.chat.id)
+        
+        if not settings.unified_notifications:
+            await callback.answer(
+                "ℹ️ Вы сменили роль на исполнителя.\n\n"
+                "Уведомления будут приходить только для этой роли.\n\n"
+                "Вы можете изменить это в разделе\n «🔔 Уведомления».",
+                show_alert=True
+            )
 
 
 @router.callback_query(F.data == "menu", StateFilter(WorkStates.worker_menu, WorkStates.worker_check_abs,
@@ -1001,8 +1017,11 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await registration_worker_from_start(callback, state)
         return
 
+    # Проверяем, была ли смена роли
+    role_changed = False
     if not user_worker.active:
         await user_worker.update_active(active=True)
+        role_changed = True
 
     if not user_worker.profile_name:
         logger.debug(f'profile_name is empty: {user_worker.profile_name}')
@@ -1028,6 +1047,19 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
     # Используем общую функцию для отображения меню
     # await callback.message.delete()
     await show_worker_menu(callback, state, user_worker)
+    
+    # Показываем alert при смене роли
+    if role_changed:
+        from app.data.database.models import UserNotificationSettings
+        settings = await UserNotificationSettings.get_or_create(callback.message.chat.id)
+        
+        if not settings.unified_notifications:
+            await callback.answer(
+                "ℹ️ Вы сменили роль на исполнителя.\n\n"
+                "Уведомления будут приходить только для этой роли.\n\n"
+                "Вы можете изменить это в разделе\n «🔔 Уведомления».",
+                show_alert=True
+            )
 
 
 @router.callback_query(F.data == "my_portfolio", WorkStates.worker_menu)
@@ -5736,15 +5768,19 @@ async def send_city_subscription_expiry_notifications():
             builder.add(kbc._inline("❌ Отказаться", f"city_subscription_cancel_{subscription.id}"))
             builder.adjust(1)
 
-            try:
-                await bot.send_message(
-                    chat_id=worker.tg_id,
-                    text=text,
-                    reply_markup=builder.as_markup(),
-                    parse_mode='HTML'
-                )
-            except Exception as e:
-                logger.error(f"Failed to send notification to worker {worker.tg_id}: {e}")
+            # Проверяем, нужно ли отправлять уведомление исполнителю
+            from app.untils.notification_helper import should_send_notification
+            
+            if await should_send_notification(worker.tg_id, 'worker'):
+                try:
+                    await bot.send_message(
+                        chat_id=worker.tg_id,
+                        text=text,
+                        reply_markup=builder.as_markup(),
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send notification to worker {worker.tg_id}: {e}")
 
     except Exception as e:
         logger.error(f"Error in send_city_subscription_expiry_notifications: {e}")
@@ -5813,16 +5849,20 @@ async def send_unlimited_contacts_expiry_notifications():
                         text += f"🔥 Безлимитный доступ к контактам заказчиков будет недоступен.\n\n"
                         text += f"💡 Продлите подписку, чтобы продолжать получать контакты без ограничений."
 
-                        try:
-                            await bot.send_message(
-                                chat_id=tg_id,
-                                text=text,
-                                reply_markup=kbc.contact_purchase_notify(),
-                                parse_mode='HTML'
-                            )
-                            logger.info(f"Sent '{day_text.lower()} expires' notification to worker {worker_id}")
-                        except Exception as e:
-                            logger.error(f"Failed to send '{day_text.lower()} expires' notification to worker {tg_id}: {e}")
+                        # Проверяем, нужно ли отправлять уведомление исполнителю
+                        from app.untils.notification_helper import should_send_notification
+                        
+                        if await should_send_notification(tg_id, 'worker'):
+                            try:
+                                await bot.send_message(
+                                    chat_id=tg_id,
+                                    text=text,
+                                    reply_markup=kbc.contact_purchase_notify(),
+                                    parse_mode='HTML'
+                                )
+                                logger.info(f"Sent '{day_text.lower()} expires' notification to worker {worker_id}")
+                            except Exception as e:
+                                logger.error(f"Failed to send '{day_text.lower()} expires' notification to worker {tg_id}: {e}")
             except Exception as e:
                 logger.error(f"Error parsing unlimited_contacts_until for worker {worker_id}: {e}, value: {unlimited_until}")
                 continue
@@ -6901,6 +6941,82 @@ async def filter_worker_advertisements(worker_id: int, advertisements: list) -> 
                 advertisements_final.append(advertisement)
 
     return advertisements_final
+
+
+@router.callback_query(F.data == "notification_settings")
+async def notification_settings_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик настроек уведомлений"""
+    from app.untils.notification_helper import get_notification_status_text
+    from app.data.database.models import UserNotificationSettings
+    
+    tg_id = callback.message.chat.id
+    
+    # Проверяем, что пользователь зарегистрирован
+    worker = await Worker.get_worker(tg_id=tg_id)
+    customer = await Customer.get_customer(tg_id=tg_id)
+    
+    if not worker and not customer:
+        await callback.answer("Сначала зарегистрируйтесь", show_alert=True)
+        return
+    
+    # Получаем статус уведомлений
+    status_text, unified_enabled = await get_notification_status_text(tg_id)
+    
+    # Формируем текст
+    text = (
+        "🔔 <b>Управление уведомлениями</b>\n\n"
+        "Этот раздел позволяет управлять уведомлениями.\n\n"
+        f"📌 <b>Текущий статус:</b> {status_text}\n\n"
+    )
+    
+    if unified_enabled:
+        text += (
+            "✅ <b>Включено:</b> Вы получаете уведомления для <b>обеих ролей</b> "
+            "(заказчик и исполнитель) независимо от текущей роли.\n\n"
+            "Уведомления будут приходить:\n"
+            "• Для роли <b>заказчика</b> (отклики, сообщения от исполнителей и т.д.)\n"
+            "• Для роли <b>исполнителя</b> (новые объявления, сообщения от заказчиков и т.д.)"
+        )
+    else:
+        current_role = "текущей роли"
+        if worker and worker.active == 1:
+            current_role = "роли <b>исполнителя</b>"
+        elif customer:
+            current_role = "роли <b>заказчика</b>"
+        
+        text += (
+            f"❌ <b>Отключено:</b> Вы получаете уведомления только для {current_role}.\n\n"
+            "Уведомления для другой роли не будут приходить."
+        )
+    
+    kbc = KeyboardCollection()
+    await callback.message.answer(
+        text=text,
+        reply_markup=kbc.notification_settings_keyboard(unified_enabled),
+        parse_mode='HTML'
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "toggle_notifications")
+async def toggle_notifications_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обработчик переключения уведомлений"""
+    from app.data.database.models import UserNotificationSettings
+    
+    tg_id = callback.message.chat.id
+    
+    # Получаем или создаем настройки
+    settings = await UserNotificationSettings.get_or_create(tg_id)
+    
+    # Переключаем
+    new_value = not settings.unified_notifications
+    await settings.update(unified_notifications=new_value)
+    
+    # Показываем обновленный статус
+    await notification_settings_handler(callback, state)
+    await callback.answer(
+        f"✅ Настройки уведомлений {'включены' if new_value else 'отключены'}"
+    )
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

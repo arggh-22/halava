@@ -1003,7 +1003,6 @@ async def confirm_block(callback: CallbackQuery) -> None:
         return
     
     # Удаляем объявление и фото (как в unban-user_, но без разблокировки пользователя)
-    from app.data.database.models import BannedAbs
     banned_abs = await BannedAbs.get_one(id=banned_abs_id)
     if banned_abs:
         await banned_abs.delete(delite_photo=True)
@@ -2336,8 +2335,6 @@ async def admin_delete_worker_name(callback: CallbackQuery, state: FSMContext) -
             pass
 
         # Система предупреждений и блокировок
-        from app.data.database.models import Banned
-
         if new_violations_count == 3:
             # 3-й раз - блокировка навсегда
             banned = await Banned.get_banned(tg_id=worker_tg_id)

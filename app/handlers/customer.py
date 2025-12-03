@@ -352,12 +352,28 @@ async def customer_menu(callback: CallbackQuery, state: FSMContext) -> None:
         await registration_customer_from_start(callback, state)
         return
 
+    # Проверяем, была ли смена роли
+    role_changed = False
     if user_worker := await Worker.get_worker(tg_id=tg_id):
         if user_worker.active:
             await user_worker.update_active(active=False)
+            role_changed = True
 
     # Send customer menu
     await help_defs.send_customer_menu(callback, customer, state)
+    
+    # Показываем alert при смене роли
+    if role_changed:
+        from app.data.database.models import UserNotificationSettings
+        settings = await UserNotificationSettings.get_or_create(tg_id)
+        
+        if not settings.unified_notifications:
+            await callback.answer(
+                "ℹ️ Вы сменили роль на заказчика.\n\n"
+                "Уведомления будут приходить только для этой роли.\n\n"
+                "Вы можете изменить это в разделе \n«🔔 Уведомления».",
+                show_alert=True
+            )
 
 
 @router.callback_query(F.data == 'buy_single_ad')
@@ -3012,6 +3028,13 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
             f'[DEBUG] Worker {worker.tg_id} cannot respond (activity_level={worker.activity_level}, responses_today={responses_today}), skipping advertisement {advertisement_id}')
         return
 
+    # Проверяем, нужно ли отправлять уведомление исполнителю
+    from app.untils.notification_helper import should_send_notification
+    
+    if not await should_send_notification(worker.tg_id, 'worker'):
+        logger.info(f'[DEBUG] Notification disabled for worker {worker.tg_id}, skipping advertisement {advertisement_id}')
+        return
+
     try:
         kbc = KeyboardCollection()
 
@@ -4065,7 +4088,6 @@ async def customer_view_worker_portfolio(callback: CallbackQuery, state: FSMCont
             return
 
         # Показываем первое фото из портфолио
-        from aiogram.types import FSInputFile
         kbc = KeyboardCollection()
 
         photo_len = len(worker.portfolio_photo)
@@ -4159,7 +4181,6 @@ async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSM
         real_key = sorted_keys[photo_num]
 
         # Показываем фото
-        from aiogram.types import FSInputFile
         kbc = KeyboardCollection()
 
         photo_path = worker.portfolio_photo[real_key]
@@ -4259,7 +4280,6 @@ async def extend_advertisement_period_handler(callback: CallbackQuery) -> None:
     """Обработчик выбора периода продления"""
     logger.debug(f'extend_advertisement_period_handler...')
 
-    kbc = KeyboardCollection()
     parts = callback.data.split('_')
     period = parts[1]  # 24h, 2d, 3d
     abs_id = int(parts[2])
@@ -4307,8 +4327,6 @@ async def extend_advertisement_period_handler(callback: CallbackQuery) -> None:
 async def dont_extend_advertisement_handler(callback: CallbackQuery) -> None:
     """Обработчик кнопки 'Не продлять'"""
     logger.debug(f'dont_extend_advertisement_handler...')
-
-    kbc = KeyboardCollection()
 
     await callback.answer("❌ Вы отменили продление объявления!", show_alert=True)
 
@@ -4358,7 +4376,6 @@ async def confirm_close_advertisement_expiry_handler(callback: CallbackQuery, st
     """Подтверждение закрытия объявления при истечении"""
     logger.debug(f'confirm_close_advertisement_expiry_handler...')
 
-    kbc = KeyboardCollection()
     abs_id = int(callback.data.split('_')[3])
 
     # Получаем объявление
@@ -4371,7 +4388,6 @@ async def confirm_close_advertisement_expiry_handler(callback: CallbackQuery, st
     await advertisement.delete(delite_photo=True)
 
     # Удаляем связанные записи
-    from app.data.database.models import WorkerAndBadResponse, WorkerAndReport, ContactExchange, WorkersAndAbs
     workers_and_bad_responses = await WorkerAndBadResponse.get_by_abs(abs_id=abs_id)
     if workers_and_bad_responses:
         [await bad_response.delete() for bad_response in workers_and_bad_responses]
@@ -4389,7 +4405,6 @@ async def confirm_close_advertisement_expiry_handler(callback: CallbackQuery, st
         [await worker_and_abs.delete() for worker_and_abs in workers_and_abs]
 
     # Обновляем статистику админов
-    from app.data.database.models import Admin
     admins = await Admin.get_all()
     for admin in admins:
         await admin.update(done_abs=admin.done_abs + 1)
@@ -4399,10 +4414,12 @@ async def confirm_close_advertisement_expiry_handler(callback: CallbackQuery, st
     except TelegramBadRequest:
         pass
 
-    await callback.message.answer(
+    await callback.answer(
         text='✅ Объявление было успешно закрыто!',
-        reply_markup=kbc.menu_customer_keyboard()
     )
+
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+    await help_defs.send_customer_menu(callback, customer, state)
 
 
 @router.callback_query(lambda c: c.data.startswith('cancel_close_expiry_'))
