@@ -14,6 +14,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.data.database.models import Abs, City, WorkerStatus
 from app.keyboards import KeyboardCollection
 from app.states import CustomerStates
+from loaders import bot
 
 logger = logging.getLogger(__name__)
 
@@ -795,8 +796,7 @@ async def handle_forbidden_content(message) -> bool:
     
     Args:
         message: Сообщение пользователя
-        bot: Экземпляр бота
-        
+
     Returns:
         bool: True если контент запрещен и обработан, False если разрешен
     """
@@ -1010,7 +1010,6 @@ async def send_customer_menu(event, customer, state=None, message=None):
 
 
 async def update_worker_or_customer_chat_status(message, data, state, worker=None):
-    from loaders import bot
     kbc = KeyboardCollection()
 
     if worker:
@@ -1075,7 +1074,6 @@ async def send_notification_to_customer(customer, worker, abs_id: int, ad_text: 
     :param abs_id: ID объявления
     :param ad_text: Текст объявления (необязательно)
     """
-    from loaders import bot
     from app.untils.notification_helper import should_send_notification
 
     # Проверяем, нужно ли отправлять уведомление
@@ -1103,38 +1101,80 @@ async def send_notification_to_customer(customer, worker, abs_id: int, ad_text: 
     )
 
 
-async def send_contacts_to_worker(worker, customer, abs_id: int, ad_text: str | None, contacts_text):
+async def send_full_contacts_message_to_worker(worker, customer, abs_id: int, ad_text: str | None, event=None):
     """
-    Отправляет исполнителю контакты заказчика и информацию по объявлению.
-
+    Отправляет исполнителю полное сообщение с объявлением и контактами, как на картинке.
+    
     :param worker: Объект исполнителя (должен содержать tg_id)
-    :param customer: Объект заказчика (должен содержать id)
+    :param customer: Объект заказчика
     :param abs_id: ID объявления
-    :param ad_text: Текст объявления (необязательно)
-    :param contacts_text: текст контактов
+    :param ad_text: Текст объявления
+    :param event: Событие (CallbackQuery или Message) для удаления предыдущего сообщения
     """
+    from app.handlers.anonymous_chat import parse_contacts_message
+    from aiogram.types import CallbackQuery
 
-    from loaders import bot
-    from app.untils.notification_helper import should_send_notification
-
-    # Проверяем, нужно ли отправлять уведомление
-    if not await should_send_notification(worker.tg_id, 'worker'):
-        return
-
-    # Формируем текст сообщения с объявлением
-    message_text = f"🎉 <b>Контакты получены!</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: {f'ID#{customer.id}'}\n\n"
+    # Пытаемся удалить предыдущее сообщение, если это CallbackQuery
+    if event and isinstance(event, CallbackQuery):
+        try:
+            await event.message.delete()
+        except Exception as delete_error:
+            logger.debug(f"Error deleting previous message: {delete_error}")
+    
+    # Получаем только контакты без заголовка
+    contacts_only = await parse_contacts_message(customer)
+    
+    # Формируем полное сообщение с объявлением
+    message_text = f"📋 <b>Объявление #{abs_id}</b>\n\n"
+    
     if ad_text:
-        message_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
-    message_text += contacts_text
-
+        message_text += ad_text
+    
+    message_text += f"✅ <b>Контакты получены:</b>\n\n{contacts_only}"
+    message_text += "\n\n🔒 Чат закрыт"
+    
     kbc = KeyboardCollection()
-
+    
+    # Отправляем сообщение через bot
     await bot.send_message(
         chat_id=worker.tg_id,
         text=message_text,
         parse_mode='HTML',
         reply_markup=kbc.get_worker_keyboard(abs_id)
     )
+
+
+async def send_contacts_to_worker(event, worker, customer, abs_id: int, ad_text: str | None, is_msg=None, with_bot=None):
+
+    from app.untils.notification_helper import should_send_notification
+
+    # Проверяем, нужно ли отправлять уведомление
+    if not await should_send_notification(worker.tg_id, 'worker'):
+        return
+
+    kbc = KeyboardCollection()
+
+    if with_bot:
+        await bot.send_message(
+            chat_id=worker.tg_id,
+            text="✅ <b>Покупка успешна! Контакты получены!</b>",
+            parse_mode='HTML',
+            reply_markup=kbc.get_worker_keyboard(abs_id)
+        )
+    elif is_msg:
+        await event.answer(
+            text="✅ <b>Покупка успешна! Контакты получены!</b>",
+            parse_mode='HTML',
+            reply_markup=kbc.get_worker_keyboard(abs_id)
+        )
+    else:
+        await event.answer(
+            text="✅ Покупка успешна! Контакты получены!",
+            show_alert=True
+        )
+        # Отправляем полное сообщение с объявлением и контактами
+        await send_full_contacts_message_to_worker(worker, customer, abs_id, ad_text, event)
+
 
 
 # Функция для получения строки статусов исполнителя

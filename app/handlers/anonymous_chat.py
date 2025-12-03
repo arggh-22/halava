@@ -684,14 +684,8 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
 
             await ContactTransaction.log_usage(worker_id=worker.id, abs_id=abs_id, source="unlimited")
 
-            # Передаем контакты исполнителю с учетом нового функционала
-            contacts_text = (
-                f"📞 <b>Контакты заказчика:</b>\n\n"
-                f"{await parse_contacts_message(customer)}"
-            )
-
             # Отправляем уведомление исполнителя
-            await send_contacts_to_worker(worker, customer, abs_id, ad_text, contacts_text)
+            await send_contacts_to_worker(callback, worker, customer, abs_id, ad_text, with_bot=True)
 
             # Отправляем уведомление заказчику (только сообщение 1)
             await send_notification_to_customer(customer, worker, abs_id, ad_text)
@@ -722,11 +716,8 @@ async def confirm_contact_share(callback: CallbackQuery, state: FSMContext):
 
             await ContactTransaction.log_usage(worker_id=worker.id, abs_id=abs_id, source="purchased")
 
-            # Передаем контакты исполнителю с учетом нового функционала
-            contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
-
             # Уведомляем исполнителя
-            await send_contacts_to_worker(worker, customer, abs_id, ad_text, contacts_text)
+            await send_contacts_to_worker(callback, worker, customer, abs_id, ad_text, with_bot=True)
 
             # Уведомляем заказчика (только сообщение 1)
             await send_notification_to_customer(customer, worker, abs_id, ad_text)
@@ -891,9 +882,6 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
 
             await ContactTransaction.log_usage(worker_id=worker.id, abs_id=abs_id, source=source)
 
-            # Передаем контакты исполнителю с учетом нового функционала
-            contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
-
             # Получаем текст объявления
             advertisement = await Abs.get_one(id=abs_id)
             ad_text = ""
@@ -905,7 +893,7 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
                     ad_text = ad_text[:MAX_AD_TEXT_LENGTH] + "\n... (текст обрезан, полный текст в объявлении)"
 
             # Уведомляем исполнителя
-            await send_contacts_to_worker(worker, customer, abs_id, ad_text, contacts_text)
+            await send_contacts_to_worker(callback, worker, customer, abs_id, ad_text)
 
             # Уведомляем заказчика
             await  send_notification_to_customer(customer, worker, abs_id, ad_text)
@@ -918,7 +906,6 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
             # Устанавливаем правильное состояние
             await state.set_state(WorkStates.worker_menu)
 
-            await callback.answer("✅ Контакты получены!")
             return
         # Нет купленных контактов - показываем тарифы покупки
         kbc = KeyboardCollection()
@@ -1276,7 +1263,6 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
             f"📋 Объявление: #{abs_id}\n"
             f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
             f"{ad_text}"
-            f"Хотите получить контакты заказчика?"
         )
 
         # Проверяем, нужно ли отправлять уведомление исполнителю
@@ -1419,9 +1405,7 @@ async def accept_contact_offer(callback: CallbackQuery, state: FSMContext):
             await send_notification_to_customer(customer, worker, abs_id, ad_text)
 
             # Уведомляем исполнителя
-            contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
-            await send_contacts_to_worker(worker, customer, abs_id, ad_text, contacts_text)
-            await callback.answer("✅ Контакты получены! Чат закрыт.")
+            await send_contacts_to_worker(callback, worker, customer, abs_id, ad_text)
         else:
             # Показываем тарифы для покупки
             try:
@@ -1586,7 +1570,6 @@ async def back_to_contact_offer(callback: CallbackQuery, state: FSMContext):
             f"📋 Объявление: #{abs_id}\n"
             f"👤 Заказчик: {f'ID#{customer.id}'}\n\n"
             f"{ad_text}"
-            f"Хотите получить контакты заказчика?"
         )
 
         kbc = KeyboardCollection()
@@ -3020,8 +3003,6 @@ async def buy_tokens(callback: CallbackQuery, state: FSMContext):
         """
 
         kbc = KeyboardCollection()
-        # Здесь должна быть интеграция с платежной системой
-        # Пока заглушка
         from aiogram.utils.keyboard import InlineKeyboardBuilder
         keyboard_builder = InlineKeyboardBuilder()
         keyboard_builder.add(kbc._inline(
@@ -3211,7 +3192,6 @@ async def success_token_payment_handler(message: Message, state: FSMContext):
     price_rub_value = int(state_data.get('price_rub'))
     buying_for_abs = state_data.get('buying_contacts_for_abs', False)
     target_abs_id = state_data.get('target_abs_id')
-    target_worker_id = state_data.get('target_worker_id')
 
     worker = await Worker.get_worker(id=worker_id)
     tariff = await ContactTariff.get_by_id(tariff_id)
@@ -3303,9 +3283,9 @@ async def success_token_payment_handler(message: Message, state: FSMContext):
                 await ContactTransaction.log_usage(worker_id=worker_for_abs.id, abs_id=target_abs_id, source=usage_source)
 
                 # Передаем контакты исполнителю с учетом нового функционала
-                contacts_text = f"📞 <b>Контакты заказчика:</b>\n\n {await parse_contacts_message(customer)}"
-
-                await send_contacts_to_worker(worker_for_abs, customer, target_abs_id, ad_text, contacts_text)
+                await send_contacts_to_worker(
+                    message, worker_for_abs, customer, target_abs_id, ad_text, is_msg=True
+                )
 
                 # Формируем текст сообщения с объявлением (только сообщение 1)
                 await send_notification_to_customer(customer, worker_for_abs, target_abs_id, ad_text)
@@ -3326,11 +3306,6 @@ async def success_token_payment_handler(message: Message, state: FSMContext):
                     except Exception as delete_error:
                         logger.debug(f"Could not delete original contact request message {contact_exchange.message_id}: {delete_error}")
 
-                await message.answer(
-                    text="✅ <b>Покупка успешна! Контакты получены!</b>",
-                    reply_markup=kbc.menu_btn(),
-                    parse_mode='HTML'
-                )
             else:
                 # Если не удалось получить данные
                 if tariff.unlimited:
