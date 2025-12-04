@@ -1090,7 +1090,7 @@ async def send_notification_to_customer(customer, worker, abs_id: int, ad_text: 
     )
     if ad_text:
         notification_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
-    notification_text += "💬 Чат закрыт — теперь общайтесь напрямую."
+    notification_text += "🔒 Чат закрыт — теперь вы можете продолжить общение напрямую."
 
     # Отправляем сообщение
     await bot.send_message(
@@ -1131,7 +1131,7 @@ async def send_full_contacts_message_to_worker(worker, customer, abs_id: int, ad
         message_text += ad_text
     
     message_text += f"✅ <b>Контакты получены:</b>\n\n{contacts_only}"
-    message_text += "\n\n🔒 Чат закрыт"
+    message_text += "\n\n🔒 Чат закрыт — теперь вы можете продолжить общение напрямую."
     
     kbc = KeyboardCollection()
     
@@ -1197,6 +1197,60 @@ async def get_worker_status_string(worker_id: int) -> str:
         return "⚠️ Статус не подтвержден"
 
     return " | ".join(statuses)
+
+async def log_message_to_admin_chat(worker, customer, abs_id: int, message_text: str, sender: str):
+    """
+    Отправляет лог сообщения в MESSAGE_LOG чат с кнопкой "Заблокировать".
+    
+    :param worker: Объект исполнителя
+    :param customer: Объект заказчика
+    :param abs_id: ID объявления
+    :param message_text: Текст сообщения
+    :param sender: Отправитель ("worker" или "customer")
+    """
+    try:
+        import config
+        from app.keyboards import KeyboardCollection
+        
+        kbc = KeyboardCollection()
+        
+        # Определяем отправителя и получателя
+        if sender == "worker":
+            sender_id = worker.id
+            sender_tg_id = worker.tg_id
+            receiver_id = customer.id
+            receiver_tg_id = customer.tg_id
+            sender_type = "исполнитель"
+            receiver_type = "заказчику"
+        else:  # customer
+            sender_id = customer.id
+            sender_tg_id = customer.tg_id
+            receiver_id = worker.id
+            receiver_tg_id = worker.tg_id
+            sender_type = "заказчик"
+            receiver_type = "исполнителю"
+        
+        # Формируем текст сообщения для лога
+        log_text = (
+            f"{sender_type.capitalize()} #{sender_tg_id} отправил сообщение {receiver_type} #{receiver_tg_id}:\n"
+            f'"{message_text}"'
+        )
+        
+        # Создаем клавиатуру с кнопкой "Заблокировать"
+        # Используем sender_tg_id для блокировки отправителя сообщения
+        reply_markup = kbc.message_log_block_button(sender_tg_id, abs_id)
+        
+        # Отправляем сообщение в лог-чат
+        await bot.send_message(
+            chat_id=config.MESSAGE_LOG,
+            text=log_text,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        logger.error(f"Error logging message to admin chat: {e}")
+
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

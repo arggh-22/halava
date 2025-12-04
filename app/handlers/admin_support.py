@@ -186,3 +186,107 @@ def get_rules_violation_text() -> str:
 def get_stopwords_violation_text() -> str:
     """Текст для нарушения 'стоп слова'"""
     return """Вы пытались предложить запрос не правилам сервиса 🚫"""
+
+
+@router.callback_query(lambda c: c.data.startswith('block_message_log_'))
+async def block_user_from_message_log(callback: CallbackQuery, state: FSMContext) -> None:
+    """Блокирует пользователя из лога сообщений за попытку обойти платный обмен контактами"""
+    logger.debug(f'block_user_from_message_log...')
+    
+    try:
+        # Парсим данные из callback_data: block_message_log_{user_tg_id}_{abs_id}
+        parts = callback.data.split('_')
+        user_tg_id = int(parts[3])
+        abs_id = int(parts[4]) if len(parts) > 4 else None
+        
+        kbc = KeyboardCollection()
+        
+        # Проверяем, есть ли уже блокировка
+        banned = await Banned.get_banned(tg_id=user_tg_id)
+        
+        reason = "попытка обойти платный обмен контактами"
+        violation_text = (
+            "⛔ <b>Аккаунт временно заблокирован на 24 часа.</b>\n\n"
+            f"Причина: попытка обойти платный обмен контактами.\n\n"
+            "Повторные попытки обхода платного обмена контактами приведут к блокировке аккаунта навсегда."
+        )
+        if banned:
+            if banned.ban_counter >= 3:
+                # Блокируем навсегда
+                await banned.update(forever=True, ban_now=True, ban_reason=reason)
+                ban_text = "навсегда"
+                violation_text = (
+                    "⛔ <b>Аккаунт заблокирован навсегда за повторные нарушения правил платного обмена контактами. </b>\n\n"
+                    "Доступ к боту закрыт."
+                )
+            else:
+                # Блокируем на 24 часа
+                ban_end = str(datetime.now() + timedelta(hours=24))
+                await banned.update(ban_counter=banned.ban_counter + 1, ban_now=True, ban_end=ban_end, ban_reason=reason)
+                ban_text = "24 часа"
+        else:
+            # Создаем новую блокировку
+            ban_end = str(datetime.now() + timedelta(hours=24))
+            new_banned = Banned(
+                id=None, 
+                tg_id=user_tg_id,
+                ban_counter=1, 
+                ban_end=ban_end, 
+                ban_now=True,
+                forever=False, 
+                ban_reason=reason
+            )
+            await new_banned.save()
+            ban_text = "24 часа"
+        
+        # Отправляем сообщение пользователю
+        try:
+            await bot.send_message(
+                chat_id=user_tg_id, 
+                text=violation_text,
+                parse_mode='HTML',
+                reply_markup=kbc.support_btn_simple()
+            )
+        except TelegramBadRequest:
+            pass
+        
+        # Отправляем уведомление в чат логов о успешной блокировке
+        import config
+        success_message = (
+            f"✅ <b>Пользователь успешно заблокирован</b>\n\n"
+            f"ID пользователя: {user_tg_id}\n"
+            f"Срок блокировки: {ban_text}\n"
+            f"Причина: {reason}"
+        )
+        
+        # Отправляем reply на исходное сообщение в логе
+        try:
+            await bot.send_message(
+                chat_id=config.MESSAGE_LOG,
+                text=success_message,
+                parse_mode='HTML',
+                reply_to_message_id=callback.message.message_id
+            )
+        except Exception as e:
+            logger.error(f"Error sending success message to log chat: {e}")
+            # Если не удалось отправить reply, отправляем обычное сообщение
+            try:
+                await bot.send_message(
+                    chat_id=config.MESSAGE_LOG,
+                    text=success_message,
+                    parse_mode='HTML'
+                )
+            except Exception as e2:
+                logger.error(f"Error sending success message to log chat (fallback): {e2}")
+        
+        # Удаляем кнопку из исходного сообщения
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            pass
+        
+        await callback.answer("Пользователь заблокирован")
+        
+    except Exception as e:
+        logger.error(f"Error in block_user_from_message_log: {e}")
+        await callback.answer("Ошибка при блокировке пользователя", show_alert=True)

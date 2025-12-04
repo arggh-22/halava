@@ -1634,12 +1634,15 @@ async def skip_star_for_worker(callback: CallbackQuery, state: FSMContext) -> No
                 )
             return
 
+    customer = await Customer.get_customer(tg_id=callback.message.chat.id)
+
     # Нет больше исполнителей для оценки - завершаем процесс
-    await state.set_state(CustomerStates.customer_menu)
-    await callback.message.answer(
-        text='✅ Оценка завершена!\n\nОбъявление закрыто. Спасибо за использование сервиса!',
-        reply_markup=kbc.menu_customer_keyboard()
+    await callback.answer(
+        "✅ Оценка завершена!\n\nОбъявление закрыто. Спасибо за использование сервиса!",
+        show_alert=True
     )
+    await help_defs.send_customer_menu(callback, customer, state)
+
 
 
 @router.callback_query(lambda c: c.data.startswith('obj-id_'), CustomerStates.customer_create_abs_work_type)

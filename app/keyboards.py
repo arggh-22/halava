@@ -1709,6 +1709,13 @@ class KeyboardCollection:
         builder.adjust(1)
         return builder.as_markup()
 
+    def message_log_block_button(self, user_tg_id: int, abs_id: int):
+        """Кнопка для блокировки пользователя из лога сообщений"""
+        builder = InlineKeyboardBuilder()
+        builder.add(self._inline(button_text="Заблокировать", callback_data=f"block_message_log_{user_tg_id}_{abs_id}"))
+        builder.adjust(1)
+        return builder.as_markup()
+
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |
 # | |  | |  ___ | |__    | |    ___   ___ | |__

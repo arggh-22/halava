@@ -1831,6 +1831,10 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
             sender="worker"
         )
 
+        # Логируем сообщение в админ-чат
+        from app.untils.help_defs import log_message_to_admin_chat
+        await log_message_to_admin_chat(worker, customer, abs_id, message.text, "worker")
+
         await update_worker_or_customer_chat_status(message, data, state, worker=True)
 
     except Exception as e:
@@ -1979,6 +1983,10 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
             message_text=message.text,
             sender="customer"
         )
+
+        # Логируем сообщение в админ-чат
+        from app.untils.help_defs import log_message_to_admin_chat
+        await log_message_to_admin_chat(worker, customer, abs_id, message.text, "customer")
 
         # Перед отправкой нового статуса пытаемся удалить предыдущий, чтобы не копить уведомления
         await update_worker_or_customer_chat_status(message, data, state, worker=False)
