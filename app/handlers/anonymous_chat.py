@@ -127,7 +127,7 @@ def get_sender_name(sender_type: str, user_type: str, worker, customer) -> str:
         return "Вы"
     elif sender_type == "worker" and user_type == "customer":
         # Заказчик читает, исполнитель отправил
-        return worker.profile_name or worker.tg_name or "Исполнитель"
+        return worker.profile_name or "Исполнитель"
     elif sender_type == "customer" and user_type == "worker":
         # Исполнитель читает, заказчик отправил
         return "Заказчик"
@@ -431,7 +431,7 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
 
         # Формируем заголовок
         if user_type == "customer":
-            worker_name = worker.profile_name or worker.tg_name or "Исполнитель"
+            worker_name = worker.profile_name or "Исполнитель"
             header = f"💬 <b>Чат с исполнителем</b>\n\n📋 Объявление: #{abs_id}\n👤 Исполнитель: {worker_name}\n\n"
         else:  # worker
             header = f"💬 <b>Чат с заказчиком</b>\n\n📋 Объявление: #{abs_id}\n👤 Заказчик: ID#{customer.id}\n\n"
@@ -1159,7 +1159,7 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
                     responses_data=[{
                         'worker_id': worker_id,
                         'worker_public_id': f'ID#{worker.id}',
-                        'worker_name': worker.profile_name or worker.tg_name,
+                        'worker_name': worker.profile_name or "Исполнитель",
                         'worker_stars': worker.stars,
                         'worker_ratings': worker.count_ratings,
                         'active': True
@@ -1684,12 +1684,32 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
 
 # ========== HANDLERS ДЛЯ ЧАТА ==========
 
+# Обработчик для отклонения фото/видео/документов от исполнителя в чате
+# Должен быть ПЕРЕД общим обработчиком, чтобы перехватывать медиа
+@router.message((F.photo | F.video | F.document | F.animation | F.voice | F.video_note | F.sticker), 
+                StateFilter(WorkStates.worker_anonymous_chat))
+async def reject_worker_media_messages(message: Message, state: FSMContext):
+    """Отклоняет медиа-сообщения от исполнителя - разрешен только текст"""
+    await message.answer(
+        "❌ <b>Разрешены только текстовые сообщения!</b>\n\n"
+        "Фото, видео, документы и другие медиа-файлы не поддерживаются в чате.",
+        parse_mode='HTML'
+    )
+
+
 @router.message(StateFilter(WorkStates.worker_anonymous_chat))
 async def handle_worker_chat_message(message: Message, state: FSMContext):
     """Обработка сообщений исполнителя в анонимном чате"""
     try:
         print(f"[WORKER_CHAT] Worker {message.from_user.id} sent message in chat")
         logger.info(f"[WORKER_CHAT] Worker sent message in chat")
+
+        # Проверяем наличие текста в сообщении
+        if not message.text:
+            await message.answer(
+                "❌ Пожалуйста, отправьте текстовое сообщение."
+            )
+            return
 
         # Проверяем на контакты
         is_valid, _ = check_message_for_contacts(message.text)
@@ -1840,12 +1860,32 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         await message.answer("❌ Произошла ошибка при отправке сообщения")
 
 
+# Обработчик для отклонения фото/видео/документов от заказчика в чате
+# Должен быть ПЕРЕД общим обработчиком, чтобы перехватывать медиа
+@router.message((F.photo | F.video | F.document | F.animation | F.voice | F.video_note | F.sticker), 
+                StateFilter(CustomerStates.customer_anonymous_chat))
+async def reject_customer_media_messages(message: Message, state: FSMContext):
+    """Отклоняет медиа-сообщения от заказчика - разрешен только текст"""
+    await message.answer(
+        "❌ <b>Разрешены только текстовые сообщения!</b>\n\n"
+        "Фото, видео, документы и другие медиа-файлы не поддерживаются в чате.",
+        parse_mode='HTML'
+    )
+
+
 @router.message(StateFilter(CustomerStates.customer_anonymous_chat))
 async def handle_customer_chat_message(message: Message, state: FSMContext):
     """Обработка сообщений заказчика в анонимном чате"""
     try:
         print(f"[CUSTOMER_CHAT] Customer {message.from_user.id} sent message in chat")
         logger.info(f"[CUSTOMER_CHAT] Customer sent message in chat")
+
+        # Проверяем наличие текста в сообщении
+        if not message.text:
+            await message.answer(
+                "❌ Пожалуйста, отправьте текстовое сообщение."
+            )
+            return
 
         # Проверяем на контакты
         is_valid, _ = check_message_for_contacts(message.text)
@@ -2609,6 +2649,13 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
 async def worker_chat_message(message: Message, state: FSMContext):
     """Обработка сообщения от исполнителя в анонимном чате"""
     try:
+        # Проверяем наличие текста в сообщении
+        if not message.text:
+            await message.answer(
+                "❌ Пожалуйста, отправьте текстовое сообщение."
+            )
+            return
+
         # Проверяем сообщение на контакты
         is_valid, _ = check_message_for_contacts(message.text)
 
@@ -2742,7 +2789,7 @@ async def worker_chat_message(message: Message, state: FSMContext):
         )
 
         # ID и имя
-        worker_name = worker.profile_name or worker.tg_name
+        worker_name = worker.profile_name or "Исполнитель"
         notification_text += f"👤 <b>ID:</b> {worker.id} {worker_name}\n"
 
         # Рейтинг
@@ -2854,7 +2901,7 @@ async def request_contact_original(callback: CallbackQuery, state: FSMContext):
         notification_text += f"📋 Объявление: #{abs_id}\n\n"
 
         # ID и имя
-        worker_name = worker.profile_name or worker.tg_name
+        worker_name = worker.profile_name or "Исполнитель"
         notification_text += f"👤 <b>ID:</b> {worker.id} {worker_name}\n"
 
         # Рейтинг

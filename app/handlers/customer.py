@@ -4100,7 +4100,7 @@ async def customer_view_worker_portfolio(callback: CallbackQuery, state: FSMCont
 
         text = f"📸 <b>Портфолио исполнителя</b>\n\n"
         text += f"👤 <b>ID:</b> {worker.id}\n"
-        text += f"📋 <b>Имя:</b> {worker.profile_name or worker.tg_name}\n"
+        text += f"📋 <b>Имя:</b> {worker.profile_name or 'Не указано'}\n"
         text += f"🖼️ <b>Фото в портфолио:</b> {photo_len}\n\n"
         text += f"Фото 1 из {photo_len}"
 
@@ -4190,7 +4190,7 @@ async def customer_navigate_worker_portfolio(callback: CallbackQuery, state: FSM
 
         text = f"📸 <b>Портфолио исполнителя</b>\n\n"
         text += f"👤 <b>ID:</b> {worker.id}\n"
-        text += f"📋 <b>Имя:</b> {worker.profile_name or worker.tg_name}\n"
+        text += f"📋 <b>Имя:</b> {worker.profile_name or 'Не указано'}\n"
         text += f"🖼️ <b>Фото в портфолио:</b> {photo_len}\n\n"
         text += f"Фото {photo_num + 1} из {photo_len}"
 

@@ -19,7 +19,8 @@ from aiogram.fsm.context import FSMContext
 from app.data.database.models import (
     Customer, Worker, City, WorkerAndSubscription, WorkType, Banned, Abs, WorkersAndAbs, Admin,
     WorkerAndReport, WorkerAndBadResponse, WorkerCitySubscription, WorkerRank, WorkerStatus, ContactExchange,
-    ContactTransaction, CitySubscriptionTariff, CitySubscriptionDiscount, ContactTariff, WorkerWorkTypeChanges
+    ContactTransaction, CitySubscriptionTariff, CitySubscriptionDiscount, ContactTariff, WorkerWorkTypeChanges,
+    UserNotificationSettings
 )
 from app.keyboards import KeyboardCollection
 from app.states import WorkStates, UserStates, BannedStates
@@ -604,7 +605,7 @@ async def show_worker_menu(event: CallbackQuery | Message, state: FSMContext, us
 
     # Формируем текст профиля
     text = f"<b>Ваш профиль</b>\n\n"
-    text += f"ID: {user_worker.id} {user_worker.profile_name or user_worker.tg_name}\n"
+    text += f"ID: {user_worker.id} {user_worker.profile_name or 'Не указано'}\n"
     text += f"{rating_text}\n"
     text += f"Ранг: {rank_name} {rank_emoji}\n"
     text += f"Активность: {activity_level} {activity_emoji}\n"
@@ -683,33 +684,11 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await user_worker.update_active(active=True)
         role_changed = True
 
-    if not user_worker.profile_name:
-        logger.debug(f'profile_name is empty: {user_worker.profile_name}')
-        logger.debug(f'tg_name: {user_worker.tg_name}')
-        # Если profile_name пустое, но tg_name есть, используем tg_name
-        if user_worker.tg_name:
-            await user_worker.update_profile_name(user_worker.tg_name)
-            logger.debug(f'Updated profile_name to: {user_worker.tg_name}')
-        else:
-            text = f'Перед продолжением работы, укажите ваше имя'
-            await state.set_state(WorkStates.create_name_profile)
-            try:
-                await callback.message.delete()
-            except TelegramBadRequest:
-                pass
-
-            msg = await callback.message.answer(
-                text=text
-            )
-            await state.update_data(msg_id=msg.message_id)
-            return
-
     # Используем общую функцию для отображения меню
     await show_worker_menu(callback, state, user_worker)
     
     # Показываем alert при смене роли
     if role_changed:
-        from app.data.database.models import UserNotificationSettings
         settings = await UserNotificationSettings.get_or_create(callback.message.chat.id)
         
         if not settings.unified_notifications:
@@ -764,34 +743,12 @@ async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await user_worker.update_active(active=True)
         role_changed = True
 
-    if not user_worker.profile_name:
-        logger.debug(f'profile_name is empty: {user_worker.profile_name}')
-        logger.debug(f'tg_name: {user_worker.tg_name}')
-        # Если profile_name пустое, но tg_name есть, используем tg_name
-        if user_worker.tg_name:
-            await user_worker.update_profile_name(user_worker.tg_name)
-            logger.debug(f'Updated profile_name to: {user_worker.tg_name}')
-        else:
-            text = f'Перед продолжением работы, укажите ваше имя'
-            await state.set_state(WorkStates.create_name_profile)
-            try:
-                await callback.message.delete()
-            except TelegramBadRequest:
-                pass
-
-            msg = await callback.message.answer(
-                text=text
-            )
-            await state.update_data(msg_id=msg.message_id)
-            return
-
     # Используем общую функцию для отображения меню
     # await callback.message.delete()
     await show_worker_menu(callback, state, user_worker)
     
     # Показываем alert при смене роли
     if role_changed:
-        from app.data.database.models import UserNotificationSettings
         settings = await UserNotificationSettings.get_or_create(callback.message.chat.id)
         
         if not settings.unified_notifications:
@@ -6688,8 +6645,7 @@ async def filter_worker_advertisements(worker_id: int, advertisements: list) -> 
 async def notification_settings_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик настроек уведомлений"""
     from app.untils.notification_helper import get_notification_status_text
-    from app.data.database.models import UserNotificationSettings
-    
+
     tg_id = callback.message.chat.id
     
     # Проверяем, что пользователь зарегистрирован
@@ -6738,8 +6694,7 @@ async def notification_settings_handler(callback: CallbackQuery, state: FSMConte
 @router.callback_query(F.data == "toggle_notifications")
 async def toggle_notifications_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработчик переключения уведомлений"""
-    from app.data.database.models import UserNotificationSettings
-    
+
     tg_id = callback.message.chat.id
     
     # Получаем или создаем настройки

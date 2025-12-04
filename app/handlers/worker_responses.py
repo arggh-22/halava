@@ -718,13 +718,15 @@ async def initiate_response(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "cancel_response")
 async def cancel_response(callback: CallbackQuery, state: FSMContext):
     """Отмена отклика"""
-    kbc = KeyboardCollection()
-    await state.set_state(WorkStates.worker_menu)
-    await safe_edit_message(
-        callback=callback,
+    worker = await Worker.get_worker(tg_id=callback.from_user.id)
+
+    await callback.answer(
         text="❌ Отклик отменен",
-        reply_markup=kbc.menu()
+        show_alert=True
     )
+
+    await show_worker_menu(callback, state, worker)
+
 
 
 # ========== 2. ОТКЛИК БЕЗ ТЕКСТА ==========
