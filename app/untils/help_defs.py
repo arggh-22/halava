@@ -1176,7 +1176,6 @@ async def send_contacts_to_worker(event, worker, customer, abs_id: int, ad_text:
         await send_full_contacts_message_to_worker(worker, customer, abs_id, ad_text, event)
 
 
-
 # Функция для получения строки статусов исполнителя
 async def get_worker_status_string(worker_id: int) -> str:
     """Возвращает строку с подтвержденными статусами исполнителя"""

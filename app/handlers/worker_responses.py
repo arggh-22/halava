@@ -7,18 +7,18 @@ Handlers для работы с откликами исполнителя:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
-from app.handlers.worker import menu_worker
+from loaders import bot
+from app.handlers.worker import menu_worker, show_worker_menu
 from app.states import WorkStates, CustomerStates
 from app.keyboards import KeyboardCollection
-from app.data.database.models import Worker, Customer, Abs, WorkersAndAbs, ContactExchange, City
-from loaders import bot
+from app.data.database.models import Worker, Customer, Abs, WorkersAndAbs, ContactExchange, City, WorkerDailyResponses
 from app.untils.contact_filter import check_message_for_contacts, check_message_history_for_contacts
 from app.untils.message_utils import safe_edit_message
 from app.untils.checks import fool_check, phone_finder
@@ -622,9 +622,6 @@ async def initiate_response(callback: CallbackQuery, state: FSMContext):
                     return
 
         # Проверяем активность исполнителя
-        from app.data.database.models import WorkerDailyResponses
-        from datetime import date
-
         # Проверяем, что у исполнителя есть поле activity_level
         if not hasattr(worker, 'activity_level') or worker.activity_level is None:
             worker.activity_level = 100  # Значение по умолчанию
@@ -721,8 +718,6 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
         customer = await Customer.get_customer(id=advertisement.customer_id)
 
         # Увеличиваем счетчик откликов за день
-        from app.data.database.models import WorkerDailyResponses
-        from datetime import date
         today = date.today().isoformat()
         await WorkerDailyResponses.increment_responses_count(worker.id, today)
 
@@ -790,15 +785,14 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
             )
 
         # Подтверждение исполнителю
-        kbc = KeyboardCollection()
         await state.set_state(WorkStates.worker_menu)
-        await safe_edit_message(
-            callback=callback,
-            text="✅ <b>Ваш отклик отправлен!</b>\n\n"
+        await callback.answer(
+            text="✅ Ваш отклик отправлен!\n\n"
                  "Заказчик получил уведомление о вашем отклике.\n"
                  "Когда он ответит, вы получите уведомление.",
-            reply_markup=kbc.menu()
+            show_alert=True
         )
+        await show_worker_menu(callback, state, worker)
 
     except Exception as e:
         logger.error(f"Error in response_without_text: {e}")
@@ -936,8 +930,6 @@ async def process_response_text(message: Message, state: FSMContext):
         customer = await Customer.get_customer(id=advertisement.customer_id)
 
         # Увеличиваем счетчик откликов за день
-        from app.data.database.models import WorkerDailyResponses
-        from datetime import date
         today = date.today().isoformat()
         await WorkerDailyResponses.increment_responses_count(worker.id, today)
 

@@ -9,6 +9,7 @@ import config
 from app.data.database.models import (
     Admin, Customer, Worker, City, Banned, Abs, InfoHaltura, UserAndSupportQueue, WorkerAndRefsAssociation, AskAnswer
 )
+from app.handlers.worker import show_worker_menu
 from app.keyboards import KeyboardCollection
 from app.states import WorkStates, UserStates, BannedStates, CustomerStates, AdminStates
 from app.untils import help_defs, checks, message_utils
@@ -245,8 +246,7 @@ async def menu_cmd(message: Message, state: FSMContext) -> None:
     if worker := await Worker.get_worker(tg_id=message.chat.id):
         if worker.active:
             # Импортируем функцию отображения меню из worker.py
-            from app.handlers.worker import show_worker_menu_for_message
-            await show_worker_menu_for_message(message, state, worker)
+            await show_worker_menu(message, state, worker)
         else:
             customer = await Customer.get_customer(tg_id=message.chat.id)
             if customer is None:
@@ -297,9 +297,8 @@ async def menu_universal(callback: CallbackQuery, state: FSMContext) -> None:
     if worker := await Worker.get_worker(tg_id=callback.message.chat.id):
         if worker.active:
             logger.debug(f"[DEBUG] User {callback.message.chat.id} is an active Worker")
-            # Импортируем функцию отображения меню из worker.py
-            from app.handlers.worker import show_worker_menu_for_callback
-            await show_worker_menu_for_callback(callback, state, worker)
+
+            await show_worker_menu(callback, state, worker)
         else:
             logger.debug(f"[DEBUG] User {callback.message.chat.id} is an inactive Worker")
             customer = await Customer.get_customer(tg_id=callback.message.chat.id)

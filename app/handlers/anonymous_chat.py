@@ -6,17 +6,18 @@ Handlers для анонимного чата между исполнителе�
 - Покупка контактов (монетизация)
 """
 
-import html
-import logging
 import os
+import html
 import config
-from datetime import datetime, timedelta
+import logging
+import asyncio
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, InputMediaPhoto, FSInputFile, LabeledPrice, PreCheckoutQuery
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
+from datetime import datetime, timedelta
+from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import CallbackQuery, Message, InputMediaPhoto, FSInputFile, LabeledPrice, PreCheckoutQuery
 
 from app.states import WorkStates, CustomerStates
 from app.keyboards import KeyboardCollection
@@ -27,12 +28,11 @@ from app.data.database.models import (
 from loaders import bot
 from app.untils.contact_filter import check_message_for_contacts, check_message_history_for_contacts
 from app.untils.checks import fool_check, phone_finder
-from app.untils import help_defs
 from app.untils.help_defs import (
     is_content_forbidden, get_contact_word, update_worker_or_customer_chat_status, send_notification_to_customer,
-    read_text_file, send_contacts_to_worker, get_worker_status_string, is_unlimited_active
+    read_text_file, send_contacts_to_worker, get_worker_status_string, is_unlimited_active, get_worker_rating_display,
+    get_rating_word, log_message_to_admin_chat, get_month_word
 )
-from app.untils.help_defs import get_worker_rating_display, get_rating_word
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -306,7 +306,6 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
     """
     try:
         # Небольшая задержка для обеспечения консистентности БД
-        import asyncio
         await asyncio.sleep(0.1)
 
         # Получаем WorkersAndAbs для истории сообщений
@@ -867,7 +866,7 @@ async def buy_contacts_for_abs(callback: CallbackQuery, state: FSMContext):
             return
 
         # Проверяем, есть ли у исполнителя купленные контакты
-        is_active, _ = help_defs.is_unlimited_active(worker)
+        is_active, _ = is_unlimited_active(worker)
         if worker.purchased_contacts > 0 or is_active:
             if worker.purchased_contacts > 0 and not is_active:
                 # Есть купленные контакты - сразу списываем и передаем
@@ -1832,7 +1831,6 @@ async def handle_worker_chat_message(message: Message, state: FSMContext):
         )
 
         # Логируем сообщение в админ-чат
-        from app.untils.help_defs import log_message_to_admin_chat
         await log_message_to_admin_chat(worker, customer, abs_id, message.text, "worker")
 
         await update_worker_or_customer_chat_status(message, data, state, worker=True)
@@ -1985,7 +1983,6 @@ async def handle_customer_chat_message(message: Message, state: FSMContext):
         )
 
         # Логируем сообщение в админ-чат
-        from app.untils.help_defs import log_message_to_admin_chat
         await log_message_to_admin_chat(worker, customer, abs_id, message.text, "customer")
 
         # Перед отправкой нового статуса пытаемся удалить предыдущий, чтобы не копить уведомления
@@ -2262,7 +2259,7 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
             customer = await Customer.get_customer(id=advertisement.customer_id)
             text += f"✅ <b>Контакты получены:</b>\n\n {await parse_contacts_message(customer)}"
 
-            text += "\n\n🔒 Чат закрыт"
+            text += "\n\n🔒 Чат закрыт — теперь вы можете продолжить общение напрямую."
         elif customer_confirmed:
             # Заказчик подтвердил, исполнитель может покупать
             text += "\n💰 <b>Заказчик подтвердил передачу контактов</b>\n\n"
@@ -3077,7 +3074,7 @@ async def confirm_token_purchase(callback: CallbackQuery, state: FSMContext):
         # Формируем описание тарифа
         if tariff.unlimited:
             months = tariff.unlimited_days // 30 if tariff.unlimited_days else 1
-            description = f"Безлимитный доступ к контактам на {months} {help_defs.get_month_word(months)}"
+            description = f"Безлимитный доступ к контактам на {months} {get_month_word(months)}"
         else:
             description = f"{tariff.contacts_count} {get_contact_word(tariff.contacts_count)}"
 
@@ -3323,7 +3320,7 @@ async def success_token_payment_handler(message: Message, state: FSMContext):
 
 🎉 У вас теперь безлимитный доступ к контактам!
 ⏰ Действует до: {until_date.strftime('%d.%m.%Y %H:%M')}
-📅 Период: {months} {help_defs.get_month_word(months)}
+📅 Период: {months} {get_month_word(months)}
 
 💡 Теперь вы можете получать контакты заказчиков без ограничений!
                     """
@@ -3352,7 +3349,7 @@ async def success_token_payment_handler(message: Message, state: FSMContext):
 
 🎉 У вас теперь безлимитный доступ к контактам!
 ⏰ Действует до: {until_date.strftime('%d.%m.%Y %H:%M')}
-📅 Период: {months} {help_defs.get_month_word(months)}
+📅 Период: {months} {get_month_word(months)}
 
 💡 Теперь вы можете получать контакты заказчиков без ограничений!
                 """
@@ -3537,7 +3534,7 @@ async def navigate_photo_worker_response(callback: CallbackQuery, state: FSMCont
         customer = await Customer.get_customer(id=advertisement.customer_id)
         text += f"✅ <b>Контакты получены:</b>\n\n {await parse_contacts_message(customer)}"
 
-        text += "\n\n🔒 Чат закрыт"
+        text += "\n\n🔒 Чат закрыт — теперь вы можете продолжить общение напрямую."
     elif customer_confirmed:
         # Заказчик подтвердил, исполнитель может покупать
         text += "\n💰 <b>Заказчик подтвердил передачу контактов</b>\n\n"

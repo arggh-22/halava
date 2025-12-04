@@ -522,15 +522,11 @@ async def choose_work_types_start(callback: CallbackQuery, state: FSMContext) ->
         await state.update_data(msg_id=msg.message_id)
 
 
-# Верификация убрана согласно ТЗ
-
-
-async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMContext, user_worker: 'Worker') -> None:
+async def show_worker_menu(event: CallbackQuery | Message, state: FSMContext, user_worker: 'Worker') -> None:
     """Общая функция для отображения меню исполнителя (для CallbackQuery)"""
     kbc = KeyboardCollection()
 
-    # Получаем подписку
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=user_worker.id)
+    message = event.message if isinstance(event, CallbackQuery) else event
 
     # Ранг
     worker_rank = await WorkerRank.get_or_create_rank(user_worker.id)
@@ -626,132 +622,10 @@ async def show_worker_menu_for_callback(callback: CallbackQuery, state: FSMConte
     text += f"Выполненных заказов: {user_worker.order_count}\n"
     text += f"Зарегистрирован: {user_worker.registration_data}"
 
-    # has_status уже определен выше при формировании текста статуса
-    has_status = False
-    if worker_status_obj:
-        has_status = worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz
-
-    if user_worker.profile_photo:
-        await callback.message.answer_photo(
-            photo=FSInputFile(user_worker.profile_photo),
-            caption=text,
-            reply_markup=kbc.menu_worker_keyboard(
-                has_status=has_status
-            ),
-            parse_mode='HTML'
-        )
-    else:
-        await callback.message.answer(
-            text=text,
-            reply_markup=kbc.menu_worker_keyboard(
-                has_status=has_status
-            ),
-            parse_mode='HTML'
-        )
-
-    await state.set_state(WorkStates.worker_menu)
-
-
-async def show_worker_menu_for_message(message: Message, state: FSMContext, user_worker: 'Worker') -> None:
-    """Общая функция для отображения меню исполнителя (для Message)"""
-    kbc = KeyboardCollection()
-
-    # Получаем подписку
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=user_worker.id)
-
-    # Ранг
-    worker_rank = await WorkerRank.get_or_create_rank(user_worker.id)
-    rank_name = worker_rank.get_rank_name()
-    rank_emoji = worker_rank.get_rank_emoji()
-
-    # Активность
-    activity_level = user_worker.activity_level if hasattr(user_worker, 'activity_level') else 100
-    # Используем правильные цветные круги вместо огня
-    if activity_level >= 74:
-        activity_emoji = "🟢"
-    elif activity_level >= 48:
-        activity_emoji = "🟡"
-    elif activity_level >= 9:
-        activity_emoji = "🟠"
-    else:
-        activity_emoji = "🔴"
-
-    # Статус (ИП/ООО/СЗ)
-    worker_status_obj = await WorkerStatus.get_by_worker(user_worker.id)
-    if worker_status_obj and (worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz):
-        if worker_status_obj.has_ip:
-            status_text = "ИП ✅"
-        elif worker_status_obj.has_ooo:
-            status_text = "ООО ✅"
-        else:
-            status_text = "Самозанятость ✅"
-    else:
-        status_text = "Статус не подтвержден ⚠️"
-
-    # Город и купленные города
-    main_city = await City.get_city(id=user_worker.city_id[0])
-
-    # Получаем ВСЕ подписки (активные и неактивные) для подсчета купленных городов
-    conn = await aiosqlite.connect(database='app/data/database/database.db')
     try:
-        cursor = await conn.execute(
-            'SELECT city_ids, active, purchased_city_count FROM worker_city_subscriptions WHERE worker_id = ?',
-            [user_worker.id])
-        all_subscriptions = await cursor.fetchall()
-        await cursor.close()
-    finally:
-        await conn.close()
-
-    # Подсчитываем купленные и выбранные города
-    total_purchased_cities = 1  # Основной город
-    total_selected_cities = 1  # Основной город
-
-    for sub_data in all_subscriptions:
-        city_ids_str = sub_data[0]
-        is_active = bool(sub_data[1])
-        purchased_count = sub_data[2] if sub_data[2] is not None else 1  # Используем purchased_city_count из БД
-
-        # Определяем КУПЛЕННОЕ количество городов
-        total_purchased_cities += purchased_count
-
-        # Определяем ВЫБРАННОЕ количество городов
-        if city_ids_str:
-            selected_count = len(city_ids_str.split('|'))
-            if is_active:
-                total_selected_cities += selected_count
-
-    if total_selected_cities == 1:
-        city_text = f"Ваш город: {main_city.city}"
-    else:
-        additional = total_selected_cities - 1
-        city_text = f"Ваш город: {main_city.city} +{additional} {'город' if additional == 1 else 'города' if additional < 5 else 'городов'}"
-
-    # Количество контактов
-    contacts_purchased = await ContactExchange.count_by_worker(user_worker.id)
-
-    # Рейтинг
-    rating_display, count_ratings = help_defs.get_worker_rating_display(user_worker.stars, user_worker.count_ratings)
-    rating_text = f"Рейтинг: {rating_display} ⭐ ({count_ratings} {help_defs.get_rating_word(count_ratings)})"
-
-    # Формируем текст профиля
-    text = f"<b>Ваш профиль</b>\n\n"
-    text += f"ID: {user_worker.id} {user_worker.profile_name or user_worker.tg_name}\n"
-    text += f"{rating_text}\n"
-    text += f"Ранг: {rank_name} {rank_emoji}\n"
-    text += f"Активность: {activity_level} {activity_emoji}\n"
-    text += f"{status_text}\n"
-    text += f"{city_text}\n\n"
-    text += f"Количество контактов: {contacts_purchased}\n"
-
-    # Если купил больше городов, чем выбрал - показываем "не выбрано"
-    if total_purchased_cities > total_selected_cities:
-        not_selected = total_purchased_cities - total_selected_cities
-        text += f"Количество городов: {total_selected_cities} (не выбрано: {not_selected})\n"
-    else:
-        text += f"Количество городов: {total_selected_cities}\n"
-
-    text += f"Выполненных заказов: {user_worker.order_count}\n"
-    text += f"Зарегистрирован: {user_worker.registration_data}"
+        await message.delete()
+    except TelegramBadRequest:
+        pass
 
     has_status = False
     if worker_status_obj:
@@ -765,141 +639,9 @@ async def show_worker_menu_for_message(message: Message, state: FSMContext, user
                 has_status=has_status
             ),
             parse_mode='HTML'
-        )
+            )
     else:
         await message.answer(
-            text=text,
-            reply_markup=kbc.menu_worker_keyboard(
-                has_status=has_status
-            ),
-            parse_mode='HTML'
-        )
-    await state.set_state(WorkStates.worker_menu)
-
-
-async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_worker: 'Worker') -> None:
-    """Общая функция для отображения меню исполнителя (для CallbackQuery)"""
-    kbc = KeyboardCollection()
-
-    # Получаем данные для профиля
-
-    # Получаем подписку
-    worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=user_worker.id)
-
-    # Ранг
-    worker_rank = await WorkerRank.get_or_create_rank(user_worker.id)
-    rank_name = worker_rank.get_rank_name()
-    rank_emoji = worker_rank.get_rank_emoji()
-
-    # Активность
-    activity_level = user_worker.activity_level if hasattr(user_worker, 'activity_level') else 100
-    # Используем правильные цветные круги вместо огня
-    if activity_level >= 74:
-        activity_emoji = "🟢"
-    elif activity_level >= 48:
-        activity_emoji = "🟡"
-    elif activity_level >= 9:
-        activity_emoji = "🟠"
-    else:
-        activity_emoji = "🔴"
-
-    # Статус (ИП/ООО/СЗ)
-    worker_status_obj = await WorkerStatus.get_by_worker(user_worker.id)
-    if worker_status_obj and (worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz):
-        if worker_status_obj.has_ip:
-            status_text = "ИП ✅"
-        elif worker_status_obj.has_ooo:
-            status_text = "ООО ✅"
-        else:
-            status_text = "Самозанятость ✅"
-    else:
-        status_text = "Статус не подтвержден ⚠️"
-
-    # Город и купленные города
-    main_city = await City.get_city(id=user_worker.city_id[0])
-
-    # Получаем ВСЕ подписки (активные и неактивные) для подсчета купленных городов
-    conn = await aiosqlite.connect(database='app/data/database/database.db')
-    try:
-        cursor = await conn.execute(
-            'SELECT city_ids, active, purchased_city_count FROM worker_city_subscriptions WHERE worker_id = ?',
-            [user_worker.id])
-        all_subscriptions = await cursor.fetchall()
-        await cursor.close()
-    finally:
-        await conn.close()
-
-    # Подсчитываем купленные и выбранные города
-    total_purchased_cities = 1  # Основной город
-    total_selected_cities = 1  # Основной город
-
-    for sub_data in all_subscriptions:
-        city_ids_str = sub_data[0]
-        is_active = bool(sub_data[1])
-        purchased_count = sub_data[2] if sub_data[2] is not None else 1  # Используем purchased_city_count из БД
-
-        # Определяем КУПЛЕННОЕ количество городов
-        total_purchased_cities += purchased_count
-
-        # Определяем ВЫБРАННОЕ количество городов
-        if city_ids_str:
-            selected_count = len(city_ids_str.split('|'))
-            if is_active:
-                total_selected_cities += selected_count
-
-    if total_selected_cities == 1:
-        city_text = f"Ваш город: {main_city.city}"
-    else:
-        additional = total_selected_cities - 1
-        city_text = f"Ваш город: {main_city.city} +{additional} {'город' if additional == 1 else 'города' if additional < 5 else 'городов'}"
-
-    # Количество контактов
-    contacts_purchased = await ContactExchange.count_by_worker(user_worker.id)
-
-    # Рейтинг
-    rating_display, count_ratings = help_defs.get_worker_rating_display(user_worker.stars, user_worker.count_ratings)
-    rating_text = f"Рейтинг: {rating_display} ⭐ ({count_ratings} {help_defs.get_rating_word(count_ratings)})"
-
-    # Формируем текст профиля
-    text = f"<b>Ваш профиль</b>\n\n"
-    text += f"ID: {user_worker.id} {user_worker.profile_name or user_worker.tg_name}\n"
-    text += f"{rating_text}\n"
-    text += f"Ранг: {rank_name} {rank_emoji}\n"
-    text += f"Активность: {activity_level} {activity_emoji}\n"
-    text += f"{status_text}\n"
-    text += f"{city_text}\n\n"
-    text += f"Количество контактов: {contacts_purchased}\n"
-
-    # Если купил больше городов, чем выбрал - показываем "не выбрано"
-    if total_purchased_cities > total_selected_cities:
-        not_selected = total_purchased_cities - total_selected_cities
-        text += f"Количество городов: {total_selected_cities} (не выбрано: {not_selected})\n"
-    else:
-        text += f"Количество городов: {total_selected_cities}\n"
-
-    text += f"Выполненных заказов: {user_worker.order_count}\n"
-    text += f"Зарегистрирован: {user_worker.registration_data}"
-
-    try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-
-    has_status = False
-    if worker_status_obj:
-        has_status = worker_status_obj.has_ip or worker_status_obj.has_ooo or worker_status_obj.has_sz
-
-    if user_worker.profile_photo:
-        await callback.message.answer_photo(
-            photo=FSInputFile(user_worker.profile_photo),
-            caption=text,
-            reply_markup=kbc.menu_worker_keyboard(
-                has_status=has_status
-            ),
-            parse_mode='HTML'
-        )
-    else:
-        await callback.message.answer(
             text=text,
             reply_markup=kbc.menu_worker_keyboard(
                 has_status=has_status
@@ -912,7 +654,6 @@ async def show_worker_menu(callback: CallbackQuery, state: FSMContext, user_work
 @router.callback_query(F.data == "worker_menu")
 async def menu_worker(callback: CallbackQuery, state: FSMContext) -> None:
     logger.debug(f'menu_worker...')
-    kbc = KeyboardCollection()
     if user_baned := await Banned.get_banned(tg_id=callback.message.chat.id):
         if user_baned.ban_now or user_baned.forever:
             await callback.message.answer(text='Упс, вы заблокированы')
