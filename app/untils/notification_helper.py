@@ -115,26 +115,11 @@ async def get_notification_status_text(tg_id: int) -> tuple[str, bool]:
         tuple: (текст статуса, текущее значение unified_notifications)
     """
     settings = await UserNotificationSettings.get_or_create(tg_id)
-    current_role = await get_user_current_role(tg_id)
-    
+
     if settings.unified_notifications:
         status_text = "✅ <b>ВКЛ</b>"
-        description = (
-            "Вы получаете уведомления для <b>обеих ролей</b> "
-            "(заказчик и исполнитель) независимо от текущей роли."
-        )
     else:
         status_text = "❌ <b>ВЫКЛ</b>"
-        role_text = "текущей роли"
-        if current_role == 'worker':
-            role_text = "роли <b>исполнителя</b>"
-        elif current_role == 'customer':
-            role_text = "роли <b>заказчика</b>"
-        
-        description = (
-            f"Вы получаете уведомления только для {role_text}. "
-            "Уведомления для другой роли не будут приходить."
-        )
     
     return status_text, settings.unified_notifications
 

@@ -872,13 +872,14 @@ def calculate_worker_rating(stars: int, count_ratings: int) -> float:
     Стартовый фонд: 25 звезд (эквивалент 5 оценок по 5 звезд)
     Если нет оценок (count_ratings = 0), возвращает 5.0
     Если есть оценки, считает: (stars + 25) / (count_ratings + 5)
+    Максимальный рейтинг ограничен 5.0
     
     Args:
         stars: Количество звезд в БД (реальные оценки)
         count_ratings: Количество оценок в БД (реальные оценки)
     
     Returns:
-        float: Рассчитанный рейтинг с учетом стартового фонда
+        float: Рассчитанный рейтинг с учетом стартового фонда (максимум 5.0)
     """
     if count_ratings == 0:
         return 5.0
@@ -890,7 +891,13 @@ def calculate_worker_rating(stars: int, count_ratings: int) -> float:
     total_stars = stars + STARTING_STARS
     total_ratings = count_ratings + STARTING_RATINGS
     
-    return total_stars / total_ratings
+    rating = total_stars / total_ratings
+    
+    # Ограничиваем максимальный рейтинг 5.0
+    if rating > 5.0:
+        return 5.0
+    
+    return rating
 
 
 def format_rating(rating: float) -> str:

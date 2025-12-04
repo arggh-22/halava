@@ -13,6 +13,56 @@ logger = logging.getLogger(__name__)
 class ContactFilter:
     """Фильтр для обнаружения контактной информации в сообщениях"""
     
+    @staticmethod
+    def normalize_to_digits(text: str) -> str:
+        """
+        Нормализует текст, заменяя эмодзи-цифры и буквы, похожие на цифры, на обычные цифры.
+        
+        Args:
+            text: Исходный текст
+            
+        Returns:
+            str: Нормализованный текст с замененными символами
+        """
+        if not text:
+            return text
+        
+        # Словарь замены эмодзи-цифр на обычные цифры
+        emoji_digit_map = {
+            '0️⃣': '0', '1️⃣': '1', '2️⃣': '2', '3️⃣': '3', '4️⃣': '4',
+            '5️⃣': '5', '6️⃣': '6', '7️⃣': '7', '8️⃣': '8', '9️⃣': '9',
+            # Варианты без variation selector (на случай если эмодзи разбиты)
+            '\u0030\uFE0F\u20E3': '0',  # 0️⃣
+            '\u0031\uFE0F\u20E3': '1',  # 1️⃣
+            '\u0032\uFE0F\u20E3': '2',  # 2️⃣
+            '\u0033\uFE0F\u20E3': '3',  # 3️⃣
+            '\u0034\uFE0F\u20E3': '4',  # 4️⃣
+            '\u0035\uFE0F\u20E3': '5',  # 5️⃣
+            '\u0036\uFE0F\u20E3': '6',  # 6️⃣
+            '\u0037\uFE0F\u20E3': '7',  # 7️⃣
+            '\u0038\uFE0F\u20E3': '8',  # 8️⃣
+            '\u0039\uFE0F\u20E3': '9',  # 9️⃣
+        }
+        
+        # Словарь замены букв, похожих на цифры
+        letter_to_digit_map = {
+            # Русская и английская О (большие и маленькие) → 0
+            'О': '0', 'о': '0', 'O': '0', 'o': '0',
+            # Можно добавить другие похожие символы при необходимости
+            # 'З': '3', 'з': '3',  # З похожа на 3, но может быть ложным срабатыванием
+            # 'Б': '6', 'б': '6',  # Б похожа на 6, но может быть ложным срабатыванием
+        }
+        
+        # Применяем замены
+        normalized = text
+        for emoji, digit in emoji_digit_map.items():
+            normalized = normalized.replace(emoji, digit)
+        
+        for letter, digit in letter_to_digit_map.items():
+            normalized = normalized.replace(letter, digit)
+        
+        return normalized
+    
     # Паттерны для обнаружения контактов
     PHONE_PATTERNS = [
         # Российские номера
@@ -193,9 +243,44 @@ class ContactFilter:
         
         text_lower = text.lower()
         
-        # Проверка на номера телефонов
+        # Нормализуем текст для проверки (эмодзи-цифры и буквы → цифры)
+        normalized_text = cls.normalize_to_digits(text)
+        
+        # Проверка: блокируем ВСЕ сообщения с эмодзи-цифрами (независимо от наличия текста)
+        emoji_digit_pattern = r'[0-9]\uFE0F?\u20E3'  # Паттерн для эмодзи-цифр
+        has_emoji_digits = bool(re.search(emoji_digit_pattern, text)) or any(emoji in text for emoji in ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'])
+        if has_emoji_digits:
+            logger.warning(f"Message contains emoji digits: {text[:50]}")
+            return False, "❌ Нельзя отправлять сообщения с эмодзи-цифрами. Используйте обычные цифры или добавьте текст к сообщению."
+        
+        # Проверка: блокируем сообщения, состоящие ТОЛЬКО из букв, похожих на цифры или длинных последовательностей цифр
+        # Убираем пробелы и проверяем, что осталось только цифры после нормализации
+        clean_normalized = re.sub(r'[\s\.,\-\(\)]', '', normalized_text)
+        if clean_normalized and all(c.isdigit() for c in clean_normalized):
+            # Проверяем, было ли в оригинальном тексте что-то кроме цифр, пробелов и знаков препинания
+            original_clean = re.sub(r'[\s\.,\-\(\)]', '', text)
+            
+            # Проверяем наличие букв, похожих на цифры
+            has_letter_digits = any(letter in text for letter in ['О', 'о', 'O', 'o'])
+            
+            # Проверяем, есть ли в тексте нормальные буквы (кириллица или латиница, кроме О/о/O/o)
+            has_normal_text = bool(re.search(r'[а-яА-ЯёЁa-zA-Z]', text.replace('О', '').replace('о', '').replace('O', '').replace('o', '')))
+            
+            # Блокируем если:
+            # 1. Есть буквы О/о/O/o И нет нормального текста
+            # 2. Сообщение состоит только из цифр И длина >= 4 цифр (короткие числа 1-3 цифры разрешаем)
+            if has_letter_digits and not has_normal_text:
+                logger.warning(f"Message contains only letter-digits (О/о/O/o): {text[:50]}")
+                return False, "❌ Нельзя отправлять сообщения, состоящие только из букв, похожих на цифры. Добавьте текст к сообщению."
+            
+            # Блокируем только длинные последовательности цифр (4+ цифры), короткие числа (1-3 цифры) разрешаем
+            if not has_normal_text and len(original_clean) >= 4 and original_clean.isdigit():
+                logger.warning(f"Message contains only digits (4+): {text[:50]}")
+                return False, "❌ Нельзя отправлять сообщения, состоящие только из цифр (4+ цифры). Добавьте текст к сообщению."
+        
+        # Проверка на номера телефонов (используем нормализованный текст)
         for pattern in cls.PHONE_PATTERNS:
-            if re.search(pattern, text, re.IGNORECASE):
+            if re.search(pattern, normalized_text, re.IGNORECASE):
                 logger.warning(f"Phone number detected in message: {text[:50]}")
                 return False, "❌ Обнаружен номер телефона. Используйте кнопку «Запросить контакт»."
         
@@ -247,15 +332,17 @@ class ContactFilter:
                 logger.warning(f"Mixed alphabet word detected: '{word}' in message: {text[:50]}")
                 return False, f"❌ Обнаружено слово со смешанными буквами (латиница и кириллица): '{word}'. Используйте только русские буквы."
         
-        # Проверка на цифры (подозрительное количество)
-        digit_count = sum(c.isdigit() for c in text)
+        # Проверка на цифры (подозрительное количество) - включая нормализованные
+        # Используем уже нормализованный текст из предыдущей проверки
+        digit_count = sum(c.isdigit() for c in normalized_text)
         if digit_count > 7:
             logger.warning(f"Too many digits in message: {text[:50]}")
             return False, "❌ Сообщение содержит слишком много цифр. Возможна попытка передачи контакта."
         
         # Проверка на комбинации цифр и числительных (более строгая)
         # Если в тексте есть и цифры, и числительные - подозрительно
-        has_digits = any(c.isdigit() for c in text)
+        # Используем нормализованный текст для проверки цифр
+        has_digits = any(c.isdigit() for c in normalized_text)
         has_number_words = any(word in text_lower for word in cls.NUMBER_WORDS)
         if has_digits and has_number_words:
             # Подсчитываем количество групп (цифры или числительные)
@@ -340,8 +427,9 @@ def check_message_history_for_contacts(
     # Добавляем текущее сообщение для анализа
     all_messages = message_history + [current_message]
     
-    # Берем последние 10 сообщений для анализа
-    recent_messages = all_messages[-10:] if len(all_messages) > 10 else all_messages
+    # Проверяем ВСЮ историю сообщений (не ограничиваем 10 сообщениями)
+    # Это важно для обнаружения попыток передачи номера через много сообщений
+    recent_messages = all_messages
     
     # Ключевые слова, разрешающие цифры (контекст цены, адреса и т.д.)
     ALLOWED_CONTEXT_WORDS = [
@@ -364,8 +452,12 @@ def check_message_history_for_contacts(
     def is_mostly_digits(text: str) -> bool:
         if not text:
             return False
+        
+        # Нормализуем текст перед проверкой
+        normalized_text = ContactFilter.normalize_to_digits(text)
+        
         # Убираем пробелы и знаки препинания
-        clean_text = re.sub(r'[\s\.,\-\(\)]', '', text)
+        clean_text = re.sub(r'[\s\.,\-\(\)]', '', normalized_text)
         if not clean_text:
             return False
         # Если более 70% символов - цифры, считаем сообщение цифровым
@@ -374,7 +466,9 @@ def check_message_history_for_contacts(
     
     # Функция для извлечения всех цифр из текста
     def extract_digits(text: str) -> str:
-        return ''.join(re.findall(r'\d', text))
+        # Нормализуем текст перед извлечением цифр
+        normalized_text = ContactFilter.normalize_to_digits(text)
+        return ''.join(re.findall(r'\d', normalized_text))
     
     # Функция для проверки, может ли последовательность цифр быть номером телефона
     def could_be_phone_number(digits: str) -> bool:
