@@ -7,23 +7,28 @@ Handlers для работы с откликами исполнителя:
 """
 
 import logging
-from datetime import datetime, date
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
+from datetime import datetime, date
+from aiogram.types import CallbackQuery, Message, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
+import config
 from loaders import bot
 from app.handlers.worker import menu_worker, show_worker_menu
 from app.states import WorkStates, CustomerStates
 from app.keyboards import KeyboardCollection
-from app.data.database.models import Worker, Customer, Abs, WorkersAndAbs, ContactExchange, City, WorkerDailyResponses
+from app.data.database.models import (
+    Worker, Customer, Abs, WorkersAndAbs, ContactExchange, City, WorkerDailyResponses, WorkerContactPurchaseDeclines,
+    WorkerAndBadResponse, WorkerAndReport
+)
 from app.untils.contact_filter import check_message_for_contacts, check_message_history_for_contacts
 from app.untils.message_utils import safe_edit_message
 from app.untils.checks import fool_check, phone_finder
 from app.untils.help_defs import (
-    is_content_forbidden, get_worker_rating_display, get_rating_word, get_worker_status_string
+    is_content_forbidden, get_worker_rating_display, get_rating_word, get_worker_status_string, send_customer_menu,
+    read_text_file
 )
 
 logger = logging.getLogger(__name__)
@@ -51,7 +56,6 @@ async def safe_edit_or_send(callback: CallbackQuery, text: str, reply_markup=Non
             await callback.message.edit_caption(
                 caption=text,
                 reply_markup=reply_markup,
-                # parse_mode=parse_mode
             )
         else:
             # Если сообщение текстовое, редактируем текст
@@ -518,8 +522,7 @@ async def confirm_reject_customer_response(callback: CallbackQuery, state: FSMCo
             await state.set_state(CustomerStates.customer_view_responses)
         else:
             # Если откликов больше нет, возвращаем в меню заказчика
-            from app.untils import help_defs
-            await help_defs.send_customer_menu(callback, customer, state=state)
+            await send_customer_menu(callback, customer, state=state)
 
     except Exception as e:
         logger.error(f"Error in reject_customer_response: {e}")
@@ -601,8 +604,36 @@ async def initiate_response(callback: CallbackQuery, state: FSMContext):
             await callback.answer("❌ Исполнитель не найден", show_alert=True)
             return
 
+        # Проверяем наличие profile_name
+        if not worker.profile_name:
+            import config
+            kbc = KeyboardCollection()
+            max_length = getattr(config, 'MAX_WORKER_NAME_LENGTH', 15)
+            
+            await callback.answer(
+                "⚠️ Перед откликом необходимо указать ваше имя",
+                show_alert=True
+            )
+            
+            text = f'✏️ Укажите ваше имя\n\n'
+            text += f'⚠️ Требования:\n'
+            text += f'• Только русские буквы\n'
+            text += f'• Без цифр и символов\n'
+            text += f'• Максимум {max_length} символов'
+            
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            
+            msg = await callback.message.answer(
+                text=text, reply_markup=kbc.photo_name_keyboard()
+            )
+            await state.set_state(WorkStates.create_name_profile)
+            await state.update_data(msg_id=msg.message_id)
+            return
+
         # Проверяем блокировку за отказы от покупки контактов
-        from app.data.database.models import WorkerContactPurchaseDeclines
         decline_record = await WorkerContactPurchaseDeclines.get_by_worker(worker.id)
         if decline_record and decline_record.is_currently_blocked():
             await callback.answer(
@@ -1027,7 +1058,6 @@ async def decline_ad(callback: CallbackQuery, state: FSMContext):
         abs_id = int(callback.data.split('_')[2])
 
         # Добавляем объявление в список "не показывать"
-        from app.data.database.models import WorkerAndBadResponse
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
 
         bad_response = WorkerAndBadResponse(worker_id=worker.id, abs_id=abs_id)
@@ -1059,14 +1089,10 @@ async def report_ad(callback: CallbackQuery, state: FSMContext):
         abs_id = int(callback.data.split('_')[2])
         worker = await Worker.get_worker(tg_id=callback.from_user.id)
 
-        from app.data.database.models import WorkerAndReport, Abs, Customer
-        from app.untils import help_defs
-        from app.keyboards import KeyboardCollection
-        from aiogram.types import FSInputFile
-        import config
-
         # Проверяем, не отправлял ли уже жалобу
-        existing_report = await WorkerAndReport.get_by_worker(worker_id=worker.id)
+        existing_report = await (
+            WorkerAndReport.get_by_worker(worker_id=worker.id)
+        )
         if existing_report:
             for report in existing_report:
                 if report.abs_id == abs_id:
@@ -1087,7 +1113,7 @@ async def report_ad(callback: CallbackQuery, state: FSMContext):
         customer = await Customer.get_customer(id=advertisement.customer_id)
 
         # Формируем детальный текст жалобы
-        text = f'Заказчик ID {customer.tg_id}\nОбъявление #{advertisement.id}\n\n' + help_defs.read_text_file(
+        text = f'Заказчик ID {customer.tg_id}\nОбъявление #{advertisement.id}\n\n' + read_text_file(
             advertisement.text_path)
 
         kbc = KeyboardCollection()
