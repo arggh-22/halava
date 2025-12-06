@@ -12,9 +12,9 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # Импорт вспомогательных модулей и компонентов из приложения
 from app.data.database.models import (
-    Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, City,
-    WorkerAndRefsAssociation, WorkType, Admin, WorkerAndBadResponse, WorkerAndReport, ContactTariff,
-    CitySubscriptionTariff, CitySubscriptionDiscount
+    Customer, Banned, BannedAbs, Abs, Worker, WorkerAndSubscription, WorkersAndAbs, City, WorkerAndRefsAssociation,
+    WorkType, Admin, WorkerAndBadResponse, WorkerAndReport, ContactTariff, CitySubscriptionTariff,
+    CitySubscriptionDiscount
 )
 from app.keyboards import KeyboardCollection
 from app.states import AdminStates, UserStates, BannedStates
@@ -37,7 +37,6 @@ def clear_admin_cache():
 
 def is_cache_valid():
     """Проверяет валидность кеша"""
-    import time
     current_time = time.time()
     return (_admin_summary_cache["data"] is not None and
             current_time - _admin_summary_cache["ts"] < _admin_summary_cache["ttl"])
@@ -81,9 +80,6 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
     logger.debug('process_order_price...')
     kbc = KeyboardCollection()
 
-    state_data = await state.get_data()
-    # msg_id = state_data.get('msg_id')
-
     try:
         new_price = int(message.text)
         if new_price <= 0:
@@ -93,7 +89,6 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
         admin = await Admin.get_by_tg_id(message.chat.id)
         await admin.update(order_price=new_price)
 
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
             text=f'✅ <b>Цена объявлений успешно изменена!</b>\n\n'
                  f'💰 Новая цена: {new_price}₽',
@@ -103,7 +98,6 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
         await state.set_state(AdminStates.menu)
 
     except ValueError as e:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
             text=f'❌ <b>Ошибка!</b>\n\n'
                  f'Пожалуйста, введите корректную цену (положительное число).\n'
@@ -114,7 +108,6 @@ async def process_order_price(message: Message, state: FSMContext) -> None:
         await state.set_state(AdminStates.edit_order_price)
     except Exception as e:
         logger.error(f"Ошибка при изменении цены объявлений: {e}")
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer(
             text='❌ <b>Произошла ошибка!</b>\n\n'
                  'Попробуйте еще раз или обратитесь к разработчику.',
@@ -326,13 +319,9 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
     logger.debug(f'unban_user_text...')
     kbc = KeyboardCollection()
 
-    # state_data = await state.get_data()
-    # msg_id = int(state_data.get('msg_id'))
-
     try:
         banned_id = int(message.text)
     except Exception:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
@@ -340,7 +329,6 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
     banned = await Banned.get_banned(tg_id=banned_id)
 
     if banned is None:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer('Пользователь не был заблокирован', reply_markup=kbc.admin_back_btn('menu'))
         return
 
@@ -357,7 +345,6 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
                                 ban_now=False,
                                 ban_end=None)
 
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer('Пользователь разблокирован', reply_markup=kbc.admin_back_btn('menu'))
     await bot.send_message(chat_id=banned_id,
                            text='Вы были разблокированы.\nВызовите команду /menu чтобы продолжить работу')
@@ -369,7 +356,6 @@ async def send_to_user(message: Message, state: FSMContext) -> None:
     kbc = KeyboardCollection()
 
     state_data = await state.get_data()
-    # msg_id = int(state_data.get('msg_id'))
     user_id = int(state_data.get('user_id'))
 
     msg_to_send = message.text
@@ -379,11 +365,9 @@ async def send_to_user(message: Message, state: FSMContext) -> None:
     worker = await Worker.get_worker(tg_id=user_id)
 
     if banned is None and customer is None and worker is None:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer('Пользователь не найден', reply_markup=kbc.admin_back_btn('menu'))
         return
 
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer('Сообщение пользователю отправлено', reply_markup=kbc.admin_back_btn('menu'))
     await bot.send_message(chat_id=user_id, text=f'Сообщение от администрации бота: "{msg_to_send}"')
     await state.set_state(AdminStates.menu)
@@ -394,13 +378,9 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
     logger.debug(f'ban_user_text...')
     kbc = KeyboardCollection()
 
-    # state_data = await state.get_data()
-    # msg_id = int(state_data.get('msg_id'))
-
     try:
         banned_id = int(message.text)
     except Exception:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз', reply_markup=kbc.admin_back_btn('menu'))
         await state.update_data(msg_id=msg.message_id)
         return
@@ -413,7 +393,6 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
         await banned.save()
     else:
         if banned.forever:
-            # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
             await message.answer('Пользователь уже заблокирован на всегда', reply_markup=kbc.admin_back_btn('menu'))
             return
         else:
@@ -421,7 +400,6 @@ async def unblock_user(message: Message, state: FSMContext) -> None:
                                 ban_now=True,
                                 ban_end=str(datetime.now() + timedelta(days=30)))
 
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer('Пользователь заблокирован', reply_markup=kbc.admin_back_btn('menu'))
     await bot.send_message(chat_id=banned_id,
                            text='Вы были заблокированы.\nПо решению администрации', reply_markup=kbc.support_btn())
@@ -432,13 +410,9 @@ async def get_customer(message: Message, state: FSMContext) -> None:
     logger.debug(f'get_customer_text...')
     kbc = KeyboardCollection()
 
-    # state_data = await state.get_data()
-    # msg_id = int(state_data.get('msg_id'))
-
     try:
         customer_id = int(message.text)
     except Exception:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         msg = await message.answer('Что-то пошло не так, попробуйте, еще раз')
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
@@ -446,7 +420,6 @@ async def get_customer(message: Message, state: FSMContext) -> None:
     customer = await Customer.get_customer(id=customer_id)
 
     if customer is None:
-        # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
         await message.answer('Заказчик с таким ID не существует', reply_markup=kbc.admin_back_btn('menu'))
         return
 
@@ -466,7 +439,6 @@ async def get_customer(message: Message, state: FSMContext) -> None:
             f'\n'
             f'Заблокирован: {"Да" if ban_now else "Нет"}')
 
-    # await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
     await message.answer(text=text, reply_markup=kbc.admin_get_customer(callback_data='menu', customer_id=customer_id),
                          protect_content=False)
 
@@ -931,13 +903,15 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
         summary = _admin_summary_cache["data"]
     else:
         # Fetch aggregated counts concurrently
-        (len_customer,
-         len_worker,
-         len_banned_users,
-         len_advertisement,
-         len_banned_advertisement,
-         len_users,
-         admin) = await asyncio.gather(
+        (
+            len_customer,
+            len_worker,
+            len_banned_users,
+            len_advertisement,
+            len_banned_advertisement,
+            len_users,
+            admin
+        ) = await asyncio.gather(
             Customer.count(),
             Worker.count(),
             Banned.count_active(),
@@ -1228,8 +1202,6 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
     state_data = await state.get_data()
     message_to_worker = str(state_data.get('message_to_worker'))
 
-    # msg = await callback.message.answer('Подождите, идет отправка')
-
     workers = await Worker.get_all()
     if workers:
         for worker in workers:
@@ -1241,7 +1213,6 @@ async def msg_to_worker_skip(callback: CallbackQuery, state: FSMContext) -> None
                     pass
                 message_to_worker = str(state_data.get('message_to_worker'))
 
-    # await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg.message_id)
     await state.set_state(AdminStates.menu)
     await callback.message.answer(
         text=f'Сообщение отправлено всем исполнителям!',
@@ -1558,9 +1529,7 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
     customer_id = int(state_data.get('customer_id'))
 
     customer = await Customer.get_customer(id=customer_id)
-
     user_id = customer.tg_id
-
     text = ''
     worker_acc = False
 
@@ -1584,27 +1553,33 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
 
         status_string = await help_defs.get_worker_status_string(worker.id)
 
-        text += (f'Профиль исполнителя\n\n'
-                 f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}\n'
-                 f'Статус: {status_string}\n'
-                 f'Общий ID исполнителя: {worker.tg_id}\n')
+        text += (
+            f'Профиль исполнителя\n\n'
+            f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}\n'
+            f'Статус: {status_string}\n'
+            f'Общий ID исполнителя: {worker.tg_id}\n'
+        )
         rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
-        text += (f'Ваш рейтинг: {rating_display}⭐️ ({count_ratings} {help_defs.get_grade_word(count_ratings)})\n'
-                 f'{cites}\n'
-                 f'Выполненных заказов: {worker.order_count}\n'
-                 f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n')  # Закрывающая скобка для многострочной строки
+        text += (
+            f'Ваш рейтинг: {rating_display}⭐️ ({count_ratings} {help_defs.get_grade_word(count_ratings)})\n'
+            f'{cites}\n'
+            f'Выполненных заказов: {worker.order_count}\n'
+            f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
+            f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
+        )  # Закрывающая скобка для многострочной строки
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
             text += f'\n\n'
         city = await City.get_city(id=customer.city_id)
         user_abs = await Abs.get_all_by_customer(customer.id)
-        text += ('Профиль заказчика\n\n'
-                 f'ID: {customer.id}\n'
-                 f'Общий ID: {customer.tg_id}\n'
-                 f'Город заказчика: {city.city}\n'
-                 f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n')
+        text += (
+            'Профиль заказчика\n\n'
+            f'ID: {customer.id}\n'
+            f'Общий ID: {customer.tg_id}\n'
+            f'Город заказчика: {city.city}\n'
+            f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+        )
 
     await state.set_state(AdminStates.get_user)
 
@@ -1613,9 +1588,11 @@ async def block_advertisement(callback: CallbackQuery, state: FSMContext) -> Non
             customer_id = customer.id
         else:
             customer_id = False
-        await callback.message.answer(text=text, protect_content=False,
-                                      reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                          customer_id=customer_id))
+        await callback.message.answer(
+            text=text,
+            protect_content=False,
+            reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id)
+        )
         await callback.message.delete()
         await state.update_data(user_id=user_id)
         return
@@ -1635,7 +1612,6 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     msg_id = int(state_data.get('msg_id'))
 
     customer = await Customer.get_customer(id=customer_id)
-
     msg_to_send = message.text
 
     try:
@@ -1646,8 +1622,10 @@ async def msg_to_worker_text(message: Message, state: FSMContext) -> None:
     banned = await Banned.get_banned(tg_id=customer.tg_id)
     await banned.update(ban_reason=msg_to_send)
 
-    await message.answer(text='Сообщение пользователю отправлено',
-                         reply_markup=kbc.admin_back_btn(f'get-user_{customer_id}'))
+    await message.answer(
+        text='Сообщение пользователю отправлено',
+        reply_markup=kbc.admin_back_btn(f'get-user_{customer_id}')
+    )
     try:
         await bot.send_message(chat_id=customer.tg_id, text=f'Сообщение от администрации бота: "{msg_to_send}"')
     except TelegramBadRequest:
@@ -1791,26 +1769,30 @@ async def back_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
         status_string = await help_defs.get_worker_status_string(worker.id)
 
         rating_display, count_ratings = help_defs.get_worker_rating_display(worker.stars, worker.count_ratings)
-        text += (f'Профиль исполнителя\n\n'
-                 f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}\n'
-                 f'Статус: {status_string}\n'
-                 f'Общий ID исполнителя: {worker.tg_id}\n'
-                 f'Ваш рейтинг: {rating_display} ⭐️ ({count_ratings} {help_defs.get_grade_word(count_ratings)})\n'
-                 f'{cites}\n'
-                 f'Выполненных заказов: {worker.order_count}\n'
-                 f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
-                 f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n')  # Закрывающая скобка для многострочной строки
+        text += (
+            f'Профиль исполнителя\n\n'
+            f'ID: {worker.id}  {worker.profile_name if worker.profile_name else ""}\n'
+            f'Статус: {status_string}\n'
+            f'Общий ID исполнителя: {worker.tg_id}\n'
+            f'Ваш рейтинг: {rating_display} ⭐️ ({count_ratings} {help_defs.get_grade_word(count_ratings)})\n'
+            f'{cites}\n'
+            f'Выполненных заказов: {worker.order_count}\n'
+            f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
+            f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'
+        )  # Закрывающая скобка для многострочной строки
 
     if customer := await Customer.get_customer(tg_id=user_id):
         if worker_acc:
             text += f'\n\n'
         city = await City.get_city(id=customer.city_id)
         user_abs = await Abs.get_all_by_customer(customer.id)
-        text += ('Профиль заказчика\n\n'
-                 f'ID: {customer.id}\n'
-                 f'Общий ID: {customer.tg_id}\n'
-                 f'Город заказчика: {city.city}\n'
-                 f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n')
+        text += (
+            'Профиль заказчика\n\n'
+            f'ID: {customer.id}\n'
+            f'Общий ID: {customer.tg_id}\n'
+            f'Город заказчика: {city.city}\n'
+            f'Открыто объявлений: {len(user_abs) if user_abs else 0}\n'
+        )
 
     if text:
         if customer:
@@ -1820,18 +1802,24 @@ async def back_to_customer(callback: CallbackQuery, state: FSMContext) -> None:
 
         if worker:
             if worker.profile_photo:
-                await callback.message.answer_photo(caption=text, photo=FSInputFile(worker.profile_photo),
-                                                    protect_content=False,
-                                                    reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                                        customer_id=customer_id))
+                await callback.message.answer_photo(
+                    caption=text,
+                    photo=FSInputFile(worker.profile_photo),
+                    protect_content=False,
+                    reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id)
+                )
             else:
-                await callback.message.answer(text=text, protect_content=False,
-                                              reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                                  customer_id=customer_id))
+                await callback.message.answer(
+                    text=text,
+                    protect_content=False,
+                    reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id)
+                )
         else:
-            await callback.message.answer(text=text, protect_content=False,
-                                          reply_markup=kbc.admin_back_or_send(callback_data='menu',
-                                                                              customer_id=customer_id))
+            await callback.message.answer(
+                text=text,
+                protect_content=False,
+                reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id)
+            )
         await callback.message.delete()
         await state.update_data(user_id=user_id)
         return

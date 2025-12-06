@@ -252,12 +252,9 @@ class KeyboardCollection:
         builder = InlineKeyboardBuilder()
         builder.add(self._inline(button_text="Длинные стоп слова", callback_data="stop_words_long"))
         builder.add(self._inline(button_text="Длинные стоп слова сообщения", callback_data="stop_words_long_message"))
-        builder.add(self._inline(button_text="Длинные стоп слова персонала", callback_data="stop_words_long_personal"))
         builder.add(self._inline(button_text="Длинные стоп слова фото", callback_data="stop_words_long_photo"))
         builder.add(self._inline(button_text="Короткие стоп слова", callback_data="stop_words_short"))
         builder.add(self._inline(button_text="Короткие стоп слова сообщения", callback_data="stop_words_short_message"))
-        builder.add(
-            self._inline(button_text="Короткие стоп слова персонала", callback_data="stop_words_short_personal"))
         builder.add(self._inline(button_text="Короткие стоп слова фото", callback_data="stop_words_short_photo"))
         builder.add(self._inline(button_text="Матерные стоп слова", callback_data="stop_words_profanity"))
         builder.add(self._inline(button_text="🏠 Назад", callback_data="menu"))
@@ -266,11 +263,29 @@ class KeyboardCollection:
 
     def admin_edit_chose(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.add(self._inline(button_text="Удалить", callback_data="delite"))
-        builder.add(self._inline(button_text="Добавить", callback_data="insert"))
-        # builder.add(self._inline(button_text="Посмотреть", callback_data="look"))
+        builder.add(self._inline(button_text="📋 Посмотреть", callback_data="look"))
+        builder.add(self._inline(button_text="🗑 Удалить", callback_data="delite"))
+        builder.add(self._inline(button_text="➕ Добавить", callback_data="insert"))
         builder.add(self._inline(button_text="🏠 Назад", callback_data="menu_admin_stop_words"))
         builder.adjust(1)
+        return builder.as_markup()
+
+    def admin_view_words_pagination(self, words_type: str, page: int, total_pages: int) -> InlineKeyboardMarkup:
+        """Клавиатура с пагинацией для просмотра слов"""
+        builder = InlineKeyboardBuilder()
+        
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(self._inline("◀️ Назад", f"view_words_page_{words_type}_{page - 1}"))
+        nav_buttons.append(self._inline(f"{page + 1}/{total_pages}", "current_page"))
+        if page < total_pages - 1:
+            nav_buttons.append(self._inline("Дальше ▶️", f"view_words_page_{words_type}_{page + 1}"))
+        
+        for btn in nav_buttons:
+            builder.add(btn)
+        
+        builder.add(self._inline(button_text="🔙 Назад", callback_data=words_type))
+        builder.adjust(len(nav_buttons), 1)
         return builder.as_markup()
 
     def admin_back_btn(self, callback_data) -> InlineKeyboardMarkup:

@@ -2,7 +2,7 @@ import re
 from difflib import SequenceMatcher
 
 from app.data.database.models import BlockWord, BlockWordShort, ProfanityWord, WhiteWord, BlockWordMessage, \
-    BlockWordShortMessage, BlockWordPersonal, BlockWordShortPersonal
+    BlockWordShortMessage
 
 
 async def find_links_emails_and_telegram(text):
@@ -272,13 +272,10 @@ async def are_texts_similar(text1, text2):
     return similarity_ratio > 0.75
 
 
-async def fool_check(text, is_message: bool = False, is_personal: bool = False):
+async def fool_check(text, is_message: bool = False):
     if is_message:
         block_words = await BlockWordMessage.get_all()
         short_block_words = await BlockWordShortMessage.get_all()
-    elif is_personal:
-        block_words = await BlockWordPersonal.get_all()
-        short_block_words = await BlockWordShortPersonal.get_all()
     else:
         block_words = await BlockWord.get_all()
         short_block_words = await BlockWordShort.get_all()
