@@ -944,4 +944,3 @@ async def handle_words_pagination(callback: CallbackQuery, state: FSMContext) ->
     if words_type in type_mapping:
         model_class, state_name, title = type_mapping[words_type]
         await show_words_page(model_class, words_type, page, state_name, state, title, callback)
-
