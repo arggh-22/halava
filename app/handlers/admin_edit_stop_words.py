@@ -33,7 +33,7 @@ async def menu_send_msg_admin_keyboard(callback: CallbackQuery, state: FSMContex
     kbc = KeyboardCollection()
 
     text = (f'Меню\n\n'
-            f'Выберете интересующую вас группу стоп слов\n'
+            f'Выберите интересующую вас группу стоп слов\n'
             f'Длинные стоп слова - больше 5 букв\n'
             f'Короткие стоп слова - слова из 5 букв и короче\n'
             f'Матерные слова\n'

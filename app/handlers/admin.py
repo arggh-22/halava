@@ -886,7 +886,7 @@ async def menu_send_msg_admin_keyboard(callback: CallbackQuery, state: FSMContex
 
     text = (
     f'Меню\n\n'
-    f'Выберете интересующую вас группу отправки'
+    f'Выберите интересующую вас группу отправки'
     )
 
     await state.set_state(AdminStates.menu)

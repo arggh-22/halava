@@ -604,7 +604,7 @@ async def create_new_abs(callback: CallbackQuery, state: FSMContext) -> None:
     )
 
     await callback.message.answer(
-        text='Выберете направление',
+        text='Выберите направление',
         reply_markup=kbc.choose_type(ids=ids, names=names, btn_back=True)
     )
 
