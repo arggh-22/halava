@@ -417,7 +417,7 @@ async def get_customer(message: Message, state: FSMContext) -> None:
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
 
-    customer = await Customer.get_customer(id=customer_id)
+    customer = await Customer.get_customer(tg_id=customer_id)
 
     if customer is None:
         await message.answer('Заказчик с таким ID не существует', reply_markup=kbc.admin_back_btn('menu'))
@@ -468,10 +468,10 @@ async def get_user(message: Message, state: FSMContext) -> None:
                            worker_sub.work_type_ids] if worker_sub.work_type_ids else None
 
         if len(worker.city_id) == 1:
-            cites = 'Ваш город: '
+            cites = 'Город: '
             step = ''
         else:
-            cites = 'Ваши города:\n'
+            cites = 'Города:\n'
             step = '    '
         for city_id in worker.city_id:
             city = await City.get_city(id=city_id)
@@ -506,8 +506,11 @@ async def get_user(message: Message, state: FSMContext) -> None:
             customer_id = customer.id
         else:
             customer_id = False
-        await message.answer(text=text, protect_content=False,
-                             reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id))
+        await message.answer(
+            text=text,
+            protect_content=False,
+            reply_markup=kbc.admin_back_or_send(callback_data='menu', customer_id=customer_id)
+        )
         await state.update_data(user_id=user_id)
         return
     else:
@@ -839,7 +842,7 @@ async def get_worker(message: Message, state: FSMContext) -> None:
         await state.update_data(msg_id=msg.message_id, reply_markup=kbc.admin_back_btn('menu'))
         return
 
-    worker = await Worker.get_worker(id=worker_id)
+    worker = await Worker.get_worker(tg_id=worker_id)
 
     if worker is None:
         await message.answer('Исполнитель с таким ID не существует', reply_markup=kbc.admin_back_btn('menu'))
@@ -848,7 +851,16 @@ async def get_worker(message: Message, state: FSMContext) -> None:
     worker_sub = await WorkerAndSubscription.get_by_worker(worker_id=worker.id)
     work_type_names = [await WorkType.get_work_type(id=int(i)) for i in
                        worker_sub.work_type_ids] if worker_sub.work_type_ids else None
-    city = await City.get_city(id=int(worker.city_id))
+    
+    if len(worker.city_id) == 1:
+        cites = 'Город: '
+        step = ''
+    else:
+        cites = 'Города:\n'
+        step = '    '
+    for city_id in worker.city_id:
+        city = await City.get_city(id=city_id)
+        cites += f'{step}{city.city}\n'
 
     status_string = await help_defs.get_worker_status_string(worker.id)
 
@@ -858,7 +870,7 @@ async def get_worker(message: Message, state: FSMContext) -> None:
             f'Статус: {status_string}\n'
             f'Общий ID исполнителя: {worker.tg_id}\n'
             f'Рейтинг: {rating_display} ⭐️ ({count_ratings} {help_defs.get_grade_word(count_ratings)})\n'
-            f'Город: {city.city}\n'
+            f'{cites}'
             f'Выполненных заказов: {worker.order_count}\n'
             f'Выполненных заказов за неделю: {worker.order_count_on_week}\n'
             f'Доступные направления: {(str(len(work_type_names)) + " из 20") if work_type_names else "20 из 20"}\n'

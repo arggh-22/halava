@@ -1710,7 +1710,7 @@ class Admin:
 class Abs:
     def __init__(self, id: int | None, customer_id: int,
                  work_type_id: int, city_id: int, photo_path: dict | None, text_path: str, date_to_delite,
-                 count_photo: int, relevance: bool = True, views: int = 0):
+                 count_photo: int, relevance: bool = True, views: int = 0, expiry_notification_sent: bool = False):
         self.id = id
         self.customer_id = customer_id
         self.work_type_id = work_type_id
@@ -1721,6 +1721,7 @@ class Abs:
         self.relevance = relevance
         self.views = views
         self.count_photo = count_photo
+        self.expiry_notification_sent = expiry_notification_sent
 
     @classmethod
     async def create_table_if_not_exists(cls) -> None:
@@ -1731,18 +1732,26 @@ class Abs:
             await conn.execute('''
                                CREATE TABLE IF NOT EXISTS abs
                                (
-                                   id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                                   customer_id    INTEGER NOT NULL,
-                                   work_type_id   INTEGER NOT NULL,
-                                   city_id        INTEGER NOT NULL,
-                                   photo_path     TEXT,
-                                   text_path      TEXT    NOT NULL,
-                                   date_to_delite TEXT    NOT NULL,
-                                   relevance      INTEGER DEFAULT 1,
-                                   views          INTEGER DEFAULT 0,
-                                   count_photo    INTEGER DEFAULT 0
+                                   id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                                   customer_id             INTEGER NOT NULL,
+                                   work_type_id            INTEGER NOT NULL,
+                                   city_id                 INTEGER NOT NULL,
+                                   photo_path              TEXT,
+                                   text_path               TEXT    NOT NULL,
+                                   date_to_delite          TEXT    NOT NULL,
+                                   relevance               INTEGER DEFAULT 1,
+                                   views                   INTEGER DEFAULT 0,
+                                   count_photo             INTEGER DEFAULT 0,
+                                   expiry_notification_sent INTEGER DEFAULT 0
                                )
                                ''')
+            # Добавляем новое поле, если таблица уже существует
+            try:
+                await conn.execute('ALTER TABLE abs ADD COLUMN expiry_notification_sent INTEGER DEFAULT 0')
+                await conn.commit()
+            except Exception:
+                # Поле уже существует, игнорируем ошибку
+                pass
             await conn.commit()
         finally:
             await conn.close()
@@ -1754,9 +1763,9 @@ class Abs:
         try:
             photo_path_json = json.dumps(self.photo_path)
             cursor = await conn.execute(
-                'INSERT INTO abs (customer_id, work_type_id, city_id, photo_path, text_path, date_to_delite, count_photo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO abs (customer_id, work_type_id, city_id, photo_path, text_path, date_to_delite, count_photo, expiry_notification_sent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [self.customer_id, self.work_type_id, self.city_id, photo_path_json, self.text_path,
-                 self.date_to_delite, self.count_photo])
+                 self.date_to_delite, self.count_photo, 1 if self.expiry_notification_sent else 0])
             # Сохраняем ID после вставки
             self.id = cursor.lastrowid
             await conn.commit()
@@ -1785,7 +1794,7 @@ class Abs:
         finally:
             await conn.close()
 
-    async def update(self, relevance: bool = None, views: int = None, date_to_delite=None, photo_path=None) -> None:
+    async def update(self, relevance: bool = None, views: int = None, date_to_delite=None, photo_path=None, expiry_notification_sent: bool = None) -> None:
         conn = await aiosqlite.connect(database='app/data/database/database.db',
                                        detect_types=sqlite3.PARSE_DECLTYPES |
                                                     sqlite3.PARSE_COLNAMES)
@@ -1822,6 +1831,11 @@ class Abs:
                 photo_path_json = json.dumps(photo_path)
                 params.append(photo_path_json)
 
+            if expiry_notification_sent is not None:
+                updates.append('expiry_notification_sent = ?')
+                self.expiry_notification_sent = expiry_notification_sent
+                params.append(1 if expiry_notification_sent else 0)
+
             if updates:
                 params.append(self.id)
                 query = f"UPDATE abs SET {', '.join(updates)} WHERE id = ?"
@@ -1849,7 +1863,8 @@ class Abs:
                         date_to_delite=record[6],
                         relevance=True if record[7] == 1 else False,
                         views=record[8],
-                        count_photo=record[9]
+                        count_photo=record[9],
+                        expiry_notification_sent=True if len(record) > 10 and record[10] == 1 else False
                         )
                     for record in records]
         finally:
@@ -1915,7 +1930,8 @@ class Abs:
                             date_to_delite=record[6],
                             relevance=True if record[7] == 1 else False,
                             views=record[8],
-                            count_photo=record[9]
+                            count_photo=record[9],
+                            expiry_notification_sent=True if len(record) > 10 and record[10] == 1 else False
                             ) for record in records]
             else:
                 return None
@@ -1942,7 +1958,8 @@ class Abs:
                            date_to_delite=record[6],
                            relevance=True if record[7] == 1 else False,
                            views=record[8],
-                           count_photo=record[9]
+                           count_photo=record[9],
+                           expiry_notification_sent=True if len(record) > 10 and record[10] == 1 else False
                            )
             else:
                 return None
@@ -2048,7 +2065,17 @@ class WorkerAndSubscription:
             await cursor.close()
 
             if not records:
-                return None
+                # Создаем новую запись, если её нет
+                work_type_ids_str = None
+                cursor = await conn.execute(
+                    'INSERT INTO worker_and_subscription (worker_id, work_type_ids) VALUES (?, ?)',
+                    [worker_id, work_type_ids_str])
+                await conn.commit()
+                new_id = cursor.lastrowid
+                await cursor.close()
+                return cls(id=new_id,
+                           worker_id=worker_id,
+                           work_type_ids=None)
 
             # Если есть несколько записей, берем самую новую (с наибольшим id)
             # и удаляем дублирующие записи

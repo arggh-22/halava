@@ -3215,8 +3215,6 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Ошибка: заказчик не найден", show_alert=True)
         return
 
-    # Проверка на покупку контактов не нужна, так как исполнители попадают в список
-    # для оценки только если они уже купили контакты (проверка в confirm_close_advertisement)
 
     # Проверяем, что заказчик еще не оценивал этого исполнителя
     from app.data.database.models import WorkerRating
@@ -3238,6 +3236,7 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
 
     # Обновляем рейтинг исполнителя
     worker = await Worker.get_worker(id=worker_id)
+    worker_prefix = worker.profile_name if worker.profile_name else 'ID ' + str(worker_id)
     if worker:
         # Проверяем, что у исполнителя есть поле activity_level
         if not hasattr(worker, 'activity_level') or worker.activity_level is None:
@@ -3377,7 +3376,11 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
                         remaining_workers.append(worker)
 
         if remaining_workers:
-            await callback.answer(f"Спасибо! Вы оценили исполнителя на {rating} звезд", show_alert=True)
+            await callback.answer(
+                f"Спасибо!\n\n"
+                f"Вы поставили оценку исполнителя {worker_prefix}: ⭐ {rating} из 5",
+                show_alert=True
+            )
 
             # Есть еще исполнители для оценки - показываем их
             names = []
@@ -3391,7 +3394,6 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
 
             kbc = KeyboardCollection()
             await callback.message.answer(
-                f"✅ Оценка {rating} ⭐ поставлена исполнителю {worker.profile_name if worker.profile_name else 'ID ' + str(worker_id)}!\n\n"
                 f"Выберите следующего исполнителя для оценки:",
                 reply_markup=kbc.get_for_staring(ids=ids, names=names, abs_id=abs_id)
             )
@@ -3399,7 +3401,7 @@ async def rate_worker(callback: CallbackQuery, state: FSMContext) -> None:
 
     # Нет больше исполнителей для оценки - показываем финальное сообщение
     await callback.answer(
-        f"✅ Оценка {rating} ⭐ поставлена исполнителю {worker.profile_name if worker.profile_name else 'ID ' + str(worker_id)}!\n\n"
+        f"Вы поставили оценку исполнителя {worker_prefix}: ⭐ {rating} из 5\n"
         f"Спасибо за обратную связь. Оценка завершена!",
     )
     await help_defs.send_customer_menu(callback, customer, state)
@@ -4308,9 +4310,9 @@ async def extend_advertisement_period_handler(callback: CallbackQuery) -> None:
         await callback.answer("Неверный период", show_alert=True)
         return
 
-    # Обновляем срок истечения
+    # Обновляем срок истечения и обнуляем флаг отправки уведомления
     new_date = advertisement.date_to_delite + extension
-    await advertisement.update(date_to_delite=new_date)
+    await advertisement.update(date_to_delite=new_date, expiry_notification_sent=False)
 
     try:
         await callback.message.delete()

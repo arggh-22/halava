@@ -28,7 +28,7 @@ from app.untils.message_utils import safe_edit_message
 from app.untils.checks import fool_check, phone_finder
 from app.untils.help_defs import (
     is_content_forbidden, get_worker_rating_display, get_rating_word, get_worker_status_string, send_customer_menu,
-    read_text_file
+    read_text_file, log_message_to_admin_chat
 )
 
 logger = logging.getLogger(__name__)
@@ -1033,6 +1033,9 @@ async def process_response_text(message: Message, state: FSMContext):
                 ),
                 parse_mode='HTML'
             )
+
+        # Логируем сообщение в админ-чат MESSAGE_LOG
+        await log_message_to_admin_chat(worker, customer, abs_id, message.text, "worker")
 
         # Подтверждение исполнителю
         kbc = KeyboardCollection()

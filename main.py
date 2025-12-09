@@ -105,11 +105,9 @@ async def run():
 
     # Ежедневная проверка истекающих подписок на города
     scheduler.add_job(send_city_subscription_expiry_notifications, "interval", hours=24)
-    # scheduler.add_job(send_city_subscription_expiry_notifications, "interval", minutes=1)
-    
+
     # Ежедневная проверка истекающих безлимитных подписок на контакты
     scheduler.add_job(send_unlimited_contacts_expiry_notifications, "interval", hours=24)
-    # scheduler.add_job(send_unlimited_contacts_expiry_notifications, "interval", minutes=1)
 
     # Еженедельное восстановление активности исполнителей
     scheduler.add_job(restore_weekly_activity, "interval", days=7)

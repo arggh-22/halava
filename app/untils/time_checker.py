@@ -263,6 +263,11 @@ async def handle_expiring_soon_advertisement(advertisement, kbc):
     """Обработка объявления, которое скоро истекает (для коротких сроков)"""
     logger.info(f'Handling expiring soon advertisement {advertisement.id}')
     
+    # Проверяем, было ли уже отправлено уведомление
+    if advertisement.expiry_notification_sent:
+        logger.info(f'Expiry notification already sent for advertisement {advertisement.id}, skipping')
+        return
+    
     customer = await Customer.get_customer(id=advertisement.customer_id)
     text = help_defs.read_text_file(advertisement.text_path)
     
@@ -283,6 +288,8 @@ async def handle_expiring_soon_advertisement(advertisement, kbc):
                      f'Объявление будет автоматически закрыто при истечении срока.',
                 reply_markup=kbc.advertisement_expiry_actions(advertisement.id, has_purchased_contacts)
             )
+            # Устанавливаем флаг отправки уведомления
+            await advertisement.update(expiry_notification_sent=True)
         except Exception as e:
             logger.info(e)
 
@@ -290,6 +297,11 @@ async def handle_expiring_soon_advertisement(advertisement, kbc):
 async def handle_expiring_tomorrow_advertisement(advertisement, kbc):
     """Обработка объявления, которое истекает завтра (для длинных сроков)"""
     logger.info(f'Handling expiring tomorrow advertisement {advertisement.id}')
+    
+    # Проверяем, было ли уже отправлено уведомление
+    if advertisement.expiry_notification_sent:
+        logger.info(f'Expiry notification already sent for advertisement {advertisement.id}, skipping')
+        return
     
     customer = await Customer.get_customer(id=advertisement.customer_id)
     text = help_defs.read_text_file(advertisement.text_path)
@@ -310,6 +322,8 @@ async def handle_expiring_tomorrow_advertisement(advertisement, kbc):
                      f'{text}',
                 reply_markup=kbc.advertisement_expiry_actions(advertisement.id, has_purchased_contacts)
             )
+            # Устанавливаем флаг отправки уведомления
+            await advertisement.update(expiry_notification_sent=True)
         except Exception as e:
             logger.info(e)
 # Старая логика удалена - теперь используется новая адаптивная система
