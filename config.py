@@ -38,6 +38,25 @@ FOLDER_ID = os.getenv('FOLDER_ID', 'b1g65bqsr2f2p2k3p1jk')
 URL_VISION_API = os.getenv('URL_VISION_API', 'https://vision.api.cloud.yandex.net/vision/v1/batchAnalyze')
 YANDEX_API_SECRET_KEY = os.getenv('YANDEX_API_SECRET_KEY', '')
 
+# Web App URL
+WEB_APP_URL = os.getenv('WEB_APP_URL')
+print(WEB_APP_URL)
+if not WEB_APP_URL:
+    # Пытаемся найти URL в frontend/.env
+    try:
+        with open('frontend/.env', 'r') as f:
+            for line in f:
+                if line.startswith('VITE_TUNNEL_URL='):
+                    tunnel_url = line.strip().split('=')[1]
+                    WEB_APP_URL = f"https://{tunnel_url}"
+                    break
+    except Exception:
+        pass
+
+if not WEB_APP_URL:
+    WEB_APP_URL = "https://example.com" # Fallback
+
+
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

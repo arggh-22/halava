@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>System Notifications &amp; Payments</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0586c7",
+                        "background-light": "#f5f7f8",
+                        "background-dark": "#0f1c23",
+                        "success": "#34c759",
+                        "premium": "#ff9f0a",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .glass-header {
+            background: rgba(15, 28, 35, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        .glass-nav {
+            background: rgba(15, 28, 35, 0.9);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-white min-h-screen">
+<div class="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden pb-24">
+<!-- Top App Bar (iOS Style) -->
+<div class="sticky top-0 z-50 glass-header border-b border-white/5 px-4 pt-4 pb-2">
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary cursor-pointer">chevron_left</span>
+<h2 class="text-xl font-bold leading-tight tracking-tight">Notifications</h2>
+</div>
+<button class="p-2 hover:bg-white/5 rounded-full transition-colors">
+<span class="material-symbols-outlined text-primary">done_all</span>
+</button>
+</div>
+<!-- Segmented Control -->
+<div class="flex h-10 w-full items-center justify-center rounded-full bg-white/5 p-1 mb-2">
+<label class="flex cursor-pointer h-full grow items-center justify-center rounded-full px-2 text-[#9bb0bb] text-sm font-medium transition-all">
+<span class="truncate">Activity</span>
+<input class="hidden" name="filter" type="radio" value="Activity"/>
+</label>
+<label class="flex cursor-pointer h-full grow items-center justify-center rounded-full px-2 bg-primary text-white shadow-lg text-sm font-medium transition-all">
+<span class="truncate">System</span>
+<input checked="" class="hidden" name="filter" type="radio" value="System"/>
+</label>
+</div>
+</div>
+<!-- Content Area -->
+<div class="flex flex-col gap-4 p-4">
+<!-- Payment Successful Notification -->
+<div class="group relative flex flex-col gap-3 rounded-2xl bg-white/5 border border-white/10 p-4 transition-all hover:bg-white/10">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-4">
+<div class="flex size-12 shrink-0 items-center justify-center rounded-full bg-success/20 text-success">
+<span class="material-symbols-outlined font-bold">check_circle</span>
+</div>
+<div class="flex flex-col">
+<p class="text-base font-semibold leading-normal">Payment Successful</p>
+<p class="text-slate-400 text-sm font-normal">Your payment for 'UI Design Project' has been confirmed.</p>
+</div>
+</div>
+<span class="text-slate-500 text-[12px] whitespace-nowrap pt-1">2m ago</span>
+</div>
+<div class="flex items-center justify-between bg-black/20 rounded-xl p-3 mt-1 border border-white/5">
+<p class="text-sm font-medium">Invoice #INV-2024-001</p>
+<a class="flex items-center gap-1 text-primary text-sm font-bold" href="#">
+                        View
+                        <span class="material-symbols-outlined text-sm">open_in_new</span>
+</a>
+</div>
+</div>
+<!-- Premium Status Notification -->
+<div class="group relative flex flex-col gap-4 rounded-2xl bg-white/5 border border-white/10 p-4 transition-all hover:bg-white/10">
+<div class="flex items-stretch justify-between gap-4">
+<div class="flex flex-col flex-1 gap-2">
+<div class="flex items-center gap-2">
+<div class="flex size-8 shrink-0 items-center justify-center rounded-full bg-premium/20 text-premium">
+<span class="material-symbols-outlined text-sm fill-1">star</span>
+</div>
+<p class="text-base font-semibold">Premium Status Active</p>
+</div>
+<p class="text-slate-400 text-sm leading-relaxed">Your account is now boosted. Enjoy priority in search results and 0% commission on your first 3 orders.</p>
+<button class="flex items-center justify-center rounded-full h-9 px-6 bg-premium text-black text-sm font-bold w-fit mt-2">
+                            Renew Now
+                        </button>
+</div>
+<div class="w-24 h-24 bg-center bg-no-repeat bg-cover rounded-2xl border border-white/10" data-alt="Vibrant orange and gold abstract geometric patterns representing premium status" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuBTjpTuxb0Vp7_J8VU-kTMaJANDHe2pr5X0gkIjpdXWoVXgJi6H7jIEpU4yGd1NUbp7CgQ87iG-Fv72XwPXiKcbWAYgZOG3u9yEPmdvKJtYhTjdwVRL4R5qaI9GDEXYN0yIjsQzckvJN7v7KdXXzv5qX7myd_PIsUSxtI6gr529Mt4AoRYp94OSteDDwZlVIN9qLmH6oDS5qXq0EUs6fLYW1tB0LSBfgzahJZFEp1T2In-GnBsa4EoK5M9SWhG_jP2tbBVtoCsN3oU");'>
+</div>
+</div>
+</div>
+<!-- Platform Update Notification -->
+<div class="group relative flex flex-col gap-3 rounded-2xl bg-white/5 border border-white/10 p-4 transition-all hover:bg-white/10">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-4">
+<div class="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
+<span class="material-symbols-outlined font-bold">info</span>
+</div>
+<div class="flex flex-col">
+<p class="text-base font-semibold leading-normal">System Update v2.1</p>
+<p class="text-slate-400 text-sm font-normal">We've added new escrow protections for your safety.</p>
+</div>
+</div>
+<span class="text-slate-500 text-[12px] whitespace-nowrap pt-1">3h ago</span>
+</div>
+</div>
+<!-- Withdraw Success -->
+<div class="group relative flex flex-col gap-3 rounded-2xl bg-white/5 border border-white/10 p-4 transition-all hover:bg-white/10">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-4">
+<div class="flex size-12 shrink-0 items-center justify-center rounded-full bg-success/20 text-success">
+<span class="material-symbols-outlined font-bold">account_balance_wallet</span>
+</div>
+<div class="flex flex-col">
+<p class="text-base font-semibold leading-normal">Withdrawal Dispatched</p>
+<p class="text-slate-400 text-sm font-normal">USD 1,200.00 is on its way to your linked bank account.</p>
+</div>
+</div>
+<span class="text-slate-500 text-[12px] whitespace-nowrap pt-1">Yesterday</span>
+</div>
+</div>
+</div>
+<!-- Sticky Bottom Navigation (Telegram/iOS Style) -->
+<div class="fixed bottom-0 left-0 right-0 z-50 glass-nav border-t border-white/5 px-6 pb-8 pt-2">
+<div class="flex items-center justify-between max-w-md mx-auto">
+<div class="flex flex-col items-center gap-1 group cursor-pointer">
+<span class="material-symbols-outlined text-slate-500 group-hover:text-primary transition-colors">home</span>
+<span class="text-[10px] text-slate-500 font-medium">Home</span>
+</div>
+<div class="flex flex-col items-center gap-1 group cursor-pointer">
+<span class="material-symbols-outlined text-slate-500 group-hover:text-primary transition-colors">assignment</span>
+<span class="text-[10px] text-slate-500 font-medium">Orders</span>
+</div>
+<div class="flex flex-col items-center gap-1 group cursor-pointer">
+<span class="material-symbols-outlined text-primary fill-1">notifications</span>
+<span class="text-[10px] text-primary font-bold">Alerts</span>
+</div>
+<div class="flex flex-col items-center gap-1 group cursor-pointer">
+<span class="material-symbols-outlined text-slate-500 group-hover:text-primary transition-colors">account_circle</span>
+<span class="text-[10px] text-slate-500 font-medium">Profile</span>
+</div>
+</div>
+</div>
+</div>
+</body></html>

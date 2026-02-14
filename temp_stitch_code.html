@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Notification Center - All Feed</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0586c7",
+                        "background-light": "#f5f7f8",
+                        "background-dark": "#0f1c23",
+                        "ios-dark": "#0a0a0a",
+                        "ios-card": "#1c1c1e",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        .ios-blur {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-light dark:bg-ios-dark text-slate-900 dark:text-white font-display">
+<!-- Screen Container -->
+<div class="relative flex h-screen w-full max-w-[430px] mx-auto flex-col overflow-hidden bg-background-light dark:bg-ios-dark shadow-2xl">
+<!-- Status Bar Simulator (iOS style) -->
+<div class="flex justify-between items-center px-6 pt-3 pb-1 text-xs font-semibold z-50">
+<span>9:41</span>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">signal_cellular_4_bar</span>
+<span class="material-symbols-outlined text-[14px]">wifi</span>
+<span class="material-symbols-outlined text-[18px]">battery_full</span>
+</div>
+</div>
+<!-- Sticky Blurred Header -->
+<header class="sticky top-0 z-40 bg-background-light/80 dark:bg-ios-dark/80 ios-blur px-4 pt-2 pb-4">
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-1 text-primary">
+<span class="material-symbols-outlined">chevron_left</span>
+<span class="text-base font-medium">Back</span>
+</div>
+<h1 class="text-lg font-bold">Notifications</h1>
+<div class="w-10"></div> <!-- Spacer for symmetry -->
+</div>
+<!-- Segmented Control -->
+<div class="flex h-10 w-full items-center justify-center rounded-full bg-slate-200/50 dark:bg-white/10 p-1">
+<label class="flex cursor-pointer h-full grow items-center justify-center overflow-hidden rounded-full px-2 has-[:checked]:bg-white dark:has-[:checked]:bg-[#3a3a3c] has-[:checked]:shadow-sm text-slate-500 dark:text-[#9bb0bb] has-[:checked]:text-slate-900 dark:has-[:checked]:text-white text-[13px] font-semibold leading-normal transition-all">
+<span class="truncate">All</span>
+<input checked="" class="invisible w-0" name="filter" type="radio" value="All"/>
+</label>
+<label class="flex cursor-pointer h-full grow items-center justify-center overflow-hidden rounded-full px-2 has-[:checked]:bg-white dark:has-[:checked]:bg-[#3a3a3c] has-[:checked]:shadow-sm text-slate-500 dark:text-[#9bb0bb] has-[:checked]:text-slate-900 dark:has-[:checked]:text-white text-[13px] font-semibold leading-normal transition-all">
+<span class="truncate">Responses</span>
+<input class="invisible w-0" name="filter" type="radio" value="Responses"/>
+</label>
+<label class="flex cursor-pointer h-full grow items-center justify-center overflow-hidden rounded-full px-2 has-[:checked]:bg-white dark:has-[:checked]:bg-[#3a3a3c] has-[:checked]:shadow-sm text-slate-500 dark:text-[#9bb0bb] has-[:checked]:text-slate-900 dark:has-[:checked]:text-white text-[13px] font-semibold leading-normal transition-all">
+<span class="truncate">Chat</span>
+<input class="invisible w-0" name="filter" type="radio" value="Chat"/>
+</label>
+<label class="flex cursor-pointer h-full grow items-center justify-center overflow-hidden rounded-full px-2 has-[:checked]:bg-white dark:has-[:checked]:bg-[#3a3a3c] has-[:checked]:shadow-sm text-slate-500 dark:text-[#9bb0bb] has-[:checked]:text-slate-900 dark:has-[:checked]:text-white text-[13px] font-semibold leading-normal transition-all">
+<span class="truncate">System</span>
+<input class="invisible w-0" name="filter" type="radio" value="System"/>
+</label>
+</div>
+</header>
+<!-- Notification Feed -->
+<main class="flex-1 overflow-y-auto px-4 py-2 space-y-3">
+<!-- Quick Action -->
+<div class="flex justify-end pb-1">
+<button class="text-primary text-[13px] font-semibold active:opacity-60">Mark all as read</button>
+</div>
+<!-- Card: New Response (Worker) -->
+<div class="relative flex flex-col gap-3 rounded-xl bg-white dark:bg-ios-card p-4 shadow-sm border border-slate-100 dark:border-white/5">
+<div class="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary"></div>
+<div class="flex items-center gap-3">
+<div class="relative">
+<div class="h-12 w-12 rounded-full bg-center bg-cover border border-slate-200 dark:border-white/10" data-alt="Professional male freelancer headshot profile picture" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDSCL_KVuFxhZm1FVS3SiVaUwVxTLHYKEO6HlUR_lOBrR64ZcRLOwJ2B3PD0uhOpyawr5wA6N0dCc-u9OGoSzn6jc_vkINI-AEG_QX9PT0Me2mnqGCV0MYweSH4wWh0_k8_php7Ty5_wbAstTQ_Zk0fpnBzjKl22g0omTJ5LVKiaYHWJ0YBuLEOc-qx9jNVUN_FKyB7R7sr0PsC9JGQwy7Kw6x9Wd_XxB0ASUQvBVXDedG7eJg5YJt1iUsBeGuwQj9LbGk0y5PyFVE");'></div>
+<div class="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white text-[10px] font-bold">
+<span class="material-symbols-outlined text-[12px] leading-none">bolt</span>
+</div>
+</div>
+<div class="flex flex-col flex-1">
+<div class="flex items-center justify-between">
+<p class="text-[15px] font-bold dark:text-white">Alex M. <span class="text-amber-400 font-medium">4.9★</span></p>
+<span class="text-slate-400 dark:text-slate-500 text-[12px]">2m ago</span>
+</div>
+<p class="text-slate-600 dark:text-slate-400 text-sm leading-snug">Applied to your <span class="text-primary font-medium">Logo Design for Fintech</span> project.</p>
+</div>
+</div>
+<div class="flex gap-2 pl-15">
+<button class="flex-1 py-2 rounded-lg bg-primary text-white text-sm font-semibold">View Proposal</button>
+<button class="px-4 py-2 rounded-lg bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-white text-sm font-semibold">Decline</button>
+</div>
+</div>
+<!-- Card: New Order (Customer) -->
+<div class="flex flex-col gap-3 rounded-xl bg-white dark:bg-ios-card p-4 shadow-sm border border-slate-100 dark:border-white/5">
+<div class="flex items-start gap-3">
+<div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+<span class="material-symbols-outlined text-[28px]">work</span>
+</div>
+<div class="flex flex-col flex-1">
+<div class="flex items-center justify-between">
+<p class="text-[15px] font-bold dark:text-white">New Order Available</p>
+<span class="text-slate-400 dark:text-slate-500 text-[12px]">15m ago</span>
+</div>
+<p class="text-slate-600 dark:text-slate-400 text-sm leading-snug mb-1">UI/UX Designer needed for mobile app prototype.</p>
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[11px] font-bold">BUDGET $500</span>
+<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-500 text-[11px] font-bold">VERIFIED</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card: Contact Purchase (Green Highlights) -->
+<div class="flex flex-col gap-3 rounded-xl bg-white dark:bg-ios-card p-4 shadow-sm border border-emerald-500/30 dark:border-emerald-500/20 ring-1 ring-emerald-500/10">
+<div class="flex items-start gap-3">
+<div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
+<span class="material-symbols-outlined text-[28px]">phone_iphone</span>
+</div>
+<div class="flex flex-col flex-1">
+<div class="flex items-center justify-between">
+<p class="text-[15px] font-bold dark:text-white">Details Purchased</p>
+<span class="text-slate-400 dark:text-slate-500 text-[12px]">1h ago</span>
+</div>
+<p class="text-slate-600 dark:text-slate-400 text-sm leading-snug">A client purchased your contact info for <span class="italic">'Mobile App Dev'</span>. Expect a message soon!</p>
+</div>
+</div>
+</div>
+<!-- Card: System Message -->
+<div class="flex items-center gap-4 rounded-xl bg-white dark:bg-ios-card p-4 shadow-sm border border-slate-100 dark:border-white/5 opacity-80">
+<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 dark:bg-white/5 text-slate-500 dark:text-slate-400">
+<span class="material-symbols-outlined text-[22px]">settings</span>
+</div>
+<div class="flex flex-col flex-1">
+<div class="flex items-center justify-between">
+<p class="text-[14px] font-semibold dark:text-slate-200">System Update</p>
+<span class="text-slate-400 dark:text-slate-500 text-[11px]">4h ago</span>
+</div>
+<p class="text-slate-500 dark:text-slate-500 text-[13px] line-clamp-1">Service fee reduced for your next 3 projects.</p>
+</div>
+</div>
+<div class="h-20"></div> <!-- Spacer for scrolling -->
+</main>
+<!-- iOS Bottom Tab Bar -->
+<nav class="absolute bottom-0 w-full bg-background-light/95 dark:bg-ios-dark/95 ios-blur border-t border-slate-200 dark:border-white/10 px-6 pb-8 pt-3">
+<div class="flex justify-between items-center">
+<div class="flex flex-col items-center gap-1 text-slate-400">
+<span class="material-symbols-outlined text-[26px]">home</span>
+<span class="text-[10px] font-medium">Home</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-slate-400">
+<span class="material-symbols-outlined text-[26px]">assignment</span>
+<span class="text-[10px] font-medium">Orders</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-primary relative">
+<span class="material-symbols-outlined text-[26px] fill-current">notifications</span>
+<span class="text-[10px] font-bold">Alerts</span>
+<div class="absolute top-0 right-1 w-2 h-2 rounded-full bg-red-500 border-2 border-ios-dark"></div>
+</div>
+<div class="flex flex-col items-center gap-1 text-slate-400">
+<span class="material-symbols-outlined text-[26px]">account_circle</span>
+<span class="text-[10px] font-medium">Profile</span>
+</div>
+</div>
+</nav>
+<!-- Home Indicator (iOS Bar) -->
+<div class="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-32 h-1 rounded-full bg-slate-300 dark:bg-white/20 z-50"></div>
+</div>
+</body></html>

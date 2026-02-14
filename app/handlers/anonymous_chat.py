@@ -20,6 +20,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import CallbackQuery, Message, InputMediaPhoto, FSInputFile, LabeledPrice, PreCheckoutQuery
 
 from app.states import WorkStates, CustomerStates
+from app.untils.message_utils import safe_edit_message
 from app.keyboards import KeyboardCollection
 from app.data.database.models import (
     Worker, Customer, Abs, WorkersAndAbs, ContactExchange, ContactTransaction, WorkerResponseCancellation,
@@ -515,21 +516,38 @@ async def send_or_update_chat_message(user_id: int, user_type: str, abs_id: int,
             )
 
         # Проверяем, нужно ли отправлять уведомление
-        from app.untils.notification_helper import should_send_notification
+        from app.untils.notification_helper import create_notification, should_send_notification
         
-        notification_type = 'customer' if user_type == 'customer' else 'worker'
-        if not await should_send_notification(user_id, notification_type):
-            return
+        notification_type = 'anonymous_chat'
+        target_role = 'customer' if user_type == 'customer' else 'worker'
         
-        # Проверяем, есть ли уже сообщение чата для этого пользователя
-        # Для простоты пока отправляем новое сообщение каждый раз
-        # В будущем можно добавить сохранение message_id в базе данных
-        await bot.send_message(
-            chat_id=user_id,
-            text=full_text,
-            reply_markup=reply_markup,
-            parse_mode='HTML'
+        should_push_setting = await should_send_notification(user_id, target_role)
+        
+        # Формируем заголовок для уведомления (краткий)
+        if user_type == "customer":
+             short_title = f"💬 Новое сообщение по объявлению #{abs_id}"
+             short_body = f"Исполнитель: {worker.profile_name or 'Исполнитель'}\n\n{message_text[:100]}..."
+        else:
+             short_title = f"💬 Новое сообщение по объявлению #{abs_id}"
+             short_body = f"Заказчик: ID#{customer.id}\n\n{message_text[:100]}..."
+
+        should_push = await create_notification(
+            tg_id=user_id,
+            notification_type=notification_type,  
+            title=short_title,
+            body=short_body,
+            payload={'abs_id': abs_id, 'worker_id': worker.id},
+            bot=bot if should_push_setting else None
         )
+        
+        if should_push:
+             # Если нужно пушить (например, критично или ошибка Smart Logic), отправляем как раньше
+            await bot.send_message(
+                chat_id=user_id,
+                text=full_text,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
 
     except Exception as e:
         logger.error(f"Error in send_or_update_chat_message: {e}")
@@ -980,12 +998,21 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
         from app.untils.notification_helper import should_send_notification
         
         if await should_send_notification(customer.tg_id, 'customer'):
-            kbc = KeyboardCollection()
-            await bot.send_message(
-                chat_id=customer.tg_id,
-                text=customer_notification,
-                parse_mode='HTML',
-                reply_markup=kbc.get_customer_keyboard(worker.id, abs_id),
+            # Save to DB for Web App (and apply Smart Logic if possible)
+            from app.untils.notification_helper import create_notification
+            
+            # Clean text for Web App body
+            push_body = f"Исполнитель отклонил получение контактов по объявлению #{abs_id}"
+            
+            # We use bot=bot to trigger Smart Logic (Web App button)
+            # We ignore the return value because we do NOT want to send a manual message anymore
+            await create_notification(
+                tg_id=customer.tg_id,
+                notification_type='worker_contact_reject',
+                title="Исполнитель отклонил получение контактов",
+                body=push_body,
+                payload={'abs_id': abs_id, 'worker_id': worker.id},
+                bot=bot 
             )
 
         # Удаляем запись ContactExchange
@@ -1084,16 +1111,22 @@ async def decline_contact_share(callback: CallbackQuery, state: FSMContext):
             "Вы можете запросить контакт позже."
         )
 
-        # Проверяем, нужно ли отправлять уведомление исполнителю
-        from app.untils.notification_helper import should_send_notification
+        # Save notification to DB for Web App
+        from app.untils.notification_helper import create_notification, should_send_notification
         
-        if await should_send_notification(worker.tg_id, 'worker'):
-            await bot.send_message(
-                chat_id=worker.tg_id,
-                text=notification_text,
-                parse_mode='HTML',
-                reply_markup=kbc.get_worker_keyboard(abs_id),
-            )
+        # Clean text for Web App body (no HTML)
+        push_body = f"Заказчик отклонил передачу контактов по объявлению #{abs_id}"
+        
+        should_push = await should_send_notification(worker.tg_id, 'worker')
+        
+        await create_notification(
+            tg_id=worker.tg_id,
+            notification_type='contact_reject',
+            title="Передача контактов отклонена",
+            body=push_body,
+            payload={'abs_id': abs_id, 'worker_id': worker_id},
+            bot=callback.bot if should_push else None
+        )
 
         # Удаляем сообщение с предложением контактов, если оно есть
         if message_id_to_delete:
@@ -1272,15 +1305,25 @@ async def offer_contact_share(callback: CallbackQuery, state: FSMContext):
             return
         
         kbc = KeyboardCollection()
-        message = await bot.send_message(
-            chat_id=worker.tg_id,
-            text=notification_text,
-            reply_markup=kbc.accept_contact_offer_keyboard(has_history, worker_id, abs_id),
-            parse_mode='HTML'
+        
+        # Save to DB for Web App (and apply Smart Logic if possible)
+        from app.untils.notification_helper import create_notification
+        
+        # Clean text for Web App body (short preview) - 2 lines for better visibility (Title + 2 lines body)
+        push_body = f"Заказчик предлагает контакты\nпо объявлению #{abs_id}"
+        
+        # Use bot=bot to trigger Smart Logic (Web App button)
+        await create_notification(
+            tg_id=worker.tg_id,
+            notification_type='contact_offer',
+            title="Заказчик предлагает передать контакты!",
+            body=push_body,
+            payload={'abs_id': abs_id, 'worker_id': worker.id},
+            bot=bot 
         )
 
-        # Сохраняем message_id в ContactExchange
-        await contact_exchange.update(message_id=message.message_id)
+        # Сохраняем message_id в ContactExchange как None, так как сообщение с кнопками будет отправлено только при открытии уведомления
+        await contact_exchange.update(message_id=0)
 
         # Обновляем кнопки заказчика
         # Получаем текст или caption (если было фото)
@@ -1634,17 +1677,21 @@ async def reject_contact_offer(callback: CallbackQuery, state: FSMContext):
                 if await should_send_notification(customer.tg_id, 'customer'):
                     # Уведомляем заказчика только если объявление и заказчик еще существуют
                     try:
-                        kbc = KeyboardCollection()
-
-                        await bot.send_message(
-                            chat_id=customer.tg_id,
-                            text=f"❌ <b>Исполнитель отклонил получение контактов</b>\n\n"
-                                 f"📋 Объявление: #{abs_id}\n"
-                                 f"👤 Исполнитель: ID#{worker.id}\n\n"
-                                 f"📝 <b>Текст объявления:</b>\n{ad_text}"
-                                 f"Исполнитель не готов получить контакты в данный момент.",
-                            parse_mode='HTML',
-                            reply_markup=kbc.get_customer_keyboard(worker.id, abs_id),
+                         # Save to DB for Web App (and apply Smart Logic if possible)
+                        from app.untils.notification_helper import create_notification
+                        
+                        # Clean text for Web App body
+                        push_body = f"Исполнитель отклонил получение контактов по объявлению #{abs_id}"
+                        
+                        # We use bot=bot to trigger Smart Logic (Web App button)
+                        # We ignore the return value because we do NOT want to send a manual message anymore
+                        await create_notification(
+                            tg_id=customer.tg_id,
+                            notification_type='worker_contact_reject',
+                            title="Исполнитель отклонил получение контактов",
+                            body=push_body,
+                            payload={'abs_id': abs_id, 'worker_id': worker.id},
+                            bot=bot 
                         )
                     except Exception as e:
                         logger.warning(f"Could not notify customer about contact rejection: {e}")
@@ -2071,7 +2118,6 @@ async def reply_in_worker_chat(callback: CallbackQuery, state: FSMContext):
         await state.set_state(WorkStates.worker_anonymous_chat)
 
         # Безопасное редактирование сообщения
-        from app.untils.message_utils import safe_edit_message
         await safe_edit_message(
             callback=callback,
             text=f"💬 <b>Чат с заказчиком</b>\n\n"
@@ -2386,7 +2432,6 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
             except Exception as e:
                 logger.error(f"[VIEW_MY_RESPONSE] Error showing photo for abs_id={abs_id}: {e}", exc_info=True)
                 # Если фото не загрузилось, показываем текстом с безопасным редактированием
-                from app.untils.message_utils import safe_edit_message
                 await safe_edit_message(
                     callback=callback,
                     text=text,
@@ -2404,7 +2449,6 @@ async def view_my_response(callback: CallbackQuery, state: FSMContext):
             logger.warning(
                 f"[VIEW_MY_RESPONSE] No photo to show: abs_id={abs_id}, count_photo={count_photo}, photo_dict={photo_dict}")
             # Используем безопасное редактирование сообщения
-            from app.untils.message_utils import safe_edit_message
             await safe_edit_message(
                 callback=callback,
                 text=text,
@@ -2489,7 +2533,6 @@ async def cancel_worker_response_confirm(callback: CallbackQuery, state: FSMCont
         builder.adjust(1)
 
         # Безопасное редактирование сообщения
-        from app.untils.message_utils import safe_edit_message
         await safe_edit_message(
             callback=callback,
             text=confirmation_text,
@@ -2602,7 +2645,6 @@ async def confirm_cancel_worker_response(callback: CallbackQuery, state: FSMCont
 
         # Возвращаемся к списку откликов
 
-        from app.untils.message_utils import safe_edit_message
         responses = await WorkersAndAbs.get_by_worker(worker_id=worker.id)
 
         if responses:
@@ -2923,60 +2965,33 @@ async def request_contact_original(callback: CallbackQuery, state: FSMContext):
         notification_text += f"📅 <b>Зарегистрирован:</b> {worker.registration_data}\n\n"
 
         notification_text += "❓ <b>Подтвердить передачу контакта?</b>"
-
-        kbc = KeyboardCollection()
-
-        # Проверяем, нужно ли отправлять уведомление заказчику
-        from app.untils.notification_helper import should_send_notification
         
-        if await should_send_notification(customer.tg_id, 'customer'):
-            # Отправляем с фото или без
-            if worker.profile_photo:
-                try:
-                    from aiogram.types import FSInputFile
-                    await bot.send_photo(
-                        chat_id=customer.tg_id,
-                        photo=FSInputFile(worker.profile_photo),
-                        caption=notification_text,
-                        reply_markup=kbc.anonymous_chat_customer_buttons(
-                            worker_id=worker.id,
-                            abs_id=abs_id,
-                            contact_requested=True,
-                            contact_sent=False,
-                            contacts_purchased=False
-                        ),
-                        parse_mode='HTML'
-                    )
-                except Exception:
-                    # Если фото не загрузилось, отправляем текстом
-                    await bot.send_message(
-                        chat_id=customer.tg_id,
-                        text=notification_text,
-                        reply_markup=kbc.anonymous_chat_customer_buttons(
-                            worker_id=worker.id,
-                            abs_id=abs_id,
-                            contact_requested=True,
-                            contact_sent=False,
-                            contacts_purchased=False
-                        ),
-                        parse_mode='HTML'
-                    )
-            else:
-                await bot.send_message(
-                    chat_id=customer.tg_id,
-                    text=notification_text,
-                    reply_markup=kbc.anonymous_chat_customer_buttons(
-                        worker_id=worker.id,
-                        abs_id=abs_id,
-                        contact_requested=True,
-                        contact_sent=False,
-                        contacts_purchased=False
-                    ),
-                    parse_mode='HTML'
-                )
+
+
+        
+        # Сохраняем уведомление в БД (для Web App)
+        # Если настройки позволяют, отправляем Smart Push (через notification_helper)
+        from app.untils.notification_helper import create_notification, should_send_notification
+        
+        # Для Web App нужен текст без HTML
+        import re
+        clean_text = re.sub(r'<[^>]+>', '', notification_text)
+        
+        should_push = await should_send_notification(customer.tg_id, 'customer')
+        
+        await create_notification(
+            tg_id=customer.tg_id,
+            notification_type='contact_request',
+            title="Запрос контакта от исполнителя",
+            body=clean_text,
+            payload={'abs_id': abs_id, 'worker_id': worker.id},
+            bot=callback.bot if should_push else None
+        )
+
 
         # Безопасное редактирование сообщения
-        from app.untils.message_utils import safe_edit_message
+
+        kbc = KeyboardCollection()
         await safe_edit_message(
             callback=callback,
             text="📞 <b>Запрос отправлен заказчику</b>\n\n"
@@ -3471,7 +3486,6 @@ async def cancel_contact_request(callback: CallbackQuery):
         # Обновляем сообщение исполнителя
         kbc = KeyboardCollection()
         # Безопасное редактирование сообщения
-        from app.untils.message_utils import safe_edit_message
         await safe_edit_message(
             callback=callback,
             text="❌ <b>Запрос контакта отменен</b>\n\nВы можете запросить контакт позже.",

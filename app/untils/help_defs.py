@@ -723,14 +723,14 @@ def is_unlimited_active(worker) -> tuple[bool, str | None]:
     """
     if not worker or not worker.unlimited_contacts_until:
         return False, None
-    
+
     from datetime import datetime
-    
+
     try:
         # Пробуем разные форматы даты
         date_str = str(worker.unlimited_contacts_until).strip()
         end_date = None
-        
+
         # Пробуем fromisoformat (основной метод)
         try:
             end_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
@@ -743,14 +743,14 @@ def is_unlimited_active(worker) -> tuple[bool, str | None]:
                     break
                 except ValueError:
                     continue
-        
+
         if end_date:
             # Проверяем, что дата не истекла (>= для включения текущего дня)
             is_active = end_date >= datetime.now()
             return is_active, worker.unlimited_contacts_until
         else:
             return False, worker.unlimited_contacts_until
-            
+
     except Exception as e:
         logger.error(f"Error parsing unlimited_contacts_until: {e}, value: {worker.unlimited_contacts_until}")
         return False, worker.unlimited_contacts_until
@@ -883,20 +883,20 @@ def calculate_worker_rating(stars: int, count_ratings: int) -> float:
     """
     if count_ratings == 0:
         return 5.0
-    
+
     # Стартовый фонд: 25 звезд (5 оценок по 5 звезд)
     STARTING_STARS = 25
     STARTING_RATINGS = 5
-    
+
     total_stars = stars + STARTING_STARS
     total_ratings = count_ratings + STARTING_RATINGS
-    
+
     rating = total_stars / total_ratings
-    
+
     # Ограничиваем максимальный рейтинг 5.0
     if rating > 5.0:
         return 5.0
-    
+
     return rating
 
 
@@ -914,7 +914,7 @@ def format_rating(rating: float) -> str:
     """
     # Округляем до одного знака после запятой
     rounded = round(rating, 1)
-    
+
     # Если круглое число (например 4.0), убираем .0
     if rounded == int(rounded):
         return str(int(rounded))
@@ -1081,11 +1081,7 @@ async def send_notification_to_customer(customer, worker, abs_id: int, ad_text: 
     :param abs_id: ID объявления
     :param ad_text: Текст объявления (необязательно)
     """
-    from app.untils.notification_helper import should_send_notification
-
-    # Проверяем, нужно ли отправлять уведомление
-    if not await should_send_notification(customer.tg_id, 'customer'):
-        return
+    from app.untils.notification_helper import create_notification
 
     kbc = KeyboardCollection()
 
@@ -1099,16 +1095,29 @@ async def send_notification_to_customer(customer, worker, abs_id: int, ad_text: 
         notification_text += f"📝 <b>Текст объявления:</b>\n{ad_text}"
     notification_text += "🔒 Чат закрыт — теперь вы можете продолжить общение напрямую."
 
-    # Отправляем сообщение
-    await bot.send_message(
-        chat_id=customer.tg_id,
-        text=notification_text,
-        parse_mode="HTML",
-        reply_markup=kbc.get_customer_keyboard(worker.id, abs_id)
+    # Создаем уведомление (Smart Logic)
+    # Используем тип 'info' или 'contact_shared', который НЕ критичный, чтобы использовать умную логику
+    should_push = await create_notification(
+        tg_id=customer.tg_id,
+        notification_type='info',
+        title=f"Контакты переданы исполнителю (Заказ #{abs_id})",
+        body=notification_text,
+        payload={'abs_id': abs_id, 'worker_id': worker.id},
+        bot=bot
     )
 
+    if should_push:
+        # Отправляем сообщение только если вернулось True (или для критичных, или ошибка)
+        await bot.send_message(
+            chat_id=customer.tg_id,
+            text=notification_text,
+            parse_mode="HTML",
+            reply_markup=kbc.menu()
+        )
 
-async def send_full_contacts_message_to_worker(worker, customer, abs_id: int, ad_text: str | None, event=None):
+
+async def send_full_contacts_message_to_worker(worker, customer, abs_id: int, ad_text: str | None, event=None,
+                                               history_text: str | None = None):
     """
     Отправляет исполнителю полное сообщение с объявлением и контактами, как на картинке.
     
@@ -1117,6 +1126,7 @@ async def send_full_contacts_message_to_worker(worker, customer, abs_id: int, ad
     :param abs_id: ID объявления
     :param ad_text: Текст объявления
     :param event: Событие (CallbackQuery или Message) для удаления предыдущего сообщения
+    :param history_text: История переписки (опционально)
     """
     from app.handlers.anonymous_chat import parse_contacts_message
     from aiogram.types import CallbackQuery
@@ -1127,59 +1137,78 @@ async def send_full_contacts_message_to_worker(worker, customer, abs_id: int, ad
             await event.message.delete()
         except Exception as delete_error:
             logger.debug(f"Error deleting previous message: {delete_error}")
-    
+
     # Получаем только контакты без заголовка
     contacts_only = await parse_contacts_message(customer)
-    
+
     # Формируем полное сообщение с объявлением
     message_text = f"📋 <b>Объявление #{abs_id}</b>\n\n"
-    
+
     if ad_text:
         message_text += ad_text
-    
-    message_text += f"✅ <b>Контакты получены:</b>\n\n{contacts_only}"
+
+    if history_text:
+        message_text += f"\n\n📝 <b>История переписки:</b>\n{history_text}"
+
+    message_text += f"\n\n✅ <b>Контакты получены:</b>\n\n{contacts_only}"
     message_text += "\n\n🔒 Чат закрыт — теперь вы можете продолжить общение напрямую."
-    
+
     kbc = KeyboardCollection()
-    
+
     # Отправляем сообщение через bot
     await bot.send_message(
         chat_id=worker.tg_id,
         text=message_text,
         parse_mode='HTML',
-        reply_markup=kbc.get_worker_keyboard(abs_id)
+        reply_markup=kbc.menu()
     )
 
 
-async def send_contacts_to_worker(event, worker, customer, abs_id: int, ad_text: str | None, is_msg=None, with_bot=None):
+async def send_contacts_to_worker(event, worker, customer, abs_id: int, ad_text: str | None, is_msg=None,
+                                  with_bot=None):
+    from app.untils.notification_helper import create_notification
 
-    from app.untils.notification_helper import should_send_notification
+    # Это КРИТИЧНОЕ уведомление (покупка/получение контактов), поэтому type='contact_bought'
+    # Оно должно приходить всегда.
 
-    # Проверяем, нужно ли отправлять уведомление
-    if not await should_send_notification(worker.tg_id, 'worker'):
-        return
+    # Сначала формируем контент (нужен для сохранения в истории уведомлений)
+    # Но тут структура сложная (разные способы отправки).
+    # Упростим: просто логируем сам факт "Покупка успешна" в уведомлениях
+
+    should_push = await create_notification(
+        tg_id=worker.tg_id,
+        notification_type='contact_bought',  # Critical -> returns True
+        title=f"Контакты получены (Заказ #{abs_id})",
+        body="Вы успешно получили контакты заказчика.",
+        payload={'abs_id': abs_id, 'customer_id': customer.id},
+        bot=bot
+    )
 
     kbc = KeyboardCollection()
 
-    if with_bot:
+    if with_bot and should_push:
         await bot.send_message(
             chat_id=worker.tg_id,
             text="✅ <b>Покупка успешна! Контакты получены!</b>",
             parse_mode='HTML',
             reply_markup=kbc.get_worker_keyboard(abs_id)
         )
-    elif is_msg:
+    elif is_msg and should_push:
         await event.answer(
             text="✅ <b>Покупка успешна! Контакты получены!</b>",
             parse_mode='HTML',
             reply_markup=kbc.get_worker_keyboard(abs_id)
         )
     else:
+        # Callback query case - always show alert regardless of notif settings
+        # This is immediate feedback for user action (clicking Buy button)
         await event.answer(
             text="✅ Покупка успешна! Контакты получены!",
             show_alert=True
         )
-        # Отправляем полное сообщение с объявлением и контактами
+
+    # Отправляем полное сообщение с объявлением и контактами
+    if not with_bot and not is_msg:
         await send_full_contacts_message_to_worker(worker, customer, abs_id, ad_text, event)
 
 
@@ -1204,6 +1233,7 @@ async def get_worker_status_string(worker_id: int) -> str:
 
     return " | ".join(statuses)
 
+
 async def log_message_to_admin_chat(worker, customer, abs_id: int, message_text: str, sender: str):
     """
     Отправляет лог сообщения в MESSAGE_LOG чат с кнопкой "Заблокировать".
@@ -1217,9 +1247,9 @@ async def log_message_to_admin_chat(worker, customer, abs_id: int, message_text:
     try:
         import config
         from app.keyboards import KeyboardCollection
-        
+
         kbc = KeyboardCollection()
-        
+
         # Определяем отправителя и получателя
         if sender == "worker":
             sender_id = worker.id
@@ -1235,17 +1265,17 @@ async def log_message_to_admin_chat(worker, customer, abs_id: int, message_text:
             receiver_tg_id = worker.tg_id
             sender_type = "заказчик"
             receiver_type = "исполнителю"
-        
+
         # Формируем текст сообщения для лога
         log_text = (
             f"{sender_type.capitalize()} #{sender_tg_id} отправил сообщение {receiver_type} #{receiver_tg_id}:\n"
             f'"{message_text}"'
         )
-        
+
         # Создаем клавиатуру с кнопкой "Заблокировать"
         # Используем sender_tg_id для блокировки отправителя сообщения
         reply_markup = kbc.message_log_block_button(sender_tg_id, abs_id)
-        
+
         # Отправляем сообщение в лог-чат
         await bot.send_message(
             chat_id=config.MESSAGE_LOG,
@@ -1253,10 +1283,9 @@ async def log_message_to_admin_chat(worker, customer, abs_id: int, message_text:
             parse_mode='HTML',
             reply_markup=reply_markup
         )
-        
+
     except Exception as e:
         logger.error(f"Error logging message to admin chat: {e}")
-
 
 #  _    _        _      _____              _
 # | |  | |      | |    |_   _|            | |

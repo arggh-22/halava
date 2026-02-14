@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Worker Proposals - Notification Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0586c7",
+                        "background-light": "#f5f7f8",
+                        "background-dark": "#0f1c23",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .glass-header {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            background-color: rgba(15, 28, 35, 0.85);
+        }
+        .ios-tab-bar {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            background-color: rgba(15, 28, 35, 0.9);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-light dark:bg-background-dark font-display text-gray-900 dark:text-white antialiased">
+<!-- Header Section -->
+<header class="fixed top-0 left-0 right-0 z-50 glass-header border-b border-white/10">
+<div class="flex items-center px-4 pt-4 pb-2 justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary cursor-pointer">chevron_left</span>
+<h1 class="text-lg font-bold tracking-tight">Notification Center</h1>
+</div>
+<button class="flex items-center justify-center h-10 w-10 rounded-full hover:bg-white/10 transition-colors">
+<span class="material-symbols-outlined">more_horiz</span>
+</button>
+</div>
+<!-- Tab Selector -->
+<div class="px-4 pb-3">
+<div class="flex bg-black/20 rounded-full p-1">
+<button class="flex-1 py-1.5 text-sm font-medium text-gray-400 rounded-full">
+                    Notifications
+                </button>
+<button class="flex-1 py-1.5 text-sm font-bold text-white bg-primary rounded-full shadow-lg">
+                    Responses
+                </button>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="pt-32 pb-24 px-4 space-y-4">
+<!-- Worker Proposal Card 1 -->
+<div class="relative overflow-hidden rounded-xl bg-white/5 dark:bg-white/5 border border-white/10">
+<div class="flex items-start gap-4 p-4">
+<div class="shrink-0">
+<div class="h-14 w-14 rounded-full bg-center bg-cover border-2 border-primary/20" data-alt="Professional portrait of a male worker avatar" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuC5QrHQLX30ll2lDtc1zcJIpxPHGpPHb2xAAxEHFOXNC0sX1hX4KD9yNKt28xY6UE_dvE9n5W9m3R7QF3mHL-o9kxHXydNoZmtjSyu7kkGQv5mkmCJuwUMmzrjKVqJV502ji3zOEXJRkMzaIMmuSCsYxJuUtdBUXW-YrkMaRUmZERFQF0l-JJUqxWycJNMLacXEnzP6Hubr3fiUBhaBLijB1X-rWA2A3oTJlpXe0xjc0ia48tm90XGrEM7kzZFvR8WKpBvUCtdsO08");'></div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-start mb-1">
+<div>
+<h3 class="font-bold text-base truncate">Alex R.</h3>
+<div class="flex items-center gap-1 text-primary text-xs font-bold">
+<span class="material-symbols-outlined text-[14px] fill-1">star</span>
+<span>4.8</span>
+<span class="text-gray-500 font-normal ml-1">• UI/UX Expert</span>
+</div>
+</div>
+<span class="text-[10px] text-gray-500 uppercase font-bold">2m ago</span>
+</div>
+<p class="text-sm text-gray-400 line-clamp-2 leading-relaxed mb-3">
+                        I've seen your project requirements for the marketplace bot. I have 5 years of experience in Telegram Mini App design...
+                    </p>
+<button class="w-full py-2.5 bg-primary text-white text-sm font-bold rounded-full transition-transform active:scale-95 shadow-md shadow-primary/20">
+                        View Response
+                    </button>
+</div>
+</div>
+</div>
+<!-- Worker Proposal Card 2 (Swiping State) -->
+<div class="relative rounded-xl bg-white/5 border border-white/10 overflow-hidden">
+<!-- Swipe Actions Background -->
+<div class="absolute inset-0 flex justify-end">
+<div class="w-20 bg-gray-600 flex flex-col items-center justify-center text-white cursor-pointer">
+<span class="material-symbols-outlined mb-1">mark_email_read</span>
+<span class="text-[10px] font-bold">Read</span>
+</div>
+<div class="w-20 bg-red-600 flex flex-col items-center justify-center text-white cursor-pointer">
+<span class="material-symbols-outlined mb-1">delete</span>
+<span class="text-[10px] font-bold">Delete</span>
+</div>
+</div>
+<!-- Foreground Card (Swiped Left) -->
+<div class="relative flex items-start gap-4 p-4 bg-[#1b2a32] transition-transform translate-x-[-160px] border-r border-white/10">
+<div class="shrink-0">
+<div class="h-14 w-14 rounded-full bg-center bg-cover border-2 border-primary/20" data-alt="Professional woman portrait for worker profile" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDP59VvxOJBX_z9DmbWMijlieTQLE_3cihO2QcMqh_XAPZ-SsfliCUU6u45GZkqDkhS0UQpxiMQPqvFHVRtO1AR4w8u-tt7LjED2xdvxAHcKoOZrt9WiADMjOU4EoLDRFWdhqjSufNbNfGb0QFsrXIiVEsy9ArLgyydLkICOeY3RsTZN3brDa0q5NOdF2CiYrAaIlCC8loMEgQCcIwqR6uWBd7IKlUdq3HguOBt8R8ShTkMRgOdF8G7zKnY51ZCcluX0AlDFQyrZEo");'></div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-start mb-1">
+<div>
+<h3 class="font-bold text-base truncate">Sarah M.</h3>
+<div class="flex items-center gap-1 text-primary text-xs font-bold">
+<span class="material-symbols-outlined text-[14px] fill-1">star</span>
+<span>5.0</span>
+<span class="text-gray-500 font-normal ml-1">• Product Designer</span>
+</div>
+</div>
+<span class="text-[10px] text-gray-500 uppercase font-bold">15m ago</span>
+</div>
+<p class="text-sm text-gray-400 line-clamp-2 leading-relaxed mb-3">
+                        Highly interested in your project. I can start immediately and deliver high quality Figma prototypes within 48 hours...
+                    </p>
+<button class="w-full py-2.5 bg-primary text-white text-sm font-bold rounded-full shadow-md shadow-primary/20">
+                        View Response
+                    </button>
+</div>
+</div>
+</div>
+<!-- Worker Proposal Card 3 -->
+<div class="relative overflow-hidden rounded-xl bg-white/5 border border-white/10">
+<div class="flex items-start gap-4 p-4">
+<div class="shrink-0">
+<div class="h-14 w-14 rounded-full bg-center bg-cover border-2 border-primary/20" data-alt="Man in business casual for profile picture" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDY9koohnYQk4DLyjo2UXdtrA-gmUt2Qq-kH4qXZCC0y4sVfc0IngCN_Fic0CmcUPbEkwHLie3S2YhwTEw6VYjw5zjasT3Hjiov0gy2fyk5WiQZI6K9NGl9ZjuMWdYDVXTHGw7tSUujYqAoupfqZSoKh19g9377Sl7VWclHAmB1VLNIVJvNpjNPINNZfe-HxDnrzVJ4wgmp4M0vGtnnYh9UoINn9Ek9SskF6Hpd9j4MpEJhFzCvnQjt3fD9yvkXZJZGNHM67uN6dp0");'></div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-start mb-1">
+<div>
+<h3 class="font-bold text-base truncate">Jordan K.</h3>
+<div class="flex items-center gap-1 text-primary text-xs font-bold">
+<span class="material-symbols-outlined text-[14px] fill-1">star</span>
+<span>4.9</span>
+<span class="text-gray-500 font-normal ml-1">• Full Stack Dev</span>
+</div>
+</div>
+<span class="text-[10px] text-gray-500 uppercase font-bold">1h ago</span>
+</div>
+<p class="text-sm text-gray-400 line-clamp-2 leading-relaxed mb-3">
+                        I've built several Telegram bots recently. I can integrate the notification system and user auth seamlessly...
+                    </p>
+<button class="w-full py-2.5 bg-primary text-white text-sm font-bold rounded-full shadow-md shadow-primary/20">
+                        View Response
+                    </button>
+</div>
+</div>
+</div>
+<!-- Worker Proposal Card 4 -->
+<div class="relative overflow-hidden rounded-xl bg-white/5 border border-white/10 opacity-80">
+<div class="flex items-start gap-4 p-4">
+<div class="shrink-0">
+<div class="h-14 w-14 rounded-full bg-center bg-cover border-2 border-white/10 grayscale" data-alt="Business woman portrait grayed out" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDWVhwVraEakw35t5EaS3gpMauB0z2nIMe1BP552Hg36aP6FrVJdE7EycX02oWHHsrQvpm3Cm7wJg-s1ytOzcs0SCjX27xMn9RyhQZS9CgDyIH-DEcRvnbHp5wIjevf6SzW6o7dHhLkvsJ-od31K383-atYvGfdQpvprerd3m1IKQ7KiFGrUlFj7_ly3gPXtOCuL8bL9yVx2ylfu2YZcS8H2Fkus9ZLeyCR2OJhbynh21ZYTAY6aA4_XbyKTJJmRA3Yl-jaPGmivaw");'></div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-start mb-1">
+<div>
+<h3 class="font-bold text-base truncate text-gray-400">Elena V.</h3>
+<div class="flex items-center gap-1 text-gray-500 text-xs font-bold">
+<span class="material-symbols-outlined text-[14px]">star</span>
+<span>4.7</span>
+<span class="text-gray-600 font-normal ml-1">• Copywriter</span>
+</div>
+</div>
+<span class="text-[10px] text-gray-600 uppercase font-bold">3h ago</span>
+</div>
+<p class="text-sm text-gray-500 line-clamp-2 leading-relaxed mb-3">
+                        Read (Seen)
+                    </p>
+<button class="w-full py-2.5 bg-white/10 text-white/50 text-sm font-bold rounded-full">
+                        View History
+                    </button>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 left-0 right-0 z-50 ios-tab-bar border-t border-white/5 px-6 pb-8 pt-2">
+<div class="flex justify-between items-center max-w-md mx-auto">
+<a class="flex flex-col items-center gap-1 text-gray-500" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="text-[10px] font-medium">Home</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-gray-500" href="#">
+<span class="material-symbols-outlined">shopping_bag</span>
+<span class="text-[10px] font-medium">Orders</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined fill-1">notifications</span>
+<span class="text-[10px] font-bold">Alerts</span>
+<div class="h-1 w-1 bg-primary rounded-full"></div>
+</a>
+<a class="flex flex-col items-center gap-1 text-gray-500" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="text-[10px] font-medium">Profile</span>
+</a>
+</div>
+</nav>
+</body></html>

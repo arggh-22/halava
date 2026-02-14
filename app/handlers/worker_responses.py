@@ -446,11 +446,20 @@ async def confirm_reject_customer_response(callback: CallbackQuery, state: FSMCo
 
         from loaders import bot
         try:
-            await bot.send_message(
-                chat_id=worker.tg_id,
-                text=f"📨 Заказчик отклонил ваш отклик на объявление #{abs_id}\n\n"
-                     f"Это не влияет на вашу активность.",
-                reply_markup=kbc.worker_menu()
+            from app.untils.notification_helper import create_notification, should_send_notification
+
+            # Clean text for Web App body (no HTML)
+            push_body = f"Заказчик отклонил ваш отклик на объявление #{abs_id}"
+
+            should_push = await should_send_notification(worker.tg_id, 'worker')
+
+            await create_notification(
+                tg_id=worker.tg_id,
+                notification_type='response_rejected',
+                title="Отклик отклонен",
+                body=push_body,
+                payload={'abs_id': abs_id, 'worker_id': worker.id},
+                bot=bot if should_push else None
             )
         except Exception as e:
             logger.error(f"Error sending rejection notification to worker {worker.tg_id}: {e}")
@@ -767,39 +776,46 @@ async def response_without_text(callback: CallbackQuery, state: FSMContext):
             applyed=True
         )
 
-        # Формируем уведомление с профилем исполнителя
+        # Формируем заголовок: Имя + Рейтинг
         notification_text = f"📨 <b>Новый отклик на ваше объявление!</b>\n\n"
-        notification_text += f"📋 Объявление: #{abs_id}\n\n"
 
-        # ID и имя - показываем имя если есть, иначе ID
-        if worker.profile_name:
-            notification_text += f"👤 <b>ID:</b> {worker.profile_name}\n"
-        else:
-            notification_text += f"👤 <b>ID:</b> {worker.id}\n"
-
-        # Рейтинг - всегда показываем, даже если нет оценок
+        worker_name = worker.profile_name if worker.profile_name else f"Исполнитель #{worker.id}"
         rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
-        notification_text += f"⭐ <b>Рейтинг:</b> {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
+        rating_word = get_rating_word(count_ratings)
+        notification_title = f"{worker_name} {rating_display}★ ({count_ratings} {rating_word})"
 
-        # Статус верификации и регистрации (всегда показываем)
+        # Формируем тело уведомления (без лишнего приветствия)
+        notification_text += f"📋 <b>Объявление: #{abs_id}</b>\n"
+        
+        # Статус верификации и регистрации
         status_string = await get_worker_status_string(worker.id)
-        notification_text += f"📋 <b>Статус:</b> {status_string}\n"
-
-        # Выполнено заказов
-        notification_text += f"📦 <b>Выполнено заказов:</b> {worker.order_count}\n"
-
-        # Дата регистрации
-        notification_text += f"📅 <b>Зарегистрирован:</b> {worker.registration_data}\n\n"
-
-        notification_text += "💬 Исполнитель откликнулся без сообщения."
+        notification_text += f"✅ <b>Статус:</b> {status_string}\n"
+        
+        # Выполнено заказов и дата
+        notification_text += f"📦 <b>Заказов:</b> {worker.order_count}  📅 <b>В базе с:</b> {worker.registration_data}\n\n"
+        
+        notification_text += "💬 <b>Исполнитель откликнулся без сообщения.</b>"
 
         # Проверяем наличие портфолио у исполнителя
         has_portfolio = worker.portfolio_photo is not None and len(worker.portfolio_photo) > 0
 
         # Проверяем, нужно ли отправлять уведомление заказчику
-        from app.untils.notification_helper import should_send_notification
+        from app.untils.notification_helper import create_notification, should_send_notification
         
-        if await should_send_notification(customer.tg_id, 'customer'):
+        # Проверяем настройки уведомлений
+        send_push = await should_send_notification(customer.tg_id, 'customer')
+        
+        # Создаем уведомление и проверяем, нужно ли делать Push
+        should_push = await create_notification(
+            tg_id=customer.tg_id,
+            notification_type='new_response',
+            title=notification_title,
+            body=notification_text,
+            payload={'abs_id': abs_id, 'worker_id': worker.id},
+            bot=callback.bot if send_push else None
+        )
+        
+        if should_push:
             # Отправляем уведомление заказчику с кнопками для взаимодействия
             kbc = KeyboardCollection()
             await send_with_worker_photo(
@@ -986,37 +1002,44 @@ async def process_response_text(message: Message, state: FSMContext):
 
         # Формируем уведомление с профилем исполнителя
         notification_text = f"📨 <b>Новый отклик на ваше объявление!</b>\n\n"
-        notification_text += f"📋 Объявление: #{abs_id}\n\n"
 
-        # ID и имя - показываем имя если есть, иначе ID
-        if worker.profile_name:
-            notification_text += f"👤 <b>ID:</b> {worker.profile_name}\n"
-        else:
-            notification_text += f"👤 <b>ID:</b> {worker.id}\n"
-
-        # Рейтинг - всегда показываем, даже если нет оценок
+        worker_name = worker.profile_name if worker.profile_name else f"Исполнитель #{worker.id}"
         rating_display, count_ratings = get_worker_rating_display(worker.stars, worker.count_ratings)
-        notification_text += f"⭐ <b>Рейтинг:</b> {rating_display} ({count_ratings} {get_rating_word(count_ratings)})\n"
+        rating_word = get_rating_word(count_ratings)
+        notification_title = f"{worker_name} {rating_display}★ ({count_ratings} {rating_word})"
 
-        # Статус верификации и регистрации (всегда показываем)
+        # Формируем тело уведомления (без лишнего приветствия)
+        notification_text += f"📋 <b>Объявление: #{abs_id}</b>\n"
+        
+        # Статус верификации и регистрации
         status_string = await get_worker_status_string(worker.id)
-        notification_text += f"📋 <b>Статус:</b> {status_string}\n"
-
-        # Выполнено заказов
-        notification_text += f"📦 <b>Выполнено заказов:</b> {worker.order_count}\n"
-
-        # Дата регистрации
-        notification_text += f"📅 <b>Зарегистрирован:</b> {worker.registration_data}\n\n"
-
+        notification_text += f"✅ <b>Статус:</b> {status_string}\n"
+        
+        # Выполнено заказов и дата
+        notification_text += f"📦 <b>Заказов:</b> {worker.order_count}  📅 <b>В базе с:</b> {worker.registration_data}\n\n"
+        
         notification_text += f"💬 <b>Сообщение:</b>\n{message.text}"
 
         # Проверяем наличие портфолио у исполнителя
         has_portfolio = worker.portfolio_photo is not None and len(worker.portfolio_photo) > 0
 
         # Проверяем, нужно ли отправлять уведомление заказчику
-        from app.untils.notification_helper import should_send_notification
+        from app.untils.notification_helper import create_notification, should_send_notification
         
-        if await should_send_notification(customer.tg_id, 'customer'):
+        # Проверяем настройки уведомлений
+        send_push = await should_send_notification(customer.tg_id, 'customer')
+        
+        # Создаем уведомление и проверяем, нужно ли делать Push
+        should_push = await create_notification(
+            tg_id=customer.tg_id,
+            notification_type='new_response',
+            title=notification_title,
+            body=notification_text,
+            payload={'abs_id': abs_id, 'worker_id': worker.id},
+            bot=message.bot if send_push else None
+        )
+        
+        if should_push:
             # Отправляем уведомление заказчику с кнопками для взаимодействия
             kbc = KeyboardCollection()
             await send_with_worker_photo(

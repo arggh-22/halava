@@ -2843,7 +2843,19 @@ class WorkerAndReport:
         finally:
             await conn.close()
 
-    # Функция get_by_worker_and_abs удалена - использовалась только для откликов
+    @classmethod
+    async def get_by_worker_and_abs(cls, worker_id: int, abs_id: int) -> Optional['WorkerAndReport']:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT * FROM worker_and_report WHERE worker_id = ? AND abs_id = ?', [worker_id, abs_id])
+            record = await cursor.fetchone()
+            await cursor.close()
+            if record:
+                return cls(id=record[0], worker_id=record[1], abs_id=record[2])
+            else:
+                return None
+        finally:
+            await conn.close()
 
     @classmethod
     async def get_by_worker(cls, worker_id: int) -> list['WorkerAndReport'] | None:
@@ -2922,7 +2934,19 @@ class WorkerAndBadResponse:
         finally:
             await conn.close()
 
-    # Функция get_by_worker_and_abs удалена - использовалась только для откликов
+    @classmethod
+    async def get_by_worker_and_abs(cls, worker_id: int, abs_id: int) -> Optional['WorkerAndBadResponse']:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            cursor = await conn.execute('SELECT * FROM worker_and_bad_response WHERE worker_id = ? AND abs_id = ?', [worker_id, abs_id])
+            record = await cursor.fetchone()
+            await cursor.close()
+            if record:
+                return cls(id=record[0], worker_id=record[1], abs_id=record[2])
+            else:
+                return None
+        finally:
+            await conn.close()
 
     @classmethod
     async def get_by_worker(cls, worker_id: int) -> list['WorkerAndBadResponse'] | None:
@@ -4999,36 +5023,48 @@ class WorkerContactPurchaseDeclines:
 class UserNotificationSettings:
     """Модель для управления настройками уведомлений пользователей"""
     
-    def __init__(self, tg_id: int, unified_notifications: bool = False, id: int = None):
+    def __init__(self, tg_id: int, unified_notifications: bool = False, id: int = None, last_notification_message_id: int = None):
         self.id = id
         self.tg_id = tg_id
         self.unified_notifications = unified_notifications
+        self.last_notification_message_id = last_notification_message_id
     
     async def save(self) -> None:
         """Сохраняет настройки уведомлений в БД"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
             cursor = await conn.execute(
-                'INSERT INTO user_notification_settings (tg_id, unified_notifications) VALUES (?, ?)',
-                (self.tg_id, 1 if self.unified_notifications else 0)
+                'INSERT INTO user_notification_settings (tg_id, unified_notifications, last_notification_message_id) VALUES (?, ?, ?)',
+                (self.tg_id, 1 if self.unified_notifications else 0, self.last_notification_message_id)
             )
             await conn.commit()
             await cursor.close()
         finally:
             await conn.close()
     
-    async def update(self, unified_notifications: bool = None) -> None:
+    async def update(self, unified_notifications: bool = None, last_notification_message_id: int = None) -> None:
         """Обновляет настройки уведомлений"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
+            updates = []
+            params = []
+            
             if unified_notifications is not None:
-                cursor = await conn.execute(
-                    'UPDATE user_notification_settings SET unified_notifications = ? WHERE tg_id = ?',
-                    (1 if unified_notifications else 0, self.tg_id)
-                )
+                updates.append('unified_notifications = ?')
+                params.append(1 if unified_notifications else 0)
                 self.unified_notifications = unified_notifications
-            await conn.commit()
-            await cursor.close()
+                
+            if last_notification_message_id is not None:
+                updates.append('last_notification_message_id = ?')
+                params.append(last_notification_message_id)
+                self.last_notification_message_id = last_notification_message_id
+                
+            if updates:
+                params.append(self.tg_id)
+                sql = f'UPDATE user_notification_settings SET {", ".join(updates)} WHERE tg_id = ?'
+                cursor = await conn.execute(sql, params)
+                await conn.commit()
+                await cursor.close()
         finally:
             await conn.close()
     
@@ -5045,10 +5081,13 @@ class UserNotificationSettings:
             await cursor.close()
             
             if record:
+                # Handle potential missing column if migration didn't run or old data
+                last_msg_id = record[3] if len(record) > 3 else None
                 return cls(
                     id=record[0],
                     tg_id=record[1],
-                    unified_notifications=bool(record[2])
+                    unified_notifications=bool(record[2]),
+                    last_notification_message_id=last_msg_id
                 )
             return None
         finally:
@@ -5065,17 +5104,59 @@ class UserNotificationSettings:
     
     @classmethod
     async def create_table_if_not_exists(cls) -> None:
-        """Создает таблицу для настроек уведомлений"""
+        """Создает таблицу для настроек уведомлений и применяет миграции"""
         conn = await aiosqlite.connect(database='app/data/database/database.db')
         try:
+            # 1. Создание таблицы
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS user_notification_settings
                 (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     tg_id INTEGER UNIQUE NOT NULL,
-                    unified_notifications BOOLEAN DEFAULT 0
+                    unified_notifications BOOLEAN DEFAULT 0,
+                    last_notification_message_id INTEGER DEFAULT NULL
                 )
             ''')
+            
+            # 2. Миграция: Проверка наличия колонки last_notification_message_id
+            cursor = await conn.execute("PRAGMA table_info(user_notification_settings)")
+            columns = [info[1] for info in await cursor.fetchall()]
+            await cursor.close()
+            
+            if 'last_notification_message_id' not in columns:
+                try:
+                    await conn.execute("ALTER TABLE user_notification_settings ADD COLUMN last_notification_message_id INTEGER DEFAULT NULL")
+                    await conn.commit()
+                    print("Migrated: Added last_notification_message_id to user_notification_settings")
+                except Exception as e:
+                    print(f"Migration error (last_notification_message_id): {e}")
+
             await conn.commit()
+        finally:
+            await conn.close()
+
+
+class Notification:
+    def __init__(self, id: int | None, user_id: int, type: str, title: str, body: str, payload: dict | None, is_read: bool = False, created_at: str = None):
+        self.id = id
+        self.user_id = user_id
+        self.type = type
+        self.title = title
+        self.body = body
+        self.payload = payload
+        self.is_read = is_read
+        self.created_at = created_at
+
+    async def save(self) -> None:
+        conn = await aiosqlite.connect(database='app/data/database/database.db')
+        try:
+            import json
+            payload_json = json.dumps(self.payload) if self.payload else None
+            cursor = await conn.execute(
+                'INSERT INTO notifications (user_id, type, title, body, payload, is_read) VALUES (?, ?, ?, ?, ?, ?)',
+                [self.user_id, self.type, self.title, self.body, payload_json, 1 if self.is_read else 0])
+            await conn.commit()
+            self.id = cursor.lastrowid
+            await cursor.close()
         finally:
             await conn.close()

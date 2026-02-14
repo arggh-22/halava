@@ -4,8 +4,11 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
+    WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+
+from config import WEB_APP_URL
 
 from app.data.database.models import ContactTariff
 
@@ -350,6 +353,7 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Портфолио", callback_data="my_portfolio"))
         
         # Уведомления
+        builder.add(InlineKeyboardButton(text="📱 Центр уведомлений", web_app=WebAppInfo(url=WEB_APP_URL)))
         builder.add(self._inline(button_text="🔔 Уведомления", callback_data="notification_settings"))
 
         builder.adjust(1)
@@ -367,6 +371,7 @@ class KeyboardCollection:
         builder.add(self._inline(button_text="Мои объявления", callback_data="my_abs"))
         builder.add(self._inline(button_text="Мои контакты", callback_data="customer_contacts"))
         builder.add(self._inline(button_text="Сменить город", callback_data="customer_change_city"))
+        builder.add(InlineKeyboardButton(text="📱 Центр уведомлений", web_app=WebAppInfo(url=WEB_APP_URL)))
         builder.add(self._inline(button_text="🔔 Уведомления", callback_data="notification_settings"))
         builder.adjust(1)
         return builder.as_markup()

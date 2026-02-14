@@ -3034,9 +3034,9 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
     # Проверяем, нужно ли отправлять уведомление исполнителю
     from app.untils.notification_helper import should_send_notification
     
-    if not await should_send_notification(worker.tg_id, 'worker'):
-        logger.info(f'[DEBUG] Notification disabled for worker {worker.tg_id}, skipping advertisement {advertisement_id}')
-        return
+    should_push = await should_send_notification(worker.tg_id, 'worker')
+    if not should_push:
+        logger.info(f'[DEBUG] Notification push disabled for worker {worker.tg_id}, but saving to history.')
 
     try:
         kbc = KeyboardCollection()
@@ -3046,27 +3046,23 @@ async def send_single_message_to_worker(worker: Worker, advertisement_id: int, t
         logger.info(
             f'[DEBUG] Photo check: photo_path={photo_path}, photos_len={photos_len}, has_key_0={"0" in photo_path if photo_path else False}')
 
-        if photo_path and photos_len > 0 and '0' in photo_path:
-            logger.info(f'[DEBUG] Sending photo to worker {worker.tg_id}')
-            # Передаем count_photo и photo_num для возможности листания фото
-            await bot.send_photo(
-                chat_id=worker.tg_id,
-                photo=FSInputFile(photo_path['0']),
-                caption=text,
-                reply_markup=kbc.advertisement_response_buttons(
-                    abs_id=advertisement_id,
-                    count_photo=photos_len,
-                    photo_num=0,
-                    abs_list_id=-1  # -1 означает, что это из рассылки (нет списка объявлений)
-                )
-            )
-        else:
-            logger.info(f'[DEBUG] Sending text message to worker {worker.tg_id}')
-            await bot.send_message(
-                chat_id=worker.tg_id,
-                text=text,
-                reply_markup=kbc.advertisement_response_buttons(abs_id=advertisement_id)
-            )
+        # Вместо прямой отправки сообщения/фото, используем Smart Logic уведомлений
+        from app.untils.notification_helper import create_notification
+        
+        logger.info(f'[DEBUG] Smart Notification: logging and notifying worker {worker.tg_id} about ad {advertisement_id}')
+        
+        title = f"Новое объявление #{advertisement_id}"
+        # Сохраняем полный текст для Web App
+        body_clean = text.split('\n\n', 1)[1] if '\n\n' in text else text
+        
+        await create_notification(
+            tg_id=worker.tg_id,
+            notification_type='order',
+            title=title,
+            body=body_clean,
+            payload={'abs_id': advertisement_id},
+            bot=bot if should_push else None # Передаем bot только если включены уведомления
+        )
 
         # Отмечаем сообщение как отправленное
         _sent_messages.add(message_key)
