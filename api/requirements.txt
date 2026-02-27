@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+tortoise-orm
+aiosqlite
+pydantic
+python-multipart
+python-telegram-bot

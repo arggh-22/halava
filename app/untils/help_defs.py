@@ -1099,7 +1099,7 @@ async def send_notification_to_customer(customer, worker, abs_id: int, ad_text: 
     # Используем тип 'info' или 'contact_shared', который НЕ критичный, чтобы использовать умную логику
     should_push = await create_notification(
         tg_id=customer.tg_id,
-        notification_type='info',
+        notification_type='worker',
         title=f"Контакты переданы исполнителю (Заказ #{abs_id})",
         body=notification_text,
         payload={'abs_id': abs_id, 'worker_id': worker.id},

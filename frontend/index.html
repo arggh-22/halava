@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Halava Notification Center</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+    rel="stylesheet" />
+</head>
+
+<body>
+  <div id="root"></div>
+  <div id="global-error"
+    style="color: red; padding: 20px; font-family: monospace; z-index: 9999; position: fixed; top: 0; left: 0; background: white; display: none;">
+  </div>
+  <script>
+    window.onerror = function (msg, url, line, col, error) {
+      var div = document.getElementById('global-error');
+      div.style.display = 'block';
+      div.innerHTML += '<h3>Global Error:</h3>' + msg + '<br>' + url + ':' + line + ':' + col + '<br>' + (error ? error.stack : '') + '<hr>';
+      return false;
+    };
+
+    // Catch unhandled promise rejections (like async init failures)
+    window.onunhandledrejection = function (event) {
+      var div = document.getElementById('global-error');
+      div.style.display = 'block';
+      div.innerHTML += '<h3>Unhandled Rejection:</h3>' + event.reason + '<hr>';
+    };
+  </script>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>
